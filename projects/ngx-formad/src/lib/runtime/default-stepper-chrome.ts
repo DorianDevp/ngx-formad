@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, effect, ElementRef, input, viewChild } from '@angular/core';
 import { StepFormsView } from './step-forms-view';
 import { StepperController } from './stepper-controller';
 
@@ -15,7 +15,7 @@ import { StepperController } from './stepper-controller';
     @if (c.loading()) {
       <div class="ngx-formad-loading"></div>
     } @else if (c.step(); as step) {
-      <section class="ngx-formad-step">
+      <section #region tabindex="-1" class="ngx-formad-step">
         @switch (c.deferTrigger()) {
           @case ('viewport') {
             @defer (on viewport) {
@@ -57,4 +57,15 @@ import { StepperController } from './stepper-controller';
 })
 export class DefaultStepperChrome {
   readonly controller = input.required<StepperController>();
+  private readonly region = viewChild<ElementRef<HTMLElement>>('region');
+
+  constructor() {
+    // Move focus to the new step's region when it changes, so keyboard and screen
+    // reader users land on the step rather than being stranded on the old nav.
+    // The microtask defers to after the DOM swaps the section in.
+    effect(() => {
+      this.controller().step();
+      queueMicrotask(() => this.region()?.nativeElement.focus({ preventScroll: true }));
+    });
+  }
 }

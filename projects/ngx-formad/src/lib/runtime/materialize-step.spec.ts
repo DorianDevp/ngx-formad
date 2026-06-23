@@ -84,6 +84,44 @@ describe('materializeStep', () => {
     expect(step1.registry.completed()).toBe(true);
   });
 
+  it('seeds and commits a nested-group field through its path', () => {
+    type Addr = { address: { city: string } };
+    const addrForm: FormConfig<Addr> = {
+      model: () => ({ address: { city: '' } }),
+      ui: UiFormConfigBuilder.from({ address: { city: '' } }).address(
+        { label: 'Address', maxCols: 1 },
+        (b) => b.city(text('City')),
+      ),
+    };
+    const stepper = new StepperBuilder()
+      .withState({ city: '' })
+      .createForm('addr', addrForm)
+      .createStep((step) =>
+        step.createPage({ options: {} }, (page) =>
+          page.addForm((f) => f.addr, {
+            bind: (l) => l.link((m) => m.address.city, (s) => s.city),
+          }),
+        ),
+      )
+      .build();
+
+    const injector = TestBed.inject(EnvironmentInjector);
+    const pool = stepper.forms as unknown as Record<string, FormConfig<Record<string, unknown>>>;
+    const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
+
+    shared.patch({ city: 'Oslo' });
+    const live = materializeStep(stepper.steps[0], pool, shared, injector); // seeds on entry
+    const root = live.forms[0].state.rootForm as unknown as {
+      address: Record<string, FieldTree<unknown>>;
+    };
+    expect(root.address['city']().value()).toBe('Oslo'); // shared → nested field
+
+    root.address['city']().value.set('Bergen');
+    root.address['city']().markAsDirty();
+    live.forms[0].commit();
+    expect(shared.get('city')).toBe('Bergen'); // nested field → shared
+  });
+
   it('lists a step’s form names depth-first', () => {
     const stepper = buildStepper();
     expect(stepFormNames(stepper.steps[0])).toEqual(['account']);

@@ -259,11 +259,14 @@ export function buildWarrantyFlow(): RuntimeStepper {
 // inference, so `l` arrives correctly typed as the contact form's links.
 const contactLinks = (l: SharedLink<ContactModel, typeof sharedShape>) =>
   l
-    // `taxId` is the visible one — pre-filled from the order step. The company
-    // address lives in a nested group now; `bind` addresses top-level keys, so the
-    // address fields are simply local to this form (a known follow-up: nested bind).
+    // `taxId` is the visible one — pre-filled from the order step. The address is
+    // a nested group, and `bind` now reaches nested fields by path
+    // (`m.address.city`), so the whole contact step round-trips through shared state.
     .link((m) => m.taxId, (s) => s.taxId)
     .link((m) => m.companyName, (s) => s.companyName)
+    .link((m) => m.address.street, (s) => s.street)
+    .link((m) => m.address.zip, (s) => s.zip)
+    .link((m) => m.address.city, (s) => s.city)
     .link((m) => m.firstName, (s) => s.firstName)
     .link((m) => m.lastName, (s) => s.lastName)
     .link((m) => m.email, (s) => s.email);
