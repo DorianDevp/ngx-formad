@@ -47,6 +47,8 @@ export interface StepperController {
   readonly isLast: Signal<boolean>;
   readonly optional: Signal<boolean>;
   readonly deferTrigger: Signal<DeferTrigger | null>;
+  /** The active fork arm's result, or null (no fork / no arm chosen yet). */
+  readonly result: Signal<unknown>;
   next(): void;
   back(): void;
   skip(): void;
@@ -88,10 +90,17 @@ export class FormadStepperController implements StepperController {
   readonly deferTrigger = computed(() => this.currentNode()?.defer ?? null);
   readonly heading = computed(() => this.options()?.heading ?? '');
   readonly subheading = computed(() => this.options()?.subheading ?? '');
+  // The active fork arm's result, derived from the same context conditions read.
+  readonly result = computed<unknown>(() => {
+    const resolve = this.stepper.resolveResult;
+    return resolve ? (resolve(this.context()) ?? null) : null;
+  });
 
   constructor(
     private readonly stepper: RuntimeStepper,
     private readonly injector: Injector,
+    // Invoked when the user finishes the last step, with the (forked) result.
+    private readonly onComplete?: (result: unknown) => void,
   ) {
     // Enter the first step after the first render — never during construction.
     afterNextRender(
@@ -131,22 +140,31 @@ export class FormadStepperController implements StepperController {
   }
 
   next(): void {
-    if (this.canNext()) this.move(1);
+    if (this.canNext()) this.advance();
   }
 
   skip(): void {
-    if (this.optional()) this.move(1);
+    if (this.optional()) this.advance();
   }
 
   back(): void {
-    this.move(-1);
-  }
-
-  private move(direction: 1 | -1): void {
     this.commitCurrent();
     const eff = this.effective();
-    const target = this.position() + direction;
-    if (target >= 0 && target < eff.length) this.enter(eff[target]);
+    const node = this.currentNode();
+    const i = node ? eff.indexOf(node) : -1;
+    if (i > 0) this.enter(eff[i - 1]);
+  }
+
+  // Commit FIRST, so a fork/branch decision made on this step lands in shared
+  // before we pick the destination — then either enter the next step or, if this
+  // is now the last in the (re-evaluated) sequence, complete and hand back the result.
+  private advance(): void {
+    this.commitCurrent();
+    const eff = this.effective();
+    const node = this.currentNode();
+    const i = node ? eff.indexOf(node) : -1;
+    if (i >= 0 && i < eff.length - 1) this.enter(eff[i + 1]);
+    else this.onComplete?.(this.result());
   }
 
   // field -> shared for the step being left, and snapshot each form's model so a

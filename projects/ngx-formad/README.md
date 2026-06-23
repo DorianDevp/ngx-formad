@@ -421,11 +421,65 @@ new StepperBuilder()
   .build();
 ```
 
-The selector is typed against the wizard (`ctx.shared.plan` autocompletes), and its
-return type makes `branches` **exhaustive** — every key the selector can return must
-have a branch. Branches **nest** (`b.branch(...)`), and a step's own `when` is ANDed
-with the branch guard. Because branching reduces to conditions, the `value(...)`
-source works too: branch on a previous step's submitted answer, not just on shared.
+The selector is typed against the wizard (`ctx.shared.plan` autocompletes). Branches
+**nest** (`b.branch(...)`), and a step's own `when` is ANDed with the branch guard.
+Because branching reduces to conditions, the `value(...)` source works too: branch on
+a previous step's submitted answer, not just on shared.
+
+### Forking
+
+Branch and fork are different intents:
+
+| | **branch** | **fork** |
+| --- | --- | --- |
+| Idea | Same destination, different road | Different destinations |
+| Rejoin | Yes — common steps follow | No — each arm is terminal |
+| Result | Unchanged | A **discriminated union**, one variant per arm |
+| State | One shape | Parent **+ each arm's own local slice** |
+| Returns | `this` (keep chaining) | A terminal — only `build()` |
+
+Use **fork** when the input picks *what the wizard becomes* and each path produces a
+**different result**. Each arm declares its own state, forms, steps, and a typed
+`result`; `fork` unions the arms' results into the wizard's result type and returns a
+terminal, so nothing can follow it.
+
+```ts
+const wizard = new StepperBuilder()
+  .withState({ kind: '' as '' | 'individual' | 'business' })
+  .createForm('start', kindForm)
+  .createStep((s) => s.createPage(/* choose kind */))
+  .fork((ctx) => ctx.shared.kind, {
+    individual: (arm) =>
+      arm
+        .withState({ ssn: '' })                     // arm-local state
+        .createForm('person', personForm)
+        .createStep((s) => s.createPage(/* personal */))
+        .result(({ shared }) => ({ kind: 'individual' as const, ssn: shared.ssn })),
+    business: (arm) =>
+      arm
+        .withState({ vat: '' })
+        .createForm('company', companyForm)
+        .createStep((s) => s.createPage(/* company */))
+        .createStep((s) => s.createPage(/* seats */))
+        .result(({ shared }) => ({ kind: 'business' as const, vat: shared.vat })),
+  })
+  .build();
+// build() → Stepper<…, { kind:'individual'; ssn:string } | { kind:'business'; vat:string }>
+```
+
+Each arm's `result(...)` type is inferred independently and unioned into the
+stepper's `TResult`. The shell surfaces it on finish:
+
+```ts
+<ngx-formad-stepper [stepper]="stepper" (completed)="onResult($event)" />
+// onResult(r) → narrow by r.kind. (Erased to `unknown` at the output; a custom
+// chrome reads the typed controller.result() directly.)
+```
+
+A selector value with no matching arm (e.g. the initial `''`) simply means "no arm
+chosen yet" — no arm steps, `result()` is `null`. Because the decision is committed
+before navigation advances, choosing an arm on a step and pressing Continue moves
+straight into it.
 
 ## Theming with adapters
 
@@ -657,19 +711,21 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `StepperBuilder` | The fluent chain. Each method narrows the type (see below). |
+| `StepperBuilder` | The fluent chain. Each method narrows the type (see below); `fork(...)` terminates it. |
 | `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `step()` and nested `branch()`. |
-| `Stepper<TForms, TShared>` | The built wizard: `{ forms, steps, shared }`. |
+| `ForkArmBuilder` / `ForkArm` | Authors one fork arm (`withState`/`createForm`/`createStep`/`branch`) ending in `result(...)`. |
+| `Stepper<TForms, TShared, TResult>` | The built wizard: `{ forms, steps, shared, resolveResult? }`. |
+| `StepperResult<S>` | Extracts a stepper's discriminated result type (the union of its fork arms). |
 | `asStepper(stepper)` | The single, named widening from a typed `Stepper` to `RuntimeStepper`. |
 | `RuntimeStepper` | `Stepper` with pool/shared types erased — what the runtime and shell consume. |
 | `SharedLink<M, S>` | The `bind` recorder: `.link(m => m.field, s => s.key)` ties a model field to a shared key. |
-| `StepperComponent` | The `<ngx-formad-stepper [stepper] />` shell — builds the controller, renders the chrome. |
+| `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) />` shell — builds the controller, renders the chrome, emits the fork result on finish. |
 
 ### Run it yourself (bring-your-own-UI)
 
 | Symbol | What it is |
 | --- | --- |
-| `StepperController` | The headless engine: state signals (`step`, `index`, `canNext`, …) + `next`/`back`/`skip`. |
+| `StepperController` | The headless engine: state signals (`step`, `index`, `canNext`, `result`, …) + `next`/`back`/`skip`. |
 | `StepFormsView` | `<ngx-formad-step-forms [step] />` — renders one step's forms; drop into your own `@defer`. |
 | `materializeStep(step, pool, shared, inj)` | Instantiates a step's forms, registers them, wires the sync. Returns a `LiveStep`. |
 | `resolveStepForms(step, pool)` | Awaits a step's lazy form loaders into a plain config map (eager ones pass through). |
@@ -730,6 +786,11 @@ createStep((step) => …, {                     // step: StepBuilder<TForms, TSh
 branch((ctx) => key, {                        // ctx: StepContextFor<…>; key narrows `branches`
   [key]: (b) => b.step((step) => …, opts?)    // b: BranchBuilder — guarded steps; nests via b.branch()
 })
+fork((ctx) => key, {                          // TERMINAL — only build() after; arms don't rejoin
+  [key]: (arm) => arm                         // arm: ForkArmBuilder — its own state/forms/steps
+    .createStep((step) => …)
+    .result((ctx) => ({ kind: key, … })),     // each arm's result → union into TResult
+})
 step.createPage({ options: PageOptions }, (page) => …)    // page: PageBuilder<…>
 page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declared forms only
   submitLabel?: string,
@@ -786,6 +847,11 @@ renders it inside `@defer`. For multi-step paths, `branch(select, { … })` grou
 guarded steps by key — pure sugar over `when`, so **branches rejoin automatically**.
 See [Conditional, optional & lazy steps](#conditional-optional--lazy-steps) and
 [Branching](#branching).
+
+**What's the difference between branch and fork?** A **branch** varies the middle of
+one flow and rejoins to a single outcome. A **fork** commits to one of several
+sub-flows that *don't* rejoin, each producing its own **typed, discriminated result**.
+Use fork when the input decides *what the wizard becomes*. See [Forking](#forking).
 
 **Can a form load lazily?** Yes. `createForm(name, () => import(...).then(m => m.form))`
 fetches the form's config only when its step is reached; eager steps stay synchronous.

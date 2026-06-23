@@ -1,5 +1,15 @@
 import { NgComponentOutlet } from '@angular/common';
-import { Component, computed, EnvironmentInjector, inject, input, OnInit, signal, Type } from '@angular/core';
+import {
+  Component,
+  computed,
+  EnvironmentInjector,
+  inject,
+  input,
+  OnInit,
+  output,
+  signal,
+  Type,
+} from '@angular/core';
 import { RuntimeStepper } from '../builders/stepper-builder';
 import { STEPPER_ADAPTER } from '../provide';
 import { DefaultStepperChrome } from './default-stepper-chrome';
@@ -23,6 +33,10 @@ import { FormadStepperController, StepperController } from './stepper-controller
 export class StepperComponent implements OnInit {
   /** The built wizard, widened with `asStepper(...)`. */
   readonly stepper = input.required<RuntimeStepper>();
+  /** Emitted when the user finishes the last step, carrying a forked result (if
+   *  any). Erased to `unknown` here — cast to the wizard's result union, or read
+   *  the typed `controller.result()` from a custom chrome. */
+  readonly completed = output<unknown>();
 
   private readonly injector = inject(EnvironmentInjector);
   // The chrome component to render: the configured adapter, or the bundled default.
@@ -36,6 +50,10 @@ export class StepperComponent implements OnInit {
   ngOnInit(): void {
     // The input is available by ngOnInit; the controller defers its first build to
     // afterNextRender, so constructing it here does no heavy work.
-    this.controller.set(new FormadStepperController(this.stepper(), this.injector));
+    this.controller.set(
+      new FormadStepperController(this.stepper(), this.injector, (result) =>
+        this.completed.emit(result),
+      ),
+    );
   }
 }

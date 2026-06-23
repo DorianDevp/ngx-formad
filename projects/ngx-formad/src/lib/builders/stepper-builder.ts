@@ -9,6 +9,7 @@ import {
   DeferTrigger,
   FormModel,
   FormProvider,
+  RuntimeResultResolver,
   RuntimeStepCondition,
   RuntimeStepContext,
   StepCondition,
@@ -157,38 +158,163 @@ function combineConditions(
   return guard ?? own;
 }
 
-/** A built wizard: its typed form pool, its step tree, and its shared store. */
-export class Stepper<TForms, TShared extends Record<string, unknown>> {
+// Builds one step node into `target`, combining an optional guard with the step's
+// own `when`. The single place a step is created — used by createStep, branch, and
+// fork arms, so the condition/erasure logic lives once.
+function appendStep<TForms, TShared extends Record<string, unknown>>(
+  target: StepNode[],
+  build: (step: StepBuilder<TForms, TShared>) => unknown,
+  opts: StepOptions<Stepper<TForms, TShared>>,
+  guard?: RuntimeStepCondition,
+): void {
+  const step = new StepBuilder<TForms, TShared>();
+  build(step);
+  target.push({
+    ...step.drain(),
+    when: combineConditions(guard, opts.when as unknown as RuntimeStepCondition | undefined),
+    optional: opts.optional,
+    defer: opts.defer,
+  });
+}
+
+// ── Forking ──
+// A fork diverges into arms that do NOT rejoin, each producing its own typed
+// result. Branch = "vary the middle, one outcome"; fork = "commit to one sub-flow,
+// its own outcome". An arm authors its own state/forms/steps, then declares a
+// `result`; `fork` unions the arms' results into the stepper's `TResult` and
+// returns a terminal (only `build()`), so nothing can follow a fork.
+
+/** One fork arm's accumulated definition, handed back to `fork`. */
+interface ForkArmDef {
+  readonly forms: Record<string, AnyFormProvider>;
+  readonly sharedInit: Record<string, unknown>;
+  readonly steps: readonly StepNode[];
+  readonly resolve: RuntimeResultResolver;
+}
+
+/** The terminal of one fork arm. Carries the arm's result type `R` (for `fork` to
+ *  infer the union) plus, internally, its definition. Produced by `arm.result(...)`. */
+export interface ForkArm<R> {
+  /** Phantom — present only so `fork` can infer each arm's result type. */
+  readonly __result?: R;
+  /** @internal the arm's accumulated definition. */
+  readonly _def: ForkArmDef;
+}
+
+/** Authors one fork arm: its own state, forms, steps (and nested branches), ending
+ *  in a required `result(...)`. Everything here is local to the arm. */
+export class ForkArmBuilder<TForms, TShared extends Record<string, unknown>> {
+  private readonly forms: Record<string, AnyFormProvider> = {};
+  private readonly sharedInit: Record<string, unknown> = {};
+  private readonly steps: StepNode[] = [];
+
+  /** Arm-local shared state, merged into the wizard's store. */
+  withState<S extends Record<string, unknown>>(initial: S): ForkArmBuilder<TForms, TShared & S> {
+    Object.assign(this.sharedInit, initial);
+    return this as unknown as ForkArmBuilder<TForms, TShared & S>;
+  }
+
+  /** Arm-local form, eager or lazy; narrows the arm's pool. */
+  createForm<K extends string, M extends Record<string, unknown>>(
+    name: K,
+    provider: FormProvider<M>,
+  ): ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TShared> {
+    this.forms[name] = provider as unknown as AnyFormProvider;
+    return this as unknown as ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TShared>;
+  }
+
+  /** A step in this arm — same shape as `createStep`. */
+  createStep(
+    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    opts: StepOptions<Stepper<TForms, TShared>> = {},
+  ): this {
+    appendStep(this.steps, build, opts);
+    return this;
+  }
+
+  /** A branch within this arm — sugar over guarded steps, as elsewhere. */
+  branch<K extends string>(
+    select: (ctx: StepContext<TForms, TShared>) => K,
+    branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
+  ): this {
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    for (const key of Object.keys(branches) as K[]) {
+      const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
+      branches[key](
+        new BranchBuilder<TForms, TShared>((b, o, g) => appendStep(this.steps, b, o, g), guard),
+      );
+    }
+    return this;
+  }
+
+  /** Declares this arm's typed result and terminates the arm. */
+  result<R>(resolve: (ctx: StepContext<TForms, TShared>) => R): ForkArm<R> {
+    return {
+      _def: {
+        forms: this.forms,
+        sharedInit: this.sharedInit,
+        steps: this.steps,
+        resolve: resolve as unknown as RuntimeResultResolver,
+      },
+    } as ForkArm<R>;
+  }
+}
+
+/** A forked chain — terminal. Nothing can follow a fork; only `build()` remains. */
+export interface TerminalForkBuilder<TForms, TShared extends Record<string, unknown>, TResult> {
+  build(): Stepper<TForms, TShared, TResult>;
+}
+
+/** The shape of a `fork`'s arms map: each key authors an arm ending in a result. */
+type ForkArms<TForms, TShared extends Record<string, unknown>> = Record<
+  string,
+  (arm: ForkArmBuilder<TForms, TShared>) => ForkArm<unknown>
+>;
+
+/** The union of every arm's result type — the stepper's discriminated `TResult`.
+ *  Inferring per arm (not a single shared `R`) is what lets the arms differ. */
+type ArmResult<A> = {
+  [P in keyof A]: A[P] extends (arm: ForkArmBuilder<any, any>) => ForkArm<infer R> ? R : never;
+}[keyof A];
+
+/** A built wizard: its typed form pool, its step tree, its shared store, and —
+ *  if it forks — a resolver for the active arm's discriminated result. `TResult` is
+ *  `never` unless the chain forks. */
+export class Stepper<TForms, TShared extends Record<string, unknown>, TResult = never> {
   constructor(
     readonly forms: TForms,
     readonly steps: readonly StepNode[],
     readonly shared: SharedState<TShared>,
+    /** Set by `fork`: maps the runtime context to the active arm's result. */
+    readonly resolveResult?: RuntimeResultResolver,
   ) {}
 }
 
-/** A stepper with its precise pool/shared types erased, as the runtime sees it. */
-export type RuntimeStepper = Stepper<Record<string, AnyForm>, Record<string, unknown>>;
+/** A stepper with its precise pool/shared/result types erased, as the runtime sees it. */
+export type RuntimeStepper = Stepper<Record<string, AnyForm>, Record<string, unknown>, unknown>;
 
 // The built `Stepper` is the source of truth for step conditions: these pull its
 // form pool and shared shape back out, so a `when` predicate — at authoring time
 // or in a typed host — reads `shared` and `value(...)` against the exact wizard.
 /** The form pool of a built stepper. */
-export type StepperForms<S> = S extends Stepper<infer F, infer _> ? F : never;
+export type StepperForms<S> = S extends Stepper<infer F, any, any> ? F : never;
 /** The shared-state shape of a built stepper. */
-export type StepperShared<S> = S extends Stepper<infer _, infer Sh> ? Sh : never;
+export type StepperShared<S> = S extends Stepper<any, infer Sh, any> ? Sh : never;
+/** The discriminated result type of a (forked) built stepper. */
+export type StepperResult<S> = S extends Stepper<any, any, infer R> ? R : never;
 /** The typed step context derived from a built stepper. */
-export type StepContextFor<S extends Stepper<any, any>> = StepContext<
+export type StepContextFor<S extends Stepper<any, any, any>> = StepContext<
   StepperForms<S>,
   StepperShared<S>
 >;
 /** A step condition typed against a built stepper. */
-export type StepConditionFor<S extends Stepper<any, any>> = StepCondition<
+export type StepConditionFor<S extends Stepper<any, any, any>> = StepCondition<
   StepperForms<S>,
   StepperShared<S>
 >;
 
 /** Per-step options, typed against the stepper the step belongs to. */
-export interface StepOptions<S extends Stepper<any, any>> {
+export interface StepOptions<S extends Stepper<any, any, any>> {
   /** Drops the step from the sequence when it returns false; reactive. */
   readonly when?: StepConditionFor<S>;
   /** Marks the step skippable — the shell shows a Skip that bypasses the gate. */
@@ -201,8 +327,8 @@ export interface StepOptions<S extends Stepper<any, any>> {
 // and the shared store by string key, so it works on an erased view. `SharedState`
 // is invariant in its state type, so this widening needs one explicit step —
 // the single, named place that erasure happens, like `asRenderable` for a form.
-export function asStepper<TForms, TShared extends Record<string, unknown>>(
-  stepper: Stepper<TForms, TShared>,
+export function asStepper<TForms, TShared extends Record<string, unknown>, TResult = never>(
+  stepper: Stepper<TForms, TShared, TResult>,
 ): RuntimeStepper {
   return stepper as unknown as RuntimeStepper;
 }
@@ -213,6 +339,7 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
   private readonly forms: Record<string, AnyFormProvider> = {};
   private sharedInit: Record<string, unknown> = {};
   private readonly steps: StepNode[] = [];
+  private resultResolver?: RuntimeResultResolver;
 
   /** Declares the cross-step shared state; narrows `TShared`. */
   withState<S extends Record<string, unknown>>(initial: S): StepperBuilder<TForms, S> {
@@ -266,21 +393,44 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
     return this;
   }
 
+  /**
+   * Forks the flow: a selector commits the wizard to one arm, and each arm is its
+   * own sub-flow with its own state, forms, steps, and a typed `result`. Unlike
+   * `branch`, arms do **not** rejoin — `fork` returns a terminal builder (only
+   * `build()`), and the stepper's result type becomes the union of the arms'
+   * results. Arm steps compile to guarded steps (so navigation reuses the engine),
+   * and the arms' results compile to a single resolver picking the active one.
+   */
+  fork<A extends ForkArms<TForms, TShared>>(
+    // The selector returns a branch key; a value with no matching arm means "no arm
+    // chosen yet" (e.g. before the user decides) — no arm steps, no result.
+    select: (ctx: StepContext<TForms, TShared>) => string,
+    arms: A,
+  ): TerminalForkBuilder<TForms, TShared, ArmResult<A>> {
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    const resolvers: Record<string, RuntimeResultResolver> = {};
+    for (const key of Object.keys(arms) as (keyof A & string)[]) {
+      const def = arms[key](new ForkArmBuilder<TForms, TShared>())._def;
+      Object.assign(this.forms, def.forms);
+      Object.assign(this.sharedInit, def.sharedInit);
+      const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
+      for (const node of def.steps) {
+        this.steps.push({ ...node, when: combineConditions(guard, node.when) });
+      }
+      resolvers[key] = def.resolve;
+    }
+    this.resultResolver = (ctx) => resolvers[erased(ctx)]?.(ctx);
+    return this as unknown as TerminalForkBuilder<TForms, TShared, ArmResult<A>>;
+  }
+
   // Builds one step node, combining an optional branch guard with the step's own
-  // `when` — the single place a step is pushed, shared by createStep and branch.
+  // `when` — delegates to the shared `appendStep`, used by createStep and branch.
   private pushStep(
     build: (step: StepBuilder<TForms, TShared>) => unknown,
     opts: StepOptions<Stepper<TForms, TShared>>,
     guard?: RuntimeStepCondition,
   ): void {
-    const step = new StepBuilder<TForms, TShared>();
-    build(step);
-    this.steps.push({
-      ...step.drain(),
-      when: combineConditions(guard, opts.when as unknown as RuntimeStepCondition | undefined),
-      optional: opts.optional,
-      defer: opts.defer,
-    });
+    appendStep(this.steps, build, opts, guard);
   }
 
   build(): Stepper<TForms, TShared> {
@@ -288,6 +438,7 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
       this.forms as unknown as TForms,
       this.steps,
       new SharedState(this.sharedInit as TShared),
+      this.resultResolver,
     );
   }
 }
