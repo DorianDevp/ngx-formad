@@ -397,11 +397,34 @@ const accountForm: FormConfig<Account> = {
 That renders `Name`, then an **Address** fieldset with City/Street/ZIP in a 2-column
 grid. Groups nest arbitrarily deep. Each leaf in `state.fields` carries its full
 `path` (`['address','city']`), so a custom chrome's validation summary can address
-nested fields, and the completion gate already counts them.
+nested fields, and the completion gate already counts them. **`bind` reaches nested
+fields too** — `bind: (l) => l.link((m) => m.address.city, (s) => s.city)` links a
+nested field to a shared key, so cross-step prefill works at any depth.
 
-> **Scope:** nested *rendering and validation* are fully supported. Repeating arrays
-> (`type: 'array'`) are recognized but not yet rendered, and `bind`/`value(...)`
-> address top-level keys (binding a nested field to shared state is a follow-up).
+### Repeating arrays
+
+A model array (`T[]`) is a **repeating group**: formodel describes it with `array(itemConfig)`,
+and the renderer draws each item from `itemConfig`, with Add/Remove controls.
+
+```ts
+type Order = { items: { sku: string; qty: number }[] };
+
+const orderForm: FormConfig<Order> = {
+  model: () => ({ items: [] }),
+  ui: UiFormConfigBuilder.from({ items: [] as { sku: string; qty: number }[] }).items(
+    array(UiFormConfigBuilder.from({ sku: '', qty: 1 }).sku(text('SKU')).qty(number('Qty')), {
+      label: 'Line items',
+      addLabel: 'Add item',
+    }),
+  ),
+};
+```
+
+Each item renders the `itemConfig` (nested groups included), bound to that item's
+field tree; **Add** appends a blank item and **Remove** drops one, both immutable
+updates of the array field's value signal so validity re-folds automatically. The
+`addable`/`removable`/`addLabel`/`removeLabel` flags from the node control the
+affordances.
 
 ## Conditional, optional & lazy steps
 
@@ -678,6 +701,32 @@ your form config never changes:
 > **Tailwind gotcha:** classes built by interpolation (`grid-cols-${cols}`) must be
 > discoverable by Tailwind's compiler — safelist them, or map specs to static names.
 
+### Angular Material
+
+A ready-made Material control adapter ships as a secondary entry point —
+**`ngx-formad/material`** — so you don't write one. It's part of the `ngx-formad`
+package (no separate install, no version skew), with `@angular/material` and
+`@angular/cdk` as *optional* peer dependencies pulled in only when you import it.
+
+```bash
+pnpm add @angular/material @angular/cdk   # if you don't already have them
+```
+
+```ts
+import { provideFormadSuite } from 'ngx-formad';
+import { materialControls } from 'ngx-formad/material';
+
+bootstrapApplication(App, {
+  providers: [provideFormadSuite({ controls: materialControls })],
+});
+```
+
+Every form then renders with `mat-form-field` / `mat-select` / `mat-checkbox`, no
+change to any form config. It implements the same `ControlAdapter` contract as the
+default, mapping the same kinds; errors bridge to Material's `<mat-error>` via a
+per-control `ErrorStateMatcher` reading the field's touched/errors signals. Swapping
+the layout or stepper-chrome axis is independent, as always.
+
 ### Writing a stepper chrome
 
 The wizard shell is split in two: a headless **`StepperController`** owns all the
@@ -919,18 +968,21 @@ field declarations and `<mat-form-field>` markup collapse into config.
 
 | Behavior | Where it goes |
 | --- | --- |
-| Async `<select>` options (country / region) | Your Material control adapter reads options from a signal — feed it from the node or a service. |
+| Async `<select>` options (country / region) | A control adapter that reads options from a signal — feed it from the node or a service. |
 | "Apply promo code" / "look up by SKU" mid-form | A dynamic component slot, `page.addComponent(PromoCard, …)`, that writes into shared/fields. |
 | Member-only fields, conditional sections | `visibleWhen` on a field/component, `when` on a step. |
 | Guest vs. business-account checkout | [`branch`](#branching) (rejoins) or [`fork`](#forking) (different result). |
+| Nested address objects, line-item repeaters | [Nested groups](#nested-groups) and [repeating arrays](#repeating-arrays) — both render and bind natively. |
 
-**What to expect.** The boilerplate savings are large; the real cost is concentrated
-in the reactive→signal move (1) and the one-time adapter (3). A pragmatic order:
-migrate the **shell + a couple of flat steps** (cart, contact) first, prove the
-Material adapter and one custom-component slot (the promo code), then bring over the
-nested address steps. Repeating arrays (e.g. line items) and nested-field `bind` are
-the two things to confirm against your forms before committing — both are on the
-roadmap, not in today's renderer.
+**Material is one import, not a hand-written adapter.** `provideFormadSuite({ controls:
+materialControls })` from [`ngx-formad/material`](#angular-material) gives you
+`mat-form-field`/`mat-select`/`mat-checkbox` across every form — so step (3) is now
+"install and wire", not "write".
+
+**What to expect.** The boilerplate savings are large; the remaining real cost is the
+reactive→signal move (1). A pragmatic order: migrate the **shell + a couple of flat
+steps** (cart, contact) first, then bring over the nested address steps and any
+line-item arrays — both render, validate, and bind today.
 
 ## FAQ
 
@@ -943,8 +995,10 @@ and orchestrates multi-step wizards, so you stop hand-writing a template per for
 
 **Which Angular versions are supported?** Angular **21.2+ and 22**, from one package.
 
-**Can I use Material, PrimeNG, or Tailwind?** Yes — write a control adapter and/or a
-layout adapter. The three axes (controls, layout, stepper chrome) are independent.
+**Can I use Material, PrimeNG, or Tailwind?** Angular Material ships ready-made — add
+`ngx-formad/material` and `provideFormadSuite({ controls: materialControls })`. For
+PrimeNG or Tailwind, write a control and/or layout adapter. The three axes (controls,
+layout, stepper chrome) are independent. See [Angular Material](#angular-material).
 
 **Can I restyle the whole wizard shell?** Yes — write a stepper chrome (a component
 whose only input is the `StepperController`) and register it with
@@ -954,14 +1008,19 @@ whose only input is the `StepperController`) and register it with
 **Do I need to write templates?** No. Fields, layout, visibility, and dynamic
 components are config; the renderer produces the DOM, including the `@if` on visibility.
 
-**Does it support nested forms / nested models?** Yes — nested objects render as
-nested fieldsets and validate natively; you don't flatten by hand. See
-[Nested groups](#nested-groups). (Repeating arrays and nested-field `bind` are the
-two follow-ups.)
+**Does it support nested forms, arrays, and nested binding?** Yes to all three —
+nested objects render as fieldsets, model arrays render as Add/Remove repeaters, and
+`bind`/`value(...)` reach nested fields by path. All validate natively. See
+[Nested groups](#nested-groups) and [Repeating arrays](#repeating-arrays).
+
+**Is it accessible?** The default controls wrap their input in a `<label>` and wire
+`aria-invalid` / `aria-describedby` to an `role="alert"` error and `aria-required`;
+the bundled chrome moves focus to each new step. (The Material adapter inherits
+Material's own a11y.)
 
 **How do I migrate an existing reactive-forms feature?** Risk-first: move one small
-form to signal forms, write the Material adapter once, then bring over the wizard
-shell and steps. Full walkthrough and trade-offs in
+form to signal forms, add `ngx-formad/material`, then bring over the wizard shell and
+steps. Full walkthrough and trade-offs in
 [Migrating an existing form](#migrating-an-existing-form).
 
 **Can steps be conditional, optional, or branch?** Yes. `createStep(build, { when })`
