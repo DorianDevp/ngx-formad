@@ -1,0 +1,213 @@
+import {
+  afterNextRender,
+  computed,
+  effect,
+  Injector,
+  signal,
+  Signal,
+  untracked,
+} from '@angular/core';
+import { StepNode } from '../builders/nodes';
+import { RuntimeStepper } from '../builders/stepper-builder';
+import { AnyFormProvider, DeferTrigger, RuntimeStepContext } from '../builders/step-context';
+import { FormConfig } from '../form-config/form-config';
+import { SharedState } from '../sync/shared-state';
+import { effectiveSteps } from './effective-sequence';
+import { LiveStep, materializeStep, resolveStepForms, stepFormNames } from './materialize-step';
+
+// The headless stepper engine — all orchestration, no chrome. A chrome component
+// reads these signals and calls these actions; swapping the chrome (the third
+// adapter axis) never touches this. It is built once per wizard and is the thing
+// that keeps the suite fast:
+//
+//  • Nothing is built ahead of time. `build()` on the chain is data-only; this
+//    controller materializes only the *current* step, caches it by node identity,
+//    and re-seeds (never rebuilds) on revisit. Later steps never exist until
+//    reached.
+//  • Conditions are evaluated at navigation boundaries, not per keystroke: bound
+//    values commit to shared on move, and `value()` is the last-committed snapshot,
+//    so typing touches only the focused field — the orchestrator stays idle.
+//  • Navigation never blocks the click. `enter` only flips the target and shows a
+//    one-frame placeholder; the (possibly heavy) form build runs in the following
+//    `afterNextRender`, off the event's critical path. Cached steps are instant.
+export interface StepperController {
+  /** The current step's live forms, or null while it is (re)building. */
+  readonly step: Signal<LiveStep | null>;
+  /** True for the frame between leaving a step and the next one's forms mounting. */
+  readonly loading: Signal<boolean>;
+  /** Zero-based position within the effective (condition-filtered) sequence. */
+  readonly index: Signal<number>;
+  /** Length of the effective sequence. */
+  readonly total: Signal<number>;
+  readonly heading: Signal<string>;
+  readonly subheading: Signal<string>;
+  readonly canBack: Signal<boolean>;
+  /** The completion gate: every visible form on the step is valid. */
+  readonly canNext: Signal<boolean>;
+  readonly isLast: Signal<boolean>;
+  readonly optional: Signal<boolean>;
+  readonly deferTrigger: Signal<DeferTrigger | null>;
+  next(): void;
+  back(): void;
+  skip(): void;
+}
+
+export class FormadStepperController implements StepperController {
+  private readonly currentNode = signal<StepNode | null>(null);
+  private readonly liveStep = signal<LiveStep | null>(null);
+  // Starts true so the first frame shows the placeholder, not an empty shell.
+  private readonly loadingNow = signal(true);
+  // Each form's last-committed model — the source of truth for `value(name)`.
+  private readonly committed = signal<Record<string, Record<string, unknown>>>({});
+  // Retain instances per step node so a revisit keeps user edits.
+  private readonly cache = new Map<StepNode, LiveStep>();
+
+  readonly step = this.liveStep.asReadonly();
+  readonly loading = this.loadingNow.asReadonly();
+
+  // The reactive condition context: live shared snapshot + committed values.
+  private context(): RuntimeStepContext {
+    const shared = (this.stepper.shared as SharedState<Record<string, unknown>>).snapshot();
+    const committed = this.committed();
+    return { shared, value: (name) => committed[name] };
+  }
+
+  private readonly effective = computed(() => effectiveSteps(this.stepper.steps, this.context()));
+  private readonly position = computed(() => {
+    const node = this.currentNode();
+    return node ? this.effective().indexOf(node) : -1;
+  });
+  private readonly options = computed(() => this.currentNode()?.pages[0]?.options);
+
+  readonly index = this.position;
+  readonly total = computed(() => this.effective().length);
+  readonly canBack = computed(() => this.position() > 0);
+  readonly isLast = computed(() => this.position() === this.effective().length - 1);
+  readonly canNext = computed(() => this.liveStep()?.registry.completed() ?? false);
+  readonly optional = computed(() => this.currentNode()?.optional ?? false);
+  readonly deferTrigger = computed(() => this.currentNode()?.defer ?? null);
+  readonly heading = computed(() => this.options()?.heading ?? '');
+  readonly subheading = computed(() => this.options()?.subheading ?? '');
+
+  constructor(
+    private readonly stepper: RuntimeStepper,
+    private readonly injector: Injector,
+  ) {
+    // Enter the first step after the first render — never during construction.
+    afterNextRender(
+      () => {
+        const first = this.effective()[0];
+        if (first) this.enter(first);
+        else this.loadingNow.set(false);
+      },
+      { injector },
+    );
+
+    // If a condition change drops the current step, clamp to the nearest still
+    // visible step at or before its original position.
+    effect(
+      () => {
+        const eff = this.effective();
+        const node = this.currentNode();
+        if (!node || eff.includes(node)) return;
+        untracked(() => {
+          const steps = this.stepper.steps;
+          const origin = steps.indexOf(node);
+          let target: StepNode | undefined;
+          for (const candidate of eff) {
+            if (steps.indexOf(candidate) <= origin) target = candidate;
+            else break;
+          }
+          target ??= eff[0];
+          if (target) this.enter(target);
+          else {
+            this.currentNode.set(null);
+            this.liveStep.set(null);
+          }
+        });
+      },
+      { injector },
+    );
+  }
+
+  next(): void {
+    if (this.canNext()) this.move(1);
+  }
+
+  skip(): void {
+    if (this.optional()) this.move(1);
+  }
+
+  back(): void {
+    this.move(-1);
+  }
+
+  private move(direction: 1 | -1): void {
+    this.commitCurrent();
+    const eff = this.effective();
+    const target = this.position() + direction;
+    if (target >= 0 && target < eff.length) this.enter(eff[target]);
+  }
+
+  // field -> shared for the step being left, and snapshot each form's model so a
+  // later step's condition can read it through `value(name)`.
+  private commitCurrent(): void {
+    const step = this.liveStep();
+    if (!step) return;
+    const snapshot = { ...this.committed() };
+    for (const form of step.forms) {
+      form.commit();
+      snapshot[form.name] = { ...form.state.model() };
+    }
+    this.committed.set(snapshot);
+  }
+
+  // Always-smooth: flip the target + show a placeholder synchronously; build after
+  // the next render so the click returns immediately. Cached steps skip the wait.
+  private enter(node: StepNode): void {
+    this.currentNode.set(node);
+    const cached = this.cache.get(node);
+    if (cached) {
+      for (const form of cached.forms) form.seed();
+      this.liveStep.set(cached);
+      this.loadingNow.set(false);
+      return;
+    }
+    this.liveStep.set(null);
+    this.loadingNow.set(true);
+    afterNextRender(() => this.build(node), { injector: this.injector });
+  }
+
+  private build(node: StepNode): void {
+    if (this.currentNode() !== node) return; // navigated away during the frame
+    const pool = this.stepper.forms as unknown as Record<string, AnyFormProvider>;
+    const shared = this.stepper.shared as SharedState<Record<string, unknown>>;
+    const names = stepFormNames(node);
+    const hasLazy = names.some((name) => typeof pool[name] === 'function');
+
+    if (!hasLazy) {
+      const resolved: Record<string, FormConfig<Record<string, unknown>>> = {};
+      for (const name of names) {
+        const entry = pool[name];
+        if (entry) resolved[name] = entry as FormConfig<Record<string, unknown>>;
+      }
+      this.materialize(node, resolved, shared);
+      return;
+    }
+
+    void resolveStepForms(node, pool).then((resolved) => {
+      if (this.currentNode() === node) this.materialize(node, resolved, shared);
+    });
+  }
+
+  private materialize(
+    node: StepNode,
+    resolved: Record<string, FormConfig<Record<string, unknown>>>,
+    shared: SharedState<Record<string, unknown>>,
+  ): void {
+    const live = materializeStep(node, resolved, shared, this.injector);
+    this.cache.set(node, live);
+    this.liveStep.set(live);
+    this.loadingNow.set(false);
+  }
+}

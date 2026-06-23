@@ -396,26 +396,30 @@ same typing. Hosts compose the same primitives the shell uses — `effectiveStep
 
 ## Theming with adapters
 
-Rendering splits into **two orthogonal axes**, each a single object you swap once
-through the provider. The renderer never changes; you change the adapter.
+Rendering splits into **three orthogonal axes**, each swapped once through the
+provider. Nothing else changes; you change the adapter.
 
 - **Control adapter** — maps a field's *kind* (`'text'`, `'select'`, …) to a native
   `FormValueControl` component. *How one field looks.*
 - **Layout adapter** — maps a *layout spec* to classes/styles on the container and
   each item. *How a cluster of fields is arranged.*
+- **Stepper chrome** — a component that draws the wizard shell (nav, progress,
+  headings) around the headless `StepperController`. *How the wizard looks.*
 
-Both ship a zero-dependency default (plain HTML controls, inline CSS grid). Override
-one, the other, or both — a Material control adapter sits happily inside a Tailwind
-layout, because the axes are orthogonal:
+Controls and layout ship zero-dependency defaults (plain HTML, inline CSS grid);
+the stepper falls back to a bundled chrome. Override one, several, or none — a
+Material control adapter sits happily inside a Tailwind layout under a custom
+chrome, because the axes are orthogonal:
 
 ```ts
-import { provideStepperSuite } from 'ngx-formad';
+import { provideFormadSuite } from 'ngx-formad';
 
 bootstrapApplication(App, {
   providers: [
-    provideStepperSuite({
+    provideFormadSuite({
       controls: myControls, // optional — omit to keep plain-HTML controls
       layout: tailwindLayout, // optional — omit to keep the CSS-grid layout
+      stepper: MyStepperChrome, // optional — omit to keep the bundled chrome
     }),
   ],
 });
@@ -528,6 +532,80 @@ your form config never changes:
 > **Tailwind gotcha:** classes built by interpolation (`grid-cols-${cols}`) must be
 > discoverable by Tailwind's compiler — safelist them, or map specs to static names.
 
+### Writing a stepper chrome
+
+The wizard shell is split in two: a headless **`StepperController`** owns all the
+orchestration (the effective sequence, navigation, the completion gate, the
+directional sync, lazy and deferred building), and a **chrome** component draws the
+look around it. To restyle the wizard you write a chrome — a component whose only
+input is the controller — and register it; you never reimplement the engine.
+
+```ts
+import { Component, input } from '@angular/core';
+import { StepFormsView, StepperController } from 'ngx-formad';
+
+@Component({
+  selector: 'app-chrome',
+  imports: [StepFormsView],
+  template: `
+    <header>{{ c().heading() }} — step {{ c().index() + 1 }} of {{ c().total() }}</header>
+
+    @if (c().loading()) {
+      <div class="skeleton"></div>
+    } @else if (c().step(); as step) {
+      <ngx-formad-step-forms [step]="step" /> <!-- renders the step's forms -->
+    }
+
+    <footer>
+      <button [disabled]="!c().canBack()" (click)="c().back()">Back</button>
+      @if (c().optional()) {
+        <button (click)="c().skip()">Skip</button>
+      }
+      <button [disabled]="!c().canNext()" (click)="c().next()">
+        {{ c().isLast() ? 'Finish' : 'Next' }}
+      </button>
+    </footer>
+  `,
+})
+export class AppChrome {
+  readonly controller = input.required<StepperController>();
+  protected readonly c = this.controller;
+}
+```
+
+```ts
+provideFormadSuite({ stepper: AppChrome });
+```
+
+`StepperController` exposes signals — `step`, `loading`, `index`, `total`,
+`heading`, `subheading`, `canBack`, `canNext`, `isLast`, `optional`, `deferTrigger`
+— and the actions `next()`, `back()`, `skip()`. `StepFormsView` renders a step's
+forms; wrap it in your own `@defer` if you want to honour `deferTrigger()`. The
+controller is also exported, so a fully bespoke host can construct and drive it
+directly without the token.
+
+### Performance: zero work until needed, no input lag
+
+The suite is built so the orchestrator never gets in the way of typing or clicking:
+
+- **Nothing is built ahead of time.** `build()` is data-only; the controller
+  materializes only the *current* step, caches it by node identity, and re-seeds
+  (never rebuilds) on revisit. Later steps don't exist until reached — proven by a
+  test that counts model-factory calls.
+- **Typing never wakes the orchestrator.** Conditions evaluate at navigation
+  boundaries (bound values commit on move; `value()` is the last commit), and the
+  field list is static, so a keystroke touches only the focused field's native
+  validity — not the sequence, not the other fields.
+- **Navigation never blocks the click.** Moving to a step only flips the target and
+  shows a one-frame placeholder; the (possibly heavy) form build runs in the next
+  `afterNextRender`, off the event's critical path. Cached steps are instant.
+- **Heavy steps stay off the critical path** via lazy form configs (`createForm(name,
+  () => import(...))`) and per-step `defer`.
+
+Pair `provideFormadSuite()` with `provideZonelessChangeDetection()` — signal forms
+are zoneless, and the whole suite is signal-driven, so change detection stays
+fine-grained.
+
 ## API
 
 Everything is exported from the package root (`ngx-formad`).
@@ -551,23 +629,28 @@ Everything is exported from the package root (`ngx-formad`).
 | `asStepper(stepper)` | The single, named widening from a typed `Stepper` to `RuntimeStepper`. |
 | `RuntimeStepper` | `Stepper` with pool/shared types erased — what the runtime and shell consume. |
 | `SharedLink<M, S>` | The `bind` recorder: `.link(m => m.field, s => s.key)` ties a model field to a shared key. |
-| `StepperComponent` | The bundled `<ngx-formad-stepper [stepper] />` shell — navigation, progress, sync edges. |
+| `StepperComponent` | The `<ngx-formad-stepper [stepper] />` shell — builds the controller, renders the chrome. |
 
 ### Run it yourself (bring-your-own-UI)
 
 | Symbol | What it is |
 | --- | --- |
+| `StepperController` | The headless engine: state signals (`step`, `index`, `canNext`, …) + `next`/`back`/`skip`. |
+| `StepFormsView` | `<ngx-formad-step-forms [step] />` — renders one step's forms; drop into your own `@defer`. |
 | `materializeStep(step, pool, shared, inj)` | Instantiates a step's forms, registers them, wires the sync. Returns a `LiveStep`. |
+| `resolveStepForms(step, pool)` | Awaits a step's lazy form loaders into a plain config map (eager ones pass through). |
+| `effectiveSteps(steps, ctx)` | The pure conditional filter — the steps whose `when` passes, in order. |
 | `LiveStep` / `LiveForm` | `LiveStep = { registry, forms }`; `LiveForm = { name, state, seed(), commit() }`. |
 | `InstanceRegistry` | Collects a step's live forms; `completed()` folds `valid()` over the visible ones. |
-| `SharedState<S>` | The plain-signal cross-step store; `get(key)`, `patch(partial)`, `select(key)`, `slot(key)`. |
+| `SharedState<S>` | The plain-signal cross-step store; `get(key)`, `patch(partial)`, `select(key)`, `slot(key)`, `snapshot()`. |
 
 ### Configure the look (call once)
 
 | Symbol | What it is |
 | --- | --- |
-| `provideStepperSuite(opts?)` | Registers the adapters. No args = zero-dependency defaults (plain HTML + CSS grid). |
-| `ControlAdapter` / `LayoutAdapter` | The two pluggable axes; `defaultControls` and `cssLayout` are the shipped defaults. |
+| `provideFormadSuite(opts?)` | Registers the three adapters. No args = zero-dependency defaults + the bundled chrome. |
+| `ControlAdapter` / `LayoutAdapter` | The control and layout axes; `defaultControls` and `cssLayout` are the defaults. |
+| `STEPPER_ADAPTER` / `DefaultStepperChrome` | The chrome axis token and its bundled default component. |
 
 ### The builder, method by method
 
@@ -650,7 +733,12 @@ and orchestrates multi-step wizards, so you stop hand-writing a template per for
 **Which Angular versions are supported?** Angular **21.2+ and 22**, from one package.
 
 **Can I use Material, PrimeNG, or Tailwind?** Yes — write a control adapter and/or a
-layout adapter. The two axes are independent.
+layout adapter. The three axes (controls, layout, stepper chrome) are independent.
+
+**Can I restyle the whole wizard shell?** Yes — write a stepper chrome (a component
+whose only input is the `StepperController`) and register it with
+`provideFormadSuite({ stepper })`. The orchestration is reused; you draw the look. See
+[Writing a stepper chrome](#writing-a-stepper-chrome).
 
 **Do I need to write templates?** No. Fields, layout, visibility, and dynamic
 components are config; the renderer produces the DOM, including the `@if` on visibility.
@@ -663,9 +751,12 @@ it inside `@defer`. See [Conditional, optional & lazy steps](#conditional-option
 **Can a form load lazily?** Yes. `createForm(name, () => import(...).then(m => m.form))`
 fetches the form's config only when its step is reached; eager steps stay synchronous.
 
-**Can I bring my own wizard UI?** Yes. `materializeStep` + the instance registry give
-you the runtime primitives; the bundled `StepperComponent` is one shell built on them,
-and the live example ships another.
+**Can I bring my own wizard UI?** Two levels. For a restyle, write a **chrome** over
+the shared `StepperController` (above). For total control, the primitives —
+`StepperController`, `materializeStep`, `effectiveSteps`, the instance registry — let
+you build a host from scratch, as the live example's `WizardHost` does.
+
+**Will a big wizard cause input lag?** No — see [Performance](#performance-zero-work-until-needed-no-input-lag). Nothing builds ahead of time, typing never wakes the orchestrator, and navigation defers the form build off the click.
 
 ## License
 
