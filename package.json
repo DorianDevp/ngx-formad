@@ -6,7 +6,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test"
+    "test": "ng test",
+    "examples": "ng build ngx-formad && ng serve examples"
   },
   "private": true,
   "packageManager": "pnpm@10.28.0",
