@@ -69,3 +69,60 @@ describe('effectiveSteps', () => {
     // here, so it stays — the two condition *sources* are exercised independently.
   });
 });
+
+// `.branch()` compiles to `when`-gated steps, so the same pure filter proves it:
+// the chosen branch's steps survive in order, the rest drop, and post-branch steps
+// rejoin. A nested branch ANDs its guard with the outer one.
+const headings = (steps: readonly { pages: readonly { options: { heading?: string } }[] }[]) =>
+  steps.map((s) => s.pages[0].options.heading);
+
+const branched = new StepperBuilder()
+  .withState({ plan: 'free' as 'free' | 'pro', addons: false })
+  .createForm('start', form('Start'))
+  .createForm('pro', form('Pro'))
+  .createForm('addons', form('Addons'))
+  .createForm('free', form('Free'))
+  .createForm('done', form('Done'))
+  .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm((f) => f.start)))
+  .branch((ctx) => ctx.shared.plan, {
+    pro: (b) =>
+      b
+        .step((s) => s.createPage({ options: { heading: 'Pro' } }, (p) => p.addForm((f) => f.pro)))
+        // a step inside the branch with its own extra condition (ANDed with the guard)
+        .step((s) => s.createPage({ options: { heading: 'Addons' } }, (p) => p.addForm((f) => f.addons)), {
+          when: ({ shared }) => shared.addons === true,
+        }),
+    free: (b) => b.step((s) => s.createPage({ options: { heading: 'Free' } }, (p) => p.addForm((f) => f.free))),
+  })
+  .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addForm((f) => f.done)))
+  .build();
+
+describe('branching (sugar over conditional steps)', () => {
+  it('selects the chosen branch and rejoins after it', () => {
+    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'free', addons: false } })))).toEqual([
+      'Start',
+      'Free',
+      'Done',
+    ]);
+    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'pro', addons: false } })))).toEqual([
+      'Start',
+      'Pro',
+      'Done', // Addons dropped: its own `when` (addons === true) failed
+    ]);
+  });
+
+  it('ANDs a branch step’s own condition with the branch guard', () => {
+    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'pro', addons: true } })))).toEqual([
+      'Start',
+      'Pro',
+      'Addons', // now both the branch guard and the step's `when` hold
+      'Done',
+    ]);
+    // The Addons step never appears for the free plan, regardless of the addons flag.
+    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'free', addons: true } })))).toEqual([
+      'Start',
+      'Free',
+      'Done',
+    ]);
+  });
+});
