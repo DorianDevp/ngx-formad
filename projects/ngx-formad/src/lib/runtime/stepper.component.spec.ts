@@ -1,9 +1,11 @@
-import { Component } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { required } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
+import { provideFormadSuite } from '../provide';
 import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
+import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
 
 type Labelled = { v: string };
@@ -185,5 +187,88 @@ describe('StepperComponent — optional steps', () => {
     await settle(fixture);
 
     expect(fixture.nativeElement.textContent).toContain('After');
+  });
+});
+
+// A custom chrome — the third adapter axis. It reads the controller and renders a
+// marker so the test can prove the configured chrome was used over the default.
+@Component({
+  selector: 'x-chrome',
+  template: `<div class="x-chrome">{{ controller().heading() }}</div>`,
+})
+class CustomChrome {
+  readonly controller = input.required<StepperController>();
+}
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class ChromeHost {
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({})
+      .createForm('a', labelForm('Only'))
+      .createStep((s) => s.createPage({ options: { heading: 'Heading X' } }, (p) => p.addForm((f) => f.a)))
+      .build(),
+  );
+}
+
+describe('StepperComponent — stepper adapter', () => {
+  it('renders the chrome provided via provideFormadSuite({ stepper })', async () => {
+    TestBed.configureTestingModule({ providers: [provideFormadSuite({ stepper: CustomChrome })] });
+    const fixture = TestBed.createComponent(ChromeHost);
+    await settle(fixture);
+
+    const chrome = fixture.nativeElement.querySelector('.x-chrome');
+    expect(chrome).toBeTruthy();
+    // The custom chrome read the controller's heading signal.
+    expect(chrome.textContent).toContain('Heading X');
+  });
+});
+
+// Counts every model-factory call, which happens exactly once per materialization
+// — so a non-zero count means a step's forms were actually built.
+const built = { a: 0, c: 0 };
+const countingForm = (label: string, tick: () => void): FormConfig<Labelled> => ({
+  model: () => {
+    tick();
+    return { v: '' };
+  },
+  ui: UiFormConfigBuilder.from({ v: '' }).v(text(label)),
+});
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class LazyHost {
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({})
+      .createForm('a', countingForm('First', () => built.a++))
+      .createForm('c', countingForm('Third', () => built.c++))
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.c)))
+      .build(),
+  );
+}
+
+describe('StepperComponent — laziness', () => {
+  it('materializes only the current step; later steps are untouched until reached', async () => {
+    built.a = 0;
+    built.c = 0;
+    const fixture = TestBed.createComponent(LazyHost);
+    await settle(fixture);
+
+    // Step 1 built; step 2 never instantiated yet.
+    expect(built.a).toBe(1);
+    expect(built.c).toBe(0);
+
+    buttonByText(fixture, 'Next')!.click();
+    await settle(fixture);
+
+    // Now step 2 built — and exactly once.
+    expect(built.c).toBe(1);
   });
 });
