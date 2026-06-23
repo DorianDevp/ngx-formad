@@ -7,28 +7,47 @@ import { FormValueControl, ValidationError } from '@angular/forms/signals';
 // the funnel's entry point, the "ugly but working, zero deps" tier. A prettier
 // tier (Material, PrimeNG) is a different adapter, not a change here.
 //
-// `value` is a `model()` so the renderer can two-way bind it the same way the
-// native `[control]` directive would; the other inputs are read-only mirrors of
-// the field's state.
+// Accessibility is built in: the `<label>` wraps the control (so the label is
+// associated without a `for`/`id` dance), and on error the control gets
+// `aria-invalid` + `aria-describedby` pointing at an `role="alert"` message, with
+// `aria-required` mirrored from the field. Each control owns a unique id so the
+// description link is unambiguous even with many controls on a page.
 
 type Errors = readonly ValidationError.WithOptionalFieldTree[];
 
-// Shared error-line markup, factored out so each control reads as just its input.
+// Per-instance id for the aria-describedby link between control and error text.
+let controlSeq = 0;
+function nextControlId(): string {
+  return `ngxf-${++controlSeq}`;
+}
+
+// Shared label markup: the visible label plus a required marker (decorative —
+// `aria-required` on the control carries the semantics).
+const labelText = `{{ label() }}@if (required()) {<span class="ngx-formad-req" aria-hidden="true"> *</span>}`;
+
+// Shared error line: an alerting, addressable message shown once touched.
 const errorLine = `
   @if (touched() && errors().length) {
-    <small class="ngx-formad-error">{{ errors()[0]?.message }}</small>
+    <small class="ngx-formad-error" [id]="cid + '-err'" role="alert">{{ errors()[0]?.message }}</small>
   }`;
+
+// The aria attributes a control mirrors from its field state.
+const ariaAttrs = `
+  [attr.aria-invalid]="touched() && errors().length ? 'true' : null"
+  [attr.aria-describedby]="touched() && errors().length ? cid + '-err' : null"
+  [attr.aria-required]="required() ? 'true' : null"`;
 
 @Component({
   selector: 'ngx-formad-text',
   template: `
     <label class="ngx-formad-field">
-      <span>{{ label() }}</span>
+      <span>${labelText}</span>
       <input
         [type]="type()"
         [value]="value()"
         [disabled]="disabled()"
         [placeholder]="placeholder()"
+        ${ariaAttrs}
         (input)="value.set(asString($event))"
         (blur)="touched.set(true)"
       />
@@ -37,6 +56,7 @@ const errorLine = `
   `,
 })
 export class TextControl implements FormValueControl<string> {
+  protected readonly cid = nextControlId();
   value = model('');
   // One component backs every single-line text kind; the kind only changes the
   // native input `type`, which the renderer passes through.
@@ -57,12 +77,13 @@ export class TextControl implements FormValueControl<string> {
   selector: 'ngx-formad-textarea',
   template: `
     <label class="ngx-formad-field">
-      <span>{{ label() }}</span>
+      <span>${labelText}</span>
       <textarea
         [value]="value()"
         [disabled]="disabled()"
         [rows]="rows()"
         [placeholder]="placeholder()"
+        ${ariaAttrs}
         (input)="value.set(asString($event))"
         (blur)="touched.set(true)"
       ></textarea>
@@ -71,6 +92,7 @@ export class TextControl implements FormValueControl<string> {
   `,
 })
 export class TextareaControl implements FormValueControl<string> {
+  protected readonly cid = nextControlId();
   value = model('');
   label = input('');
   placeholder = input('');
@@ -89,11 +111,12 @@ export class TextareaControl implements FormValueControl<string> {
   selector: 'ngx-formad-number',
   template: `
     <label class="ngx-formad-field">
-      <span>{{ label() }}</span>
+      <span>${labelText}</span>
       <input
         type="number"
         [value]="value()"
         [disabled]="disabled()"
+        ${ariaAttrs}
         (input)="value.set(asNumber($event))"
         (blur)="touched.set(true)"
       />
@@ -102,6 +125,7 @@ export class TextareaControl implements FormValueControl<string> {
   `,
 })
 export class NumberControl implements FormValueControl<number | null> {
+  protected readonly cid = nextControlId();
   value = model<number | null>(null);
   label = input('');
   disabled = input(false);
@@ -126,9 +150,10 @@ export interface ControlOption {
   selector: 'ngx-formad-select',
   template: `
     <label class="ngx-formad-field">
-      <span>{{ label() }}</span>
+      <span>${labelText}</span>
       <select
         [disabled]="disabled()"
+        ${ariaAttrs}
         (change)="value.set(optionAt($event))"
         (blur)="touched.set(true)"
       >
@@ -141,6 +166,7 @@ export interface ControlOption {
   `,
 })
 export class SelectControl implements FormValueControl<unknown> {
+  protected readonly cid = nextControlId();
   value = model<unknown>(null);
   label = input('');
   // Options ride alongside the contract — the renderer feeds them from the node.
@@ -166,15 +192,17 @@ export class SelectControl implements FormValueControl<unknown> {
         type="checkbox"
         [checked]="value()"
         [disabled]="disabled()"
+        ${ariaAttrs}
         (change)="value.set(asChecked($event))"
         (blur)="touched.set(true)"
       />
-      <span>{{ label() }}</span>
+      <span>${labelText}</span>
       ${errorLine}
     </label>
   `,
 })
 export class CheckboxControl implements FormValueControl<boolean> {
+  protected readonly cid = nextControlId();
   value = model(false);
   label = input('');
   disabled = input(false);

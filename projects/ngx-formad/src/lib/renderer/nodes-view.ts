@@ -1,8 +1,8 @@
 import { Component, computed, inject, input } from '@angular/core';
-import { FieldTree } from '@angular/forms/signals';
+import { FieldState, FieldTree } from '@angular/forms/signals';
 import { LAYOUT_ADAPTER } from '../provide';
 import { LayoutSpec } from '../layout/layout-adapter';
-import { ControlNode, GroupNode, RenderNode } from '../form-config/form-config';
+import { ArrayNode, ControlNode, GroupNode, RenderNode } from '../form-config/form-config';
 import { FieldOutlet } from './field-outlet';
 
 // Draws one level of the render tree, recursing into nested groups. It is the
@@ -35,6 +35,32 @@ import { FieldOutlet } from './field-outlet';
               <ngx-formad-field-outlet [node]="leaf(node.key)" [config]="control(node)" />
             </div>
           }
+          @case ('array') {
+            <fieldset class="ngx-formad-array" style="grid-column: 1 / -1">
+              @if (array(node).node.label) {
+                <legend class="ngx-formad-group-label">{{ array(node).node.label }}</legend>
+              }
+              @for (i of itemIndexes(node.key); track i) {
+                <div class="ngx-formad-array-item">
+                  <ngx-formad-nodes [nodes]="array(node).item" [tree]="itemTree(node.key, i)" />
+                  @if (array(node).node.removable !== false) {
+                    <button
+                      type="button"
+                      class="ngx-formad-array-remove"
+                      (click)="removeItem(node.key, i)"
+                    >
+                      {{ array(node).node.removeLabel ?? 'Remove' }}
+                    </button>
+                  }
+                </div>
+              }
+              @if (array(node).node.addable !== false) {
+                <button type="button" class="ngx-formad-array-add" (click)="addItem(node)">
+                  {{ array(node).node.addLabel ?? 'Add' }}
+                </button>
+              }
+            </fieldset>
+          }
         }
       }
     </div>
@@ -66,6 +92,32 @@ export class NodesView {
   protected group(node: RenderNode): GroupNode {
     return node as GroupNode;
   }
+  protected array(node: RenderNode): ArrayNode {
+    return node as ArrayNode;
+  }
+
+  // ── Repeating arrays ──
+  // The array field is index-by-number to item field trees; its value signal
+  // (`U[]`) drives the count, so reading it here keeps `@for` reactive, and
+  // add/remove are plain immutable updates of that signal.
+  private arrayState(key: string): FieldState<unknown[]> {
+    return (this.tree()[key] as unknown as () => FieldState<unknown[]>)();
+  }
+  protected itemIndexes(key: string): number[] {
+    const length = this.arrayState(key).value().length;
+    return Array.from({ length }, (_, i) => i);
+  }
+  protected itemTree(key: string, i: number): Record<string, FieldTree<unknown>> {
+    const items = this.tree()[key] as unknown as Record<number, FieldTree<unknown>>;
+    return items[i] as unknown as Record<string, FieldTree<unknown>>;
+  }
+  protected addItem(node: RenderNode): void {
+    const blank = blankItem(this.array(node).item);
+    this.arrayState(node.key).value.update((items) => [...items, blank]);
+  }
+  protected removeItem(key: string, i: number): void {
+    this.arrayState(key).value.update((items) => items.filter((_, idx) => idx !== i));
+  }
 
   private readonly container = computed(() => this.layoutAdapter.container(this.layout()));
   protected readonly containerClass = computed(() => this.container().class ?? '');
@@ -77,4 +129,16 @@ export class NodesView {
   protected itemStyle(node: ControlNode): Record<string, string> {
     return this.layoutAdapter.item(node.layout ?? {}).style ?? {};
   }
+}
+
+// A fresh array item, built from the item's render nodes: controls get a kind-
+// appropriate empty value, groups recurse, nested arrays start empty.
+function blankItem(nodes: readonly RenderNode[]): Record<string, unknown> {
+  const item: Record<string, unknown> = {};
+  for (const node of nodes) {
+    if (node.kind === 'group') item[node.key] = blankItem(node.children);
+    else if (node.kind === 'array') item[node.key] = [];
+    else item[node.key] = node.node.type === 'number' ? null : node.node.type === 'checkbox' ? false : '';
+  }
+  return item;
 }

@@ -38,6 +38,19 @@ export function stepFormNames(step: StepNode): readonly string[] {
   return formNodes(step).map((node) => node.name);
 }
 
+// Walks a field tree to the node at `path` — `['nip']` for a top-level field,
+// `['address','city']` for a nested one. `FieldTree` is indexable by child key.
+function fieldAt(
+  root: Record<string, FieldTree<unknown>>,
+  path: readonly string[],
+): FieldTree<unknown> {
+  let node = root[path[0]];
+  for (let i = 1; i < path.length; i++) {
+    node = (node as unknown as Record<string, FieldTree<unknown>>)[path[i]];
+  }
+  return node;
+}
+
 // Forms can be nested in rows, so gather them depth-first across the step.
 function formNodes(step: StepNode): FormNode[] {
   const found: FormNode[] = [];
@@ -76,12 +89,12 @@ export function materializeStep(
 
     const seed = () => {
       for (const link of node.links) {
-        seedFromShared(fieldSync(root[link.modelKey]), shared.slot(link.sharedKey));
+        seedFromShared(fieldSync(fieldAt(root, link.modelPath)), shared.slot(link.sharedKey));
       }
     };
     const commit = () => {
       for (const link of node.links) {
-        commitToShared(fieldSync(root[link.modelKey]), shared.slot(link.sharedKey));
+        commitToShared(fieldSync(fieldAt(root, link.modelPath)), shared.slot(link.sharedKey));
       }
     };
 
