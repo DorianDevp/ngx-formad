@@ -12,10 +12,18 @@
     "form-builder",
     "formodel"
   ],
-  "license": "MIT",
+  "license": "0BSD",
+  "author": "dorian_dev",
+  "homepage": "https://git.sr.ht/~dorian_dev/ngx-formad",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dorixsearch/ngx-formad.git"
+    "url": "git+https://git.sr.ht/~dorian_dev/ngx-formad"
+  },
+  "bugs": {
+    "url": "https://todo.sr.ht/~dorian_dev/ngx-formad-tracker"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "@angular/common": "^21.2.0 || ^22.0.0",
