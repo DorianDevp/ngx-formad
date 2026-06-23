@@ -1,23 +1,6 @@
-import {
-  afterNextRender,
-  Component,
-  computed,
-  EnvironmentInjector,
-  inject,
-  input,
-  output,
-  signal,
-  untracked,
-} from '@angular/core';
+import { Component, computed, effect, EnvironmentInjector, inject, input, OnInit, output, signal, untracked } from '@angular/core';
 import { FieldTree } from '@angular/forms/signals';
-import {
-  FormConfig,
-  FormRenderer,
-  LiveStep,
-  materializeStep,
-  RuntimeStepper,
-  SharedState,
-} from 'ngx-formad';
+import { FormadStepperController, FormRenderer, RuntimeStepper, StepperController } from 'ngx-formad';
 import { FlowTheme } from './theme';
 
 /** One field's current error, as the validation summary lists it. */
@@ -26,17 +9,13 @@ interface Issue {
   readonly message: string;
 }
 
-// A custom-chromed wizard host built directly on ngx-formad's runtime primitives
-// rather than the library's plain `StepperComponent`. It shows what those
-// primitives compose into: a numbered step rail, a heading + subheading from the
-// page node, live validation read straight off the native field trees, and the
-// directional sync driven at the edges (commit on leave, re-seed on entry).
-//
-// Validation is the showcase here. Every field error already surfaces inline on
-// blur (the default controls do that). On top of that, pressing Continue while
-// the step is invalid marks every field touched and reveals a summary banner that
-// lists each error by label — so nothing can be missed and the schema messages in
-// forms.ts are all on screen at once.
+// A custom wizard *chrome* built over the library's headless `StepperController`.
+// It owns only the look — a numbered rail, heading/subheading, banners, a
+// validation summary, and the nav — and reads everything else (the effective
+// step sequence, the completion gate, optional/skip, conditional steps and forks,
+// the deferred build, the fork result) off the controller. This is the
+// bring-your-own-UI path: all the orchestration the bundled shell does, with our
+// chrome instead, and none of it re-implemented here.
 @Component({
   selector: 'app-wizard',
   imports: [FormRenderer],
@@ -93,7 +72,9 @@ interface Issue {
           </div>
         }
 
-        @if (current(); as step) {
+        @if (loading()) {
+          <div class="banner banner-info"><i class="ti ti-loader-2"></i><span>Loading…</span></div>
+        } @else if (current(); as step) {
           @for (form of step.forms; track form.name) {
             <ngx-formad-form [state]="form.state" />
           }
@@ -109,6 +90,9 @@ interface Issue {
         @if (showErrors() && issues().length) {
           <span class="nav-hint"><i class="ti ti-info-circle"></i> Fix the fields above to continue</span>
         }
+        @if (optional()) {
+          <button class="btn btn-ghost" type="button" (click)="skip()">Skip</button>
+        }
         <button class="btn btn-accent" type="button" (click)="next()">
           {{ isLast() ? 'Submit request' : 'Continue' }}
           <i class="ti" [class]="isLast() ? 'ti-send' : 'ti-arrow-right'"></i>
@@ -117,54 +101,53 @@ interface Issue {
     </div>
   `,
 })
-export class WizardHost {
+export class WizardHost implements OnInit {
   /** The built wizard, from one of the flow builders. */
   readonly stepper = input.required<RuntimeStepper>();
   /** Accent + labels for this flow. */
   readonly theme = input.required<FlowTheme>();
-  /** Emitted when the final step is submitted. */
-  readonly finished = output<void>();
+  /** Emitted when the final step is submitted, carrying any forked result. */
+  readonly finished = output<unknown>();
   /** Emitted when the user backs out past the first step. */
   readonly exited = output<void>();
 
   private readonly injector = inject(EnvironmentInjector);
-  private readonly liveStep = signal<LiveStep | null>(null);
-  private readonly prefilledNow = signal(false);
+  private readonly ctrl = signal<StepperController | null>(null);
   private readonly showErrorsNow = signal(false);
-  // Retain materialized steps so a revisit keeps user edits.
-  private readonly cache = new Map<number, LiveStep>();
 
-  protected readonly index = signal(0);
-  protected readonly current = this.liveStep.asReadonly();
-  protected readonly prefilled = this.prefilledNow.asReadonly();
-  protected readonly showErrors = this.showErrorsNow.asReadonly();
-  protected readonly total = computed(() => this.stepper().steps.length);
+  // Thin projections of the controller's signals, with null-safe defaults for the
+  // first frame before the controller is constructed in ngOnInit.
+  protected readonly index = computed(() => this.ctrl()?.index() ?? 0);
+  protected readonly total = computed(() => this.ctrl()?.total() ?? 0);
   protected readonly steps = computed(() => Array.from({ length: this.total() }, (_, i) => i));
-  protected readonly isLast = computed(() => this.index() === this.total() - 1);
+  protected readonly isLast = computed(() => this.ctrl()?.isLast() ?? false);
+  protected readonly heading = computed(() => this.ctrl()?.heading() ?? '');
+  protected readonly subheading = computed(() => this.ctrl()?.subheading() ?? '');
+  protected readonly canNext = computed(() => this.ctrl()?.canNext() ?? false);
+  protected readonly optional = computed(() => this.ctrl()?.optional() ?? false);
+  protected readonly loading = computed(() => this.ctrl()?.loading() ?? false);
+  protected readonly current = computed(() => this.ctrl()?.step() ?? null);
+  protected readonly showErrors = this.showErrorsNow.asReadonly();
 
-  private readonly pageOptions = computed(
-    () => this.stepper().steps[this.index()]?.pages[0]?.options,
-  );
-  protected readonly heading = computed(() => this.pageOptions()?.heading ?? '');
-  protected readonly subheading = computed(() => this.pageOptions()?.subheading ?? '');
-  protected readonly complete = computed(() => this.liveStep()?.registry.completed() ?? false);
+  // A fresh form is empty, so any non-empty value came from a directional seed —
+  // exactly the cross-step autofill we flag to the user.
+  protected readonly prefilled = computed(() => {
+    const step = this.current();
+    return !!step && step.forms.some((f) => Object.values(f.state.model()).some(filled));
+  });
 
-  // Every current error of the step, read live off the native field trees and
-  // paired with its field label. This drives the summary banner and the gate.
+  // Every current error of the step, read live off the native field trees (by
+  // path, so nested-group fields work) and paired with its label.
   protected readonly issues = computed<Issue[]>(() => {
-    const step = this.liveStep();
+    const step = this.current();
     if (!step) return [];
     const out: Issue[] = [];
     for (const form of step.forms) {
       const root = form.state.rootForm as unknown as Record<string, FieldTree<unknown>>;
       for (const field of form.state.fields) {
-        // Resolve the leaf by its full path so nested-group fields work too.
         const errors = resolveLeaf(root, field.path).errors();
         if (errors.length) {
-          out.push({
-            label: field.node.label ?? field.key,
-            message: errors[0]?.message ?? 'Invalid value',
-          });
+          out.push({ label: field.node.label ?? field.key, message: errors[0]?.message ?? 'Invalid value' });
         }
       }
     }
@@ -172,69 +155,50 @@ export class WizardHost {
   });
 
   constructor() {
-    // The input is set by first render; materialize the entry step then (outside
-    // any reactive context, so `form()` is safe to call).
-    afterNextRender(() => this.enter(0));
+    // Clear the error summary whenever the step changes (an advance/back), so it
+    // only shows for the step the user is actually on.
+    effect(() => {
+      this.ctrl()?.step();
+      untracked(() => this.showErrorsNow.set(false));
+    });
+  }
+
+  ngOnInit(): void {
+    this.ctrl.set(
+      new FormadStepperController(this.stepper(), this.injector, (result) =>
+        this.finished.emit(result),
+      ),
+    );
   }
 
   protected next(): void {
-    const step = this.liveStep();
-    // Gate on the registry's completion fold. If the step is invalid, reveal the
-    // errors instead of advancing — that is the showcase, not a dead-end alert.
-    if (step && !this.complete()) {
-      this.markAllTouched(step);
+    // The gate lives in the controller, but the showcase is the summary: if the
+    // step is invalid, reveal every error rather than silently doing nothing.
+    if (!this.canNext()) {
+      this.markAllTouched();
       this.showErrorsNow.set(true);
       return;
     }
-    this.commitCurrent();
-    if (this.isLast()) {
-      this.finished.emit();
-    } else {
-      this.enter(this.index() + 1);
-    }
+    this.ctrl()?.next();
+  }
+
+  protected skip(): void {
+    this.ctrl()?.skip();
   }
 
   protected back(): void {
-    this.commitCurrent();
-    if (this.index() === 0) {
-      this.exited.emit();
-    } else {
-      this.enter(this.index() - 1);
-    }
+    const c = this.ctrl();
+    if (c && c.canBack()) c.back();
+    else this.exited.emit();
   }
 
-  // field -> shared for the step being left.
-  private commitCurrent(): void {
-    const step = this.liveStep();
-    if (step) for (const form of step.forms) form.commit();
-  }
-
-  private markAllTouched(step: LiveStep): void {
+  private markAllTouched(): void {
+    const step = this.current();
+    if (!step) return;
     for (const form of step.forms) {
       const root = form.state.rootForm as unknown as Record<string, FieldTree<unknown>>;
       for (const field of form.state.fields) resolveLeaf(root, field.path).markAsTouched();
     }
-  }
-
-  private enter(target: number): void {
-    this.index.set(target);
-    this.showErrorsNow.set(false);
-    let live = this.cache.get(target);
-    if (live) {
-      for (const form of live.forms) form.seed();
-    } else {
-      const wizard = this.stepper();
-      const pool = wizard.forms as Record<string, FormConfig<Record<string, unknown>>>;
-      const shared = wizard.shared as SharedState<Record<string, unknown>>;
-      live = materializeStep(wizard.steps[target], pool, shared, this.injector);
-      this.cache.set(target, live);
-    }
-    this.liveStep.set(live);
-    // A fresh form starts empty, so any non-empty value here came from a seed —
-    // that is exactly the directional autofill we want to flag to the user.
-    this.prefilledNow.set(
-      untracked(() => live.forms.some((f) => Object.values(f.state.model()).some(filled))),
-    );
   }
 }
 

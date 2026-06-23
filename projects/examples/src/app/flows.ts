@@ -1,5 +1,6 @@
 import { asStepper, RuntimeStepper, SharedLink, StepperBuilder } from 'ngx-formad';
 import {
+  cardRefundForm,
   complaintDetailsForm,
   complaintReasonForm,
   conditionForm,
@@ -10,9 +11,11 @@ import {
   orderForm,
   productForm,
   purchaseForm,
+  refundForm,
   returnReasonForm,
   returnShippingForm,
   shipmentForm,
+  storeCreditForm,
   unboxingForm,
   verifyForm,
 } from './forms';
@@ -38,6 +41,8 @@ const sharedShape = {
   city: '',
   firstName: '',
   lastName: '',
+  // The return flow forks on this — chosen on the Refund step, read by the fork.
+  refundMethod: '',
 };
 
 export function buildReturnFlow(): RuntimeStepper {
@@ -50,6 +55,9 @@ export function buildReturnFlow(): RuntimeStepper {
       .createForm('condition', conditionForm)
       .createForm('returnShipping', returnShippingForm)
       .createForm('contact', contactForm)
+      .createForm('refund', refundForm)
+      .createForm('storeCredit', storeCreditForm)
+      .createForm('card', cardRefundForm)
       .createStep((step) =>
         step.createPage(
           { options: { heading: 'Your order', subheading: 'Find the order you want to return.' } },
@@ -74,11 +82,14 @@ export function buildReturnFlow(): RuntimeStepper {
           (page) => page.addForm((f) => f.reason),
         ),
       )
-      .createStep((step) =>
-        step.createPage(
-          { options: { heading: 'Product condition', subheading: 'Tell us what shape it is in.' } },
-          (page) => page.addForm((f) => f.condition),
-        ),
+      // Optional: nothing here is required, so the shell offers a Skip.
+      .createStep(
+        (step) =>
+          step.createPage(
+            { options: { heading: 'Product condition', subheading: 'Optional — tell us what shape it is in.' } },
+            (page) => page.addForm((f) => f.condition),
+          ),
+        { optional: true },
       )
       .createStep((step) =>
         step.createPage(
@@ -86,12 +97,44 @@ export function buildReturnFlow(): RuntimeStepper {
           (page) => page.addForm((f) => f.returnShipping),
         ),
       )
+      // Billing has a nested address group; its city/street/zip render as a fieldset.
       .createStep((step) =>
         step.createPage(
           { options: { heading: 'Billing details', subheading: 'Where we send the confirmation and label.' } },
           (page) => page.addForm((f) => f.contact, { bind: (l) => contactLinks(l) }),
         ),
       )
+      .createStep((step) =>
+        step.createPage(
+          { options: { heading: 'Refund', subheading: 'Choose how to receive your money back.' } },
+          (page) =>
+            page.addForm((f) => f.refund, {
+              bind: (l) => l.link((m) => m.method, (s) => s.refundMethod),
+            }),
+        ),
+      )
+      // Fork: store credit and card refund are different sub-flows with different
+      // results — they do not rejoin.
+      .fork((ctx) => ctx.shared.refundMethod, {
+        'store-credit': (arm) =>
+          arm
+            .createStep((step) =>
+              step.createPage(
+                { options: { heading: 'Store credit', subheading: 'Where should the credit code go?' } },
+                (page) => page.addForm((f) => f.storeCredit),
+              ),
+            )
+            .result(() => ({ kind: 'store-credit' as const, label: 'Store credit issued' })),
+        card: (arm) =>
+          arm
+            .createStep((step) =>
+              step.createPage(
+                { options: { heading: 'Card refund', subheading: 'Confirm the card to refund.' } },
+                (page) => page.addForm((f) => f.card),
+              ),
+            )
+            .result(() => ({ kind: 'card' as const, label: 'Refund to original card' })),
+      })
       .build(),
   );
 }
@@ -205,9 +248,8 @@ export function buildWarrantyFlow(): RuntimeStepper {
   );
 }
 
-// The contact step links every field it shares with the rest of the wizard. `taxId`
-// is the visible one — pre-filled from the order step — but linking the
-// company address too means a revisit keeps whatever the user last confirmed.
+// The contact step links the top-level fields it shares with the rest of the
+// wizard — `taxId` most visibly, pre-filled from the order step.
 //
 // It is shared by both flows, so it is named here rather than inlined twice. The
 // call sites wrap it as `bind: (l) => contactLinks(l)` instead of `bind:
@@ -217,11 +259,11 @@ export function buildWarrantyFlow(): RuntimeStepper {
 // inference, so `l` arrives correctly typed as the contact form's links.
 const contactLinks = (l: SharedLink<ContactModel, typeof sharedShape>) =>
   l
+    // `taxId` is the visible one — pre-filled from the order step. The company
+    // address lives in a nested group now; `bind` addresses top-level keys, so the
+    // address fields are simply local to this form (a known follow-up: nested bind).
     .link((m) => m.taxId, (s) => s.taxId)
     .link((m) => m.companyName, (s) => s.companyName)
-    .link((m) => m.street, (s) => s.street)
-    .link((m) => m.zip, (s) => s.zip)
-    .link((m) => m.city, (s) => s.city)
     .link((m) => m.firstName, (s) => s.firstName)
     .link((m) => m.lastName, (s) => s.lastName)
     .link((m) => m.email, (s) => s.email);

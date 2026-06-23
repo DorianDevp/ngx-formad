@@ -195,46 +195,38 @@ export const shipmentForm: FormConfig<ShipmentModel> = {
     .claimNumber(text('Damage report number', { placeholder: 'e.g. DR-2024-0001' })),
 };
 
-/** Company + person data — the final step of return and complaint. */
+/** Company + person data — the final shared step of return and complaint. The
+ *  address is a **nested group**, so it renders as its own fieldset and validates
+ *  by nested path (`address.city`). */
 export type ContactModel = {
   taxId: string;
   companyName: string;
-  street: string;
-  zip: string;
-  city: string;
+  address: { street: string; zip: string; city: string };
   firstName: string;
   lastName: string;
   email: string;
   phone: string;
 };
+const contactInit = {
+  taxId: '',
+  companyName: '',
+  address: { street: '', zip: '', city: '' },
+  firstName: '',
+  lastName: '',
+  email: '',
+  phone: '',
+};
 export const contactForm: FormConfig<ContactModel> = {
-  model: () => ({
-    taxId: '',
-    companyName: '',
-    street: '',
-    zip: '',
-    city: '',
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-  }),
-  ui: UiFormConfigBuilder.from({
-    taxId: '',
-    companyName: '',
-    street: '',
-    zip: '',
-    city: '',
-    firstName: '',
-    lastName: '',
-    email: '',
-    phone: '',
-  })
+  model: () => structuredClone(contactInit),
+  ui: UiFormConfigBuilder.from(contactInit)
     .taxId(text('Tax ID (VAT)'))
     .companyName(text('Company name'))
-    .street(text('Street and number'))
-    .zip(text('ZIP code', { placeholder: '12345' }))
-    .city(text('City'))
+    .address({ label: 'Company address', maxCols: 2 }, (b) =>
+      b
+        .street(text('Street and number'))
+        .zip(text('ZIP code', { placeholder: '12345' }))
+        .city(text('City')),
+    )
     .firstName(text('First name'))
     .lastName(text('Last name'))
     .email(emailField('E-mail'))
@@ -242,15 +234,56 @@ export const contactForm: FormConfig<ContactModel> = {
   schema: (p) => {
     required(p.companyName, { message: 'Company name is required for the invoice.' });
     pattern(p.taxId, TAX_ID, { message: 'Tax ID must be exactly 10 digits.' });
-    required(p.street, { message: 'We need a street address for the pickup.' });
-    required(p.zip, { message: 'ZIP code is required.' });
-    pattern(p.zip, ZIP, { message: 'Enter a 5-digit ZIP code.' });
-    required(p.city, { message: 'City is required.' });
+    required(p.address.street, { message: 'We need a street address for the pickup.' });
+    required(p.address.zip, { message: 'ZIP code is required.' });
+    pattern(p.address.zip, ZIP, { message: 'Enter a 5-digit ZIP code.' });
+    required(p.address.city, { message: 'City is required.' });
     required(p.firstName, { message: 'First name is required.' });
     required(p.lastName, { message: 'Last name is required.' });
     required(p.email, { message: 'We send the confirmation here.' });
     email(p.email, { message: 'That does not look like a valid e-mail.' });
     pattern(p.phone, PHONE, { message: 'Use digits, spaces, +, ( ) or -.' });
+  },
+};
+
+/* ── Return fork: how the refund is issued ── */
+
+/** Chooses the refund channel — the value the return flow forks on. */
+export type RefundModel = { method: string };
+export const refundForm: FormConfig<RefundModel> = {
+  model: () => ({ method: '' }),
+  ui: UiFormConfigBuilder.from({ method: '' }).method(
+    select('How should we refund you?', [
+      { value: 'store-credit', description: 'Store credit (instant)' },
+      { value: 'card', description: 'Back to the original card' },
+    ]),
+  ),
+  schema: (p) => required(p.method, { message: 'Pick how you would like the refund.' }),
+};
+
+/** Store-credit arm: where to send the credit code. */
+export type StoreCreditModel = { creditEmail: string };
+export const storeCreditForm: FormConfig<StoreCreditModel> = {
+  model: () => ({ creditEmail: '' }),
+  ui: UiFormConfigBuilder.from({ creditEmail: '' }).creditEmail(
+    emailField('E-mail for the store-credit code'),
+  ),
+  schema: (p) => {
+    required(p.creditEmail, { message: 'We send the credit code here.' });
+    email(p.creditEmail, { message: 'That does not look like a valid e-mail.' });
+  },
+};
+
+/** Card arm: the last four digits to match the original payment. */
+export type CardRefundModel = { last4: string };
+export const cardRefundForm: FormConfig<CardRefundModel> = {
+  model: () => ({ last4: '' }),
+  ui: UiFormConfigBuilder.from({ last4: '' }).last4(
+    text('Last 4 digits of the card', { placeholder: '4242' }),
+  ),
+  schema: (p) => {
+    required(p.last4, { message: 'Enter the last four digits.' });
+    pattern(p.last4, /^\d{4}$/, { message: 'Exactly four digits.' });
   },
 };
 

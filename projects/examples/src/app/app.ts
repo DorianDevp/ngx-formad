@@ -82,7 +82,7 @@ const CARDS: readonly { key: FlowKey; tag: string; desc: string }[] = [
               <app-wizard
                 [stepper]="stepper()!"
                 [theme]="active()!"
-                (finished)="view.set('success')"
+                (finished)="finish($event)"
                 (exited)="reset()"
               />
             }
@@ -93,6 +93,12 @@ const CARDS: readonly { key: FlowKey; tag: string; desc: string }[] = [
                   <div class="success-icon"><i class="ti ti-circle-check"></i></div>
                   <h2>{{ active()!.doneTitle }}</h2>
                   <p>{{ active()!.successText }}</p>
+                  @if (outcome(); as o) {
+                    <div class="banner banner-info" style="text-align:left">
+                      <i class="ti ti-arrow-guide"></i>
+                      <span>Outcome: <strong>{{ o.label }}</strong></span>
+                    </div>
+                  }
                   <div class="ticket">
                     <span>Reference</span>
                     <strong>{{ active()!.ticket }}</strong>
@@ -114,6 +120,8 @@ export class App {
   protected readonly view = signal<View>('landing');
   protected readonly active = signal<FlowTheme | null>(null);
   protected readonly stepper = signal<RuntimeStepper | null>(null);
+  /** The forked result, shown on the success screen (null for flat flows). */
+  protected readonly outcome = signal<{ label: string } | null>(null);
 
   protected theme(key: FlowKey): FlowTheme {
     return THEMES[key];
@@ -138,12 +146,25 @@ export class App {
   protected start(key: FlowKey): void {
     this.active.set(THEMES[key]);
     this.stepper.set(BUILDERS[key]());
+    this.outcome.set(null);
     this.view.set('wizard');
+  }
+
+  // A forked flow (the return's refund split) finishes with a discriminated result;
+  // flat flows finish with null. Either way we land on the success screen.
+  protected finish(result: unknown): void {
+    this.outcome.set(isOutcome(result) ? result : null);
+    this.view.set('success');
   }
 
   protected reset(): void {
     this.view.set('landing');
     this.active.set(null);
     this.stepper.set(null);
+    this.outcome.set(null);
   }
+}
+
+function isOutcome(value: unknown): value is { label: string } {
+  return !!value && typeof value === 'object' && typeof (value as { label?: unknown }).label === 'string';
 }
