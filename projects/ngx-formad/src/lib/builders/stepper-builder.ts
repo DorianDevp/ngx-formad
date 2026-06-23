@@ -10,6 +10,7 @@ import {
   FormModel,
   FormProvider,
   RuntimeStepCondition,
+  RuntimeStepContext,
   StepCondition,
   StepContext,
 } from './step-context';
@@ -109,6 +110,53 @@ export class StepBuilder<TForms, TShared extends Record<string, unknown>> {
   }
 }
 
+// How a branch hands a step back to the parent builder, carrying the branch guard.
+type PushStep<TForms, TShared extends Record<string, unknown>> = (
+  build: (step: StepBuilder<TForms, TShared>) => unknown,
+  opts: StepOptions<Stepper<TForms, TShared>>,
+  guard: RuntimeStepCondition,
+) => void;
+
+/** Authors the steps of one branch. Every step it adds is guarded by the branch's
+ *  condition, so it only runs when that branch is selected. Branches can nest. */
+export class BranchBuilder<TForms, TShared extends Record<string, unknown>> {
+  constructor(
+    private readonly push: PushStep<TForms, TShared>,
+    private readonly guard: RuntimeStepCondition,
+  ) {}
+
+  /** A step in this branch — same shape as `createStep`, guarded by the branch. */
+  step(
+    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    opts: StepOptions<Stepper<TForms, TShared>> = {},
+  ): this {
+    this.push(build, opts, this.guard);
+    return this;
+  }
+
+  /** A nested split: each inner step is guarded by *this* branch AND the inner key. */
+  branch<K extends string>(
+    select: (ctx: StepContext<TForms, TShared>) => K,
+    branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
+  ): this {
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    for (const key of Object.keys(branches) as K[]) {
+      const nested: RuntimeStepCondition = (ctx) => this.guard(ctx) && erased(ctx) === key;
+      branches[key](new BranchBuilder<TForms, TShared>(this.push, nested));
+    }
+    return this;
+  }
+}
+
+// ANDs an optional branch guard with a step's own `when`; either, both, or neither.
+function combineConditions(
+  guard: RuntimeStepCondition | undefined,
+  own: RuntimeStepCondition | undefined,
+): RuntimeStepCondition | undefined {
+  if (guard && own) return (ctx) => guard(ctx) && own(ctx);
+  return guard ?? own;
+}
+
 /** A built wizard: its typed form pool, its step tree, and its shared store. */
 export class Stepper<TForms, TShared extends Record<string, unknown>> {
   constructor(
@@ -191,15 +239,48 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
     build: (step: StepBuilder<TForms, TShared>) => unknown,
     opts: StepOptions<Stepper<TForms, TShared>> = {},
   ): this {
+    this.pushStep(build, opts);
+    return this;
+  }
+
+  /**
+   * Splits the flow into branches by a runtime selector. Each branch's steps are
+   * appended guarded by `select(ctx) === key`, so at run time only the chosen
+   * branch's steps survive the effective-sequence filter — and any steps added
+   * after the branch are ungated, so the branches **rejoin automatically**. This
+   * is pure sugar over `createStep({ when })`: the runtime is unchanged, and the
+   * selector reads the same typed context as a condition, so you can branch on
+   * `shared` or on a previous step's `value(...)`.
+   */
+  branch<K extends string>(
+    select: (ctx: StepContext<TForms, TShared>) => K,
+    branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
+  ): this {
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    for (const key of Object.keys(branches) as K[]) {
+      const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
+      branches[key](
+        new BranchBuilder<TForms, TShared>((build, opts, g) => this.pushStep(build, opts, g), guard),
+      );
+    }
+    return this;
+  }
+
+  // Builds one step node, combining an optional branch guard with the step's own
+  // `when` — the single place a step is pushed, shared by createStep and branch.
+  private pushStep(
+    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    opts: StepOptions<Stepper<TForms, TShared>>,
+    guard?: RuntimeStepCondition,
+  ): void {
     const step = new StepBuilder<TForms, TShared>();
     build(step);
     this.steps.push({
       ...step.drain(),
-      when: opts.when as unknown as RuntimeStepCondition,
+      when: combineConditions(guard, opts.when as unknown as RuntimeStepCondition | undefined),
       optional: opts.optional,
       defer: opts.defer,
     });
-    return this;
   }
 
   build(): Stepper<TForms, TShared> {

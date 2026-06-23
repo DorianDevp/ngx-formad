@@ -394,6 +394,39 @@ same typing. Hosts compose the same primitives the shell uses — `effectiveStep
 (the conditional filter), `resolveStepForms` (await lazy configs), and `stepFormNames`
 — and drive their own `@defer` with any trigger.
 
+### Branching
+
+Gating every step of a path with the same `when` is tedious, so `branch` groups
+them: a selector picks a branch by key, and each branch authors its own steps. It
+is **pure sugar** — every branch step compiles to a `when`-gated step, so the
+runtime is unchanged and **branches rejoin automatically** at the next ungated step.
+
+```ts
+new StepperBuilder()
+  .withState({ plan: 'free' as 'free' | 'pro' })
+  .createForm('start', startForm)
+  .createForm('billing', billingForm)
+  .createForm('seats', seatsForm)
+  .createForm('done', doneForm)
+  .createStep((s) => s.createPage(/* Start */))
+  .branch((ctx) => ctx.shared.plan, {
+    //        ▲ ctx is the same typed context as `when`: read shared or value(...)
+    pro: (b) =>
+      b
+        .step((s) => s.createPage(/* Billing */))
+        .step((s) => s.createPage(/* Seats */), { when: ({ shared }) => shared.plan === 'pro' }),
+    free: (b) => b.step((s) => s.createPage(/* Free note */)),
+  })
+  .createStep((s) => s.createPage(/* Done */)) // ungated — both branches rejoin here
+  .build();
+```
+
+The selector is typed against the wizard (`ctx.shared.plan` autocompletes), and its
+return type makes `branches` **exhaustive** — every key the selector can return must
+have a branch. Branches **nest** (`b.branch(...)`), and a step's own `when` is ANDed
+with the branch guard. Because branching reduces to conditions, the `value(...)`
+source works too: branch on a previous step's submitted answer, not just on shared.
+
 ## Theming with adapters
 
 Rendering splits into **three orthogonal axes**, each swapped once through the
@@ -625,6 +658,7 @@ Everything is exported from the package root (`ngx-formad`).
 | Symbol | What it is |
 | --- | --- |
 | `StepperBuilder` | The fluent chain. Each method narrows the type (see below). |
+| `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `step()` and nested `branch()`. |
 | `Stepper<TForms, TShared>` | The built wizard: `{ forms, steps, shared }`. |
 | `asStepper(stepper)` | The single, named widening from a typed `Stepper` to `RuntimeStepper`. |
 | `RuntimeStepper` | `Stepper` with pool/shared types erased — what the runtime and shell consume. |
@@ -693,6 +727,9 @@ createStep((step) => …, {                     // step: StepBuilder<TForms, TSh
   optional?: boolean,                         //   ctx.shared : TShared, ctx.value('x') : that model
   defer?: 'idle' | 'viewport' | 'interaction',
 })
+branch((ctx) => key, {                        // ctx: StepContextFor<…>; key narrows `branches`
+  [key]: (b) => b.step((step) => …, opts?)    // b: BranchBuilder — guarded steps; nests via b.branch()
+})
 step.createPage({ options: PageOptions }, (page) => …)    // page: PageBuilder<…>
 page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declared forms only
   submitLabel?: string,
@@ -744,9 +781,11 @@ whose only input is the `StepperController`) and register it with
 components are config; the renderer produces the DOM, including the `@if` on visibility.
 
 **Can steps be conditional, optional, or branch?** Yes. `createStep(build, { when })`
-makes a step conditional (filtered out of the sequence when `when` is false; branches
-rejoin automatically), `{ optional: true }` makes it skippable, and `{ defer }` renders
-it inside `@defer`. See [Conditional, optional & lazy steps](#conditional-optional--lazy-steps).
+makes a step conditional, `{ optional: true }` makes it skippable, and `{ defer }`
+renders it inside `@defer`. For multi-step paths, `branch(select, { … })` groups
+guarded steps by key — pure sugar over `when`, so **branches rejoin automatically**.
+See [Conditional, optional & lazy steps](#conditional-optional--lazy-steps) and
+[Branching](#branching).
 
 **Can a form load lazily?** Yes. `createForm(name, () => import(...).then(m => m.form))`
 fetches the form's config only when its step is reached; eager steps stay synchronous.
