@@ -43,6 +43,8 @@ export type LayoutNode = ContentNode | ComponentNode | FormNode | RowNode;
 /** Page chrome. */
 export interface PageOptions {
   readonly heading?: string;
+  /** A short line under the heading; purely presentational, read by the shell. */
+  readonly subheading?: string;
   readonly layout?: string;
 }
 
