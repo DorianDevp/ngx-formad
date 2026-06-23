@@ -1,10 +1,17 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FieldTree } from '@angular/forms/signals';
-import { UiFormConfigBuilder, email, text } from 'formodel';
+import { array, UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { FormRenderer } from './form-renderer';
 import { asRenderable, instantiateForm } from './instantiate-form';
+
+async function pump(fixture: ComponentFixture<unknown>): Promise<void> {
+  for (let i = 0; i < 3; i++) {
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+}
 
 type Account = { email: string; name: string };
 
@@ -137,5 +144,62 @@ describe('FormRenderer — nested groups', () => {
       address: { city: FieldTree<string> };
     };
     expect(root.address.city().value()).toBe('Berlin');
+  });
+});
+
+type WithItems = { items: { sku: string }[] };
+const itemsConfig: FormConfig<WithItems> = {
+  model: () => ({ items: [] }),
+  ui: UiFormConfigBuilder.from({ items: [] as { sku: string }[] }).items(
+    array(UiFormConfigBuilder.from({ sku: '' }).sku(text('SKU')), {
+      label: 'Items',
+      addLabel: 'Add item',
+      removeLabel: 'Remove',
+    }),
+  ),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class ArrayHost {
+  readonly state = asRenderable(instantiateForm(itemsConfig));
+}
+
+describe('FormRenderer — repeating arrays', () => {
+  let fixture: ComponentFixture<ArrayHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(ArrayHost);
+    await pump(fixture);
+  });
+
+  const inputs = () =>
+    Array.from(fixture.nativeElement.querySelectorAll('input') as NodeListOf<HTMLInputElement>);
+  const button = (label: string) =>
+    Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>).find(
+      (b) => b.textContent?.trim() === label,
+    );
+
+  it('starts empty, adds an item, binds it, and removes it', async () => {
+    expect(inputs().length).toBe(0); // no items yet
+    expect(fixture.nativeElement.querySelector('fieldset.ngx-formad-array')).toBeTruthy();
+
+    button('Add item')!.click();
+    await pump(fixture);
+    expect(inputs().length).toBe(1); // one item's SKU field
+
+    inputs()[0].value = 'ABC-1';
+    inputs()[0].dispatchEvent(new Event('input'));
+    await pump(fixture);
+    const root = fixture.componentInstance.state.rootForm as unknown as {
+      items: Record<number, { sku: FieldTree<string> }>;
+    };
+    expect(root.items[0].sku().value()).toBe('ABC-1');
+
+    button('Remove')!.click();
+    await pump(fixture);
+    expect(inputs().length).toBe(0);
   });
 });

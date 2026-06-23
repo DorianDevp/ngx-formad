@@ -79,7 +79,7 @@ describe('StepperBuilder', () => {
 
     expect(formNode.name).toBe('account');
     expect(formNode.submitLabel).toBe('Next');
-    expect(formNode.links).toEqual([{ modelKey: 'email', sharedKey: 'email' }]);
+    expect(formNode.links).toEqual([{ modelPath: ['email'], sharedKey: 'email' }]);
   });
 
   // Regression guard for the `addForm` key inference. `vat` exists on `billing`
@@ -107,7 +107,7 @@ describe('StepperBuilder', () => {
     const formNode = stepper.steps[0].pages[0].children.find(
       (c) => c.kind === 'form',
     ) as FormNode;
-    expect(formNode.links).toEqual([{ modelKey: 'vat', sharedKey: 'vat' }]);
+    expect(formNode.links).toEqual([{ modelPath: ['vat'], sharedKey: 'vat' }]);
   });
 
   it('normalizes a dynamic component into bindings', () => {
