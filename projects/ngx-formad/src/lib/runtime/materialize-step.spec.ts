@@ -1,5 +1,6 @@
 import { EnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
+import { FieldTree } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { StepperBuilder } from '../builders/stepper-builder';
@@ -57,14 +58,16 @@ describe('materializeStep', () => {
 
     // Enter step 1, type into the account email, commit on the way out.
     const step1 = materializeStep(stepper.steps[0], pool, shared, injector);
-    const accountEmail = (step1.forms[0].state.rootForm as any).email;
+    const root1 = step1.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
+    const accountEmail = root1['email'];
     accountEmail().value.set('alice@example.com');
     accountEmail().markAsDirty();
     step1.forms[0].commit();
 
     // Enter step 2: its email is pristine, so it picks up the shared value.
     const step2 = materializeStep(stepper.steps[1], pool, shared, injector);
-    const billingEmail = (step2.forms[0].state.rootForm as any).email;
+    const root2 = step2.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
+    const billingEmail = root2['email'];
     expect(billingEmail().value()).toBe('alice@example.com');
   });
 

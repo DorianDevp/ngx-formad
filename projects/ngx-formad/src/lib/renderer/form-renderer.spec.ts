@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { FieldTree } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { FormRenderer } from './form-renderer';
@@ -55,25 +56,31 @@ describe('FormRenderer', () => {
     emailInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    const root = fixture.componentInstance.state.rootForm as any;
-    expect(root.email().value()).toBe('alice@example.com');
+    const root = fixture.componentInstance.state.rootForm as unknown as Record<
+      string,
+      FieldTree<unknown>
+    >;
+    expect(root['email']().value()).toBe('alice@example.com');
   });
 
   it('marks the field dirty on a user edit but not on a programmatic write', async () => {
-    const root = fixture.componentInstance.state.rootForm as any;
-    expect(root.email().dirty()).toBe(false);
+    const root = fixture.componentInstance.state.rootForm as unknown as Record<
+      string,
+      FieldTree<unknown>
+    >;
+    expect(root['email']().dirty()).toBe(false);
 
     // A programmatic seed-style write must leave the field pristine, or the
     // shared-state seed gate would refuse to ever re-seed it.
     fixture.componentInstance.state.model.set({ email: 'seed@example.com', name: '' });
     await fixture.whenStable();
-    expect(root.email().dirty()).toBe(false);
+    expect(root['email']().dirty()).toBe(false);
 
     // A real user edit must flip dirty so the gate backs off.
     const emailInput = inputs()[0];
     emailInput.value = 'typed@example.com';
     emailInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
-    expect(root.email().dirty()).toBe(true);
+    expect(root['email']().dirty()).toBe(true);
   });
 });
