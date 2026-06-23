@@ -18,20 +18,31 @@
             "browser": "projects/examples/src/main.ts",
             "index": "projects/examples/src/index.html",
             "tsConfig": "projects/examples/tsconfig.app.json",
-            "styles": ["projects/examples/src/styles.css"],
+            "styles": [
+              "projects/examples/src/styles.css"
+            ],
             "assets": []
           },
           "configurations": {
-            "production": { "outputHashing": "all" },
-            "development": { "optimization": false, "sourceMap": true }
+            "production": {
+              "outputHashing": "all"
+            },
+            "development": {
+              "optimization": false,
+              "sourceMap": true
+            }
           },
           "defaultConfiguration": "production"
         },
         "serve": {
           "builder": "@angular/build:dev-server",
           "configurations": {
-            "production": { "buildTarget": "examples:build:production" },
-            "development": { "buildTarget": "examples:build:development" }
+            "production": {
+              "buildTarget": "examples:build:production"
+            },
+            "development": {
+              "buildTarget": "examples:build:development"
+            }
           },
           "defaultConfiguration": "development"
         }

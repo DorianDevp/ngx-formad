@@ -8,7 +8,8 @@
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
     "paths": {
-      "ngx-formad": ["./dist/ngx-formad"]
+      "ngx-formad": ["./dist/ngx-formad"],
+      "ngx-formad/material": ["./dist/ngx-formad/material"]
     },
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
