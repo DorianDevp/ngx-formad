@@ -1,7 +1,7 @@
 import { signal, WritableSignal } from '@angular/core';
 import { FieldTree, form } from '@angular/forms/signals';
 import { UiFormGroupConfig } from 'formodel';
-import { FieldConfig, FormConfig, flattenFields } from '../form-config/form-config';
+import { buildNodes, FieldConfig, FormConfig, flattenFields, RenderNode } from '../form-config/form-config';
 
 // Turning config into live state is the one step that needs an injection context
 // — `form()` calls `inject()` internally. So it is a plain function, not a method
@@ -10,10 +10,14 @@ import { FieldConfig, FormConfig, flattenFields } from '../form-config/form-conf
 // handler when a step is reached lazily. Keeping it separate also keeps the
 // renderer itself pure: it draws a tree it is handed, it never builds one.
 
-/** A form turned live: its model signal, its native field tree, its field list. */
+/** A form turned live: its model signal, its native (possibly nested) field tree,
+ *  the recursive render tree, and a flat list of its scalar leaves. */
 export interface FormState<M extends Record<string, unknown>> {
   readonly model: WritableSignal<M>;
   readonly rootForm: FieldTree<M>;
+  /** The recursive render tree (controls, groups, arrays) the renderer walks. */
+  readonly nodes: readonly RenderNode[];
+  /** Every scalar leaf, each with its full path — for folds over all fields. */
   readonly fields: readonly FieldConfig[];
 }
 
@@ -23,10 +27,10 @@ export function instantiateForm<M extends Record<string, unknown>>(
 ): FormState<M> {
   const model = signal(config.model());
   // `form()` owns its own writable derived from the model; validation lives in
-  // the optional schema and stays entirely native.
+  // the optional schema and stays entirely native — nested groups included.
   const rootForm = config.schema ? form(model, config.schema) : form(model);
-  const fields = flattenFields(config.ui as UiFormGroupConfig<Record<string, unknown>>);
-  return { model, rootForm, fields };
+  const ui = config.ui as UiFormGroupConfig<Record<string, unknown>>;
+  return { model, rootForm, nodes: buildNodes(ui), fields: flattenFields(ui) };
 }
 
 /** Form state with its model type erased, as the renderer consumes it. */

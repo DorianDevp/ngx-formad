@@ -344,6 +344,39 @@ Because errors live on the native field tree, you can also read them yourself �
 `state.rootForm.slug().errors()`, `.valid()`, `.touched()` — which is exactly how the
 [live examples](#live-examples) build a validation summary and gate the Next button.
 
+## Nested groups
+
+A model with nested objects renders as **nested fieldsets** — you don't flatten it by
+hand. formodel describes an object key as a group (`{ label, maxCols, controlsConfig }`)
+and the renderer descends into it; `form(model)` already nests the `FieldTree`
+(`root.address.city`) and folds validity over the whole tree, so nothing else changes.
+
+```ts
+type Account = { name: string; address: { city: string; street: string; zip: string } };
+
+const accountForm: FormConfig<Account> = {
+  model: () => ({ name: '', address: { city: '', street: '', zip: '' } }),
+  ui: UiFormConfigBuilder.from({ name: '', address: { city: '', street: '', zip: '' } })
+    .name(text('Name'))
+    .address({ label: 'Address', maxCols: 2 }, (b) =>
+      b.city(text('City')).street(text('Street')).zip(text('ZIP')),
+    ),
+  schema: (p) => {
+    required(p.name);
+    required(p.address.city); // validate nested paths natively
+  },
+};
+```
+
+That renders `Name`, then an **Address** fieldset with City/Street/ZIP in a 2-column
+grid. Groups nest arbitrarily deep. Each leaf in `state.fields` carries its full
+`path` (`['address','city']`), so a custom chrome's validation summary can address
+nested fields, and the completion gate already counts them.
+
+> **Scope:** nested *rendering and validation* are fully supported. Repeating arrays
+> (`type: 'array'`) are recognized but not yet rendered, and `bind`/`value(...)`
+> address top-level keys (binding a nested field to shared state is a follow-up).
+
 ## Conditional, optional & lazy steps
 
 Real wizards branch. `createStep` takes options — `when`, `optional`, `defer` —
@@ -703,7 +736,8 @@ Everything is exported from the package root (`ngx-formad`).
 | --- | --- |
 | `FormConfig<M>` | A form as data: `{ model: () => M; ui: UiFormGroupConfig<M>; schema?: SchemaOrSchemaFn<M> }`. |
 | `instantiateForm(config)` | Turns a `FormConfig` into live `FormState` (calls native `form()`; needs an injection context). |
-| `FormState<M>` | `{ model: WritableSignal<M>; rootForm: FieldTree<M>; fields: FieldConfig[] }`. |
+| `FormState<M>` | `{ model; rootForm: FieldTree<M>; nodes: RenderNode[]; fields: FieldConfig[] }` — `nodes` is the recursive render tree; `fields` are the flat leaves (each with `path`). |
+| `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` (nested) \| `ArrayNode`. `buildNodes(ui)` builds it. |
 | `asRenderable(state)` | The single, named widening from `FormState<M>` to the erased view the renderer consumes. |
 | `FormRenderer` | The `<ngx-formad-form [state] [layout] />` component. Pure view — no `form()` call. |
 
@@ -819,6 +853,49 @@ with a "we pre-filled this" banner), and **validation surfaced two ways** — in
 blur, plus a summary that lists every offending field when you press Continue on an
 invalid step, with navigation gated on the completion fold.
 
+## Migrating an existing form
+
+Take a typical reactive-forms feature: a multi-step **checkout** wizard with a nested
+model (an order with `shippingAddress.*` and `billingAddress.*`, plus a gift-options
+sub-form), Material controls, an async **country / region** `<select>`, and an **"apply
+promo code"** button mid-form. Here's the path — and the honest trade-offs.
+
+**1. It runs on signal forms, not reactive forms.** ngx-formad renders a native
+`form(model)` `FieldTree`, not a `FormGroup` — there's no wrapper, so adopting it
+means moving that form to signal forms. Do this **risk-first on one small form**, not
+the whole checkout at once. (formodel is the one peer dep to add.)
+
+**2. Nested models map directly — no hand-flattening.** The `shippingAddress.*` /
+`billingAddress.*` / gift-options objects become groups; see
+[Nested groups](#nested-groups). Validity folds over the whole tree natively, and
+prefill paths stay readable.
+
+**3. Material / Tailwind is a one-time adapter, not throwaway.** Write a
+`ControlAdapter` mapping kinds to `mat-form-field`/`mat-select` and a `LayoutAdapter`
+for your grid **once**, and every form reuses them. See [Theming with adapters](#theming-with-adapters).
+
+**4. The wizard shell maps cleanly.** `StepperBuilder` + `withState` + `createStep`,
+including prefill links (e.g. an email entered at the cart step arrives in the billing
+step via `bind`). This is the strongest fit — the hundreds of lines of repetitive
+field declarations and `<mat-form-field>` markup collapse into config.
+
+**5. Dynamic and business behaviors use the escape hatches:**
+
+| Behavior | Where it goes |
+| --- | --- |
+| Async `<select>` options (country / region) | Your Material control adapter reads options from a signal — feed it from the node or a service. |
+| "Apply promo code" / "look up by SKU" mid-form | A dynamic component slot, `page.addComponent(PromoCard, …)`, that writes into shared/fields. |
+| Member-only fields, conditional sections | `visibleWhen` on a field/component, `when` on a step. |
+| Guest vs. business-account checkout | [`branch`](#branching) (rejoins) or [`fork`](#forking) (different result). |
+
+**What to expect.** The boilerplate savings are large; the real cost is concentrated
+in the reactive→signal move (1) and the one-time adapter (3). A pragmatic order:
+migrate the **shell + a couple of flat steps** (cart, contact) first, prove the
+Material adapter and one custom-component slot (the promo code), then bring over the
+nested address steps. Repeating arrays (e.g. line items) and nested-field `bind` are
+the two things to confirm against your forms before committing — both are on the
+roadmap, not in today's renderer.
+
 ## FAQ
 
 **What problem does ngx-formad solve?** Angular signal forms are headless — they own
@@ -840,6 +917,16 @@ whose only input is the `StepperController`) and register it with
 
 **Do I need to write templates?** No. Fields, layout, visibility, and dynamic
 components are config; the renderer produces the DOM, including the `@if` on visibility.
+
+**Does it support nested forms / nested models?** Yes — nested objects render as
+nested fieldsets and validate natively; you don't flatten by hand. See
+[Nested groups](#nested-groups). (Repeating arrays and nested-field `bind` are the
+two follow-ups.)
+
+**How do I migrate an existing reactive-forms feature?** Risk-first: move one small
+form to signal forms, write the Material adapter once, then bring over the wizard
+shell and steps. Full walkthrough and trade-offs in
+[Migrating an existing form](#migrating-an-existing-form).
 
 **Can steps be conditional, optional, or branch?** Yes. `createStep(build, { when })`
 makes a step conditional, `{ optional: true }` makes it skippable, and `{ defer }`

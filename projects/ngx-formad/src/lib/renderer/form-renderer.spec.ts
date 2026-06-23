@@ -84,3 +84,58 @@ describe('FormRenderer', () => {
     expect(root['email']().dirty()).toBe(true);
   });
 });
+
+type Nested = { name: string; address: { city: string; street: string } };
+const nestedConfig: FormConfig<Nested> = {
+  model: () => ({ name: '', address: { city: '', street: '' } }),
+  ui: UiFormConfigBuilder.from({ name: '', address: { city: '', street: '' } })
+    .name(text('Name'))
+    .address({ label: 'Address', maxCols: 2 }, (b) =>
+      b.city(text('City')).street(text('Street')),
+    ),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class NestedHost {
+  readonly state = asRenderable(instantiateForm(nestedConfig));
+}
+
+describe('FormRenderer — nested groups', () => {
+  let fixture: ComponentFixture<NestedHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(NestedHost);
+    await fixture.whenStable();
+    fixture.detectChanges();
+    await fixture.whenStable();
+  });
+
+  it('renders the group as a fieldset with its nested controls', () => {
+    const fieldset = fixture.nativeElement.querySelector('fieldset.ngx-formad-group');
+    expect(fieldset).toBeTruthy();
+    expect(fieldset.querySelector('.ngx-formad-group-label')?.textContent?.trim()).toBe('Address');
+
+    const labels = Array.from(fixture.nativeElement.querySelectorAll('.ngx-formad-field span')).map(
+      (el) => (el as HTMLElement).textContent?.trim(),
+    );
+    expect(labels).toEqual(['Name', 'City', 'Street']);
+  });
+
+  it('two-way binds a nested field through its child tree', async () => {
+    // The City input is inside the group; type into it and read root.address.city.
+    const cityInput = Array.from(
+      fixture.nativeElement.querySelectorAll('input') as NodeListOf<HTMLInputElement>,
+    )[1]; // Name, City, Street → index 1 is City
+    cityInput.value = 'Berlin';
+    cityInput.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    const root = fixture.componentInstance.state.rootForm as unknown as {
+      address: { city: FieldTree<string> };
+    };
+    expect(root.address.city().value()).toBe('Berlin');
+  });
+});
