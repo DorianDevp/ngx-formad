@@ -21,7 +21,13 @@
     "@angular/common": "^21.2.0 || ^22.0.0",
     "@angular/core": "^21.2.0 || ^22.0.0",
     "@angular/forms": "^21.2.0 || ^22.0.0",
+    "@angular/cdk": "^21.2.0 || ^22.0.0",
+    "@angular/material": "^21.2.0 || ^22.0.0",
     "formodel": "^0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/cdk": { "optional": true },
+    "@angular/material": { "optional": true }
   },
   "dependencies": {
     "tslib": "^2.3.0"
