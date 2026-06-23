@@ -26,10 +26,14 @@ export * from './lib/builders/step-context';
 export * from './lib/builders/nodes';
 export * from './lib/builders/stepper-builder';
 
-// Runtime: registry, completion fold, step materialization, and the shell.
+// Runtime: registry, completion fold, step materialization, the headless
+// controller, the swappable chrome, and the shell that wires them.
 export * from './lib/registry/instance-registry';
 export * from './lib/runtime/materialize-step';
 export * from './lib/runtime/effective-sequence';
+export * from './lib/runtime/stepper-controller';
+export * from './lib/runtime/step-forms-view';
+export * from './lib/runtime/default-stepper-chrome';
 export * from './lib/runtime/stepper.component';
 
 // Cross-step shared state and the directional sync engine.
