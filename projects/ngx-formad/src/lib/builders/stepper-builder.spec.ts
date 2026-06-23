@@ -124,4 +124,23 @@ describe('StepperBuilder', () => {
     const stepper = buildStepper();
     expect(stepper.shared.get('email')).toBe('');
   });
+
+  it('records step-level when / optional / defer on the node', () => {
+    const stepper = new StepperBuilder()
+      .withState({ email: '' })
+      .createForm('account', account)
+      .createStep((step) => step.createPage({ options: { heading: 'A' } }, (page) => page.addForm((f) => f.account)), {
+        optional: true,
+        defer: 'idle',
+        when: ({ shared }) => shared.email === 'go',
+      })
+      .build();
+
+    const node = stepper.steps[0];
+    expect(node.optional).toBe(true);
+    expect(node.defer).toBe('idle');
+    // The condition is stored erased but stays callable with a runtime context.
+    expect(node.when?.({ shared: { email: 'go' }, value: () => undefined })).toBe(true);
+    expect(node.when?.({ shared: { email: 'no' }, value: () => undefined })).toBe(false);
+  });
 });
