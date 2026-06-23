@@ -3,9 +3,10 @@ import { TestBed } from '@angular/core/testing';
 import { FieldTree } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
+import { AnyFormProvider } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { SharedState } from '../sync/shared-state';
-import { materializeStep } from './materialize-step';
+import { materializeStep, resolveStepForms, stepFormNames } from './materialize-step';
 
 type Account = { email: string };
 type Billing = { email: string };
@@ -81,5 +82,28 @@ describe('materializeStep', () => {
     expect(step1.registry.live().length).toBe(1);
     // No schema on these forms, so they are valid and the step is complete.
     expect(step1.registry.completed()).toBe(true);
+  });
+
+  it('lists a step’s form names depth-first', () => {
+    const stepper = buildStepper();
+    expect(stepFormNames(stepper.steps[0])).toEqual(['account']);
+    expect(stepFormNames(stepper.steps[1])).toEqual(['billing']);
+  });
+
+  it('resolveStepForms awaits a lazily-loaded form and passes eager ones through', async () => {
+    const lazyStepper = new StepperBuilder()
+      .withState({})
+      .createForm('account', account)
+      .createForm('billing', () => Promise.resolve(billing)) // lazy provider
+      .createStep((step) =>
+        step.createPage({ options: {} }, (page) => page.addForm((f) => f.account).addForm((f) => f.billing)),
+      )
+      .build();
+
+    const pool = lazyStepper.forms as unknown as Record<string, AnyFormProvider>;
+    const resolved = await resolveStepForms(lazyStepper.steps[0], pool);
+
+    expect(resolved['account']).toBe(account); // eager: passed through
+    expect(resolved['billing']).toBe(billing); // lazy: awaited from the loader
   });
 });

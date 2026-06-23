@@ -344,6 +344,56 @@ Because errors live on the native field tree, you can also read them yourself �
 `state.rootForm.slug().errors()`, `.valid()`, `.touched()` — which is exactly how the
 [live examples](#live-examples) build a validation summary and gate the Next button.
 
+## Conditional, optional & lazy steps
+
+Real wizards branch. `createStep` takes options — `when`, `optional`, `defer` —
+that make a step conditional, skippable, or deferred, all as data. Two paths
+(say an admin vs. a regular account) are expressed by gating their steps on a
+condition; the common steps that follow are ungated, so **the branches rejoin
+automatically**. Because both branches `bind` to the same shared keys, everything
+downstream is branch-agnostic — the shared state *is* the converging interface.
+
+```ts
+new StepperBuilder()
+  .withState({ accountType: 'user' as 'user' | 'admin' })
+  .createForm('basics', basicsForm)
+  .createForm('adminConfig', () => import('./admin').then((m) => m.adminConfigForm)) // lazy
+  .createForm('userMeta', userMetaForm)
+  .createForm('review', reviewForm)
+  .createStep((s) => s.createPage(/* Basics */))
+  .createStep((s) => s.createPage(/* Advanced */), {
+    when: ({ value }) => value('basics')?.accountType === 'admin', // (a) a prior step's value
+    defer: 'idle', // render this heavy step inside @defer
+  })
+  .createStep((s) => s.createPage(/* Settings */), {
+    when: ({ shared }) => shared.accountType !== 'admin', // (b) shared state
+  })
+  .createStep((s) => s.createPage(/* Notes */), { optional: true }) // shows a Skip button
+  .createStep((s) => s.createPage(/* Review */)) // ungated — admin & user paths rejoin here
+  .build();
+```
+
+- **`when(ctx)`** is typed against the wizard you're building — `ctx.shared` is your
+  `withState` shape, and `ctx.value('basics')` is that form's **last-committed**
+  model (both autocomplete; unknown keys are compile errors). It reads from three
+  sources: **(a)** a previous step's form value via `value()`, **(b)** the cross-step
+  `shared` state, and **(c)** anything you close over — ignore the arg and read an
+  external signal. It is reactive: flip the value and the step appears or disappears,
+  and the sequence re-shapes live.
+- **`optional: true`** makes the step skippable — the bundled shell renders a **Skip**
+  that advances past the completion gate.
+- **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
+  fetched only when its step is reached (eager steps stay synchronous). The pool type
+  still records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged.
+- **`defer`** renders the step's body inside an Angular `@defer` block (`'idle' |
+  'viewport' | 'interaction'`) with a placeholder while it hydrates.
+
+The built `Stepper` is the source of truth for these types: `StepContextFor<S>`
+derives the `when` context from a stepper `S`, so a bring-your-own-UI host gets the
+same typing. Hosts compose the same primitives the shell uses — `effectiveSteps(steps, ctx)`
+(the conditional filter), `resolveStepForms` (await lazy configs), and `stepFormNames`
+— and drive their own `@defer` with any trigger.
+
 ## Theming with adapters
 
 Rendering splits into **two orthogonal axes**, each a single object you swap once
@@ -555,7 +605,11 @@ or you walk `steps`/`forms`/`shared` yourself with `materializeStep` — the
 bring-your-own-UI path. The inner callbacks have small, fixed shapes:
 
 ```ts
-createStep((step) => …)                       // step: StepBuilder<TForms, TShared>
+createStep((step) => …, {                     // step: StepBuilder<TForms, TShared>
+  when?: (ctx) => boolean,                    // ctx: StepContextFor<Stepper<TForms, TShared>>
+  optional?: boolean,                         //   ctx.shared : TShared, ctx.value('x') : that model
+  defer?: 'idle' | 'viewport' | 'interaction',
+})
 step.createPage({ options: PageOptions }, (page) => …)    // page: PageBuilder<…>
 page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declared forms only
   submitLabel?: string,
@@ -600,6 +654,14 @@ layout adapter. The two axes are independent.
 
 **Do I need to write templates?** No. Fields, layout, visibility, and dynamic
 components are config; the renderer produces the DOM, including the `@if` on visibility.
+
+**Can steps be conditional, optional, or branch?** Yes. `createStep(build, { when })`
+makes a step conditional (filtered out of the sequence when `when` is false; branches
+rejoin automatically), `{ optional: true }` makes it skippable, and `{ defer }` renders
+it inside `@defer`. See [Conditional, optional & lazy steps](#conditional-optional--lazy-steps).
+
+**Can a form load lazily?** Yes. `createForm(name, () => import(...).then(m => m.form))`
+fetches the form's config only when its step is reached; eager steps stay synchronous.
 
 **Can I bring my own wizard UI?** Yes. `materializeStep` + the instance registry give
 you the runtime primitives; the bundled `StepperComponent` is one shell built on them,
