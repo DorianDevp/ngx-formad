@@ -1,17 +1,22 @@
-# ngx-formad — config-driven forms & multi-step wizards for Angular signal forms
+# ngx-formad — config-driven forms and multi-step wizards for Angular signal forms
 
-**ngx-formad renders Angular forms from configuration.** You describe a form — or
-a whole multi-step wizard — as data, and one generic renderer walks that data and
-produces the DOM. Field appearance (Material, PrimeNG, plain HTML) and layout
-(Tailwind, CSS grid, nothing) are pluggable adapters you configure once. It is the
-rendering and orchestration layer that Angular's headless
-[signal forms](https://angular.dev/guide/forms/signals) deliberately leave to you.
+ngx-formad renders Angular forms from configuration. You describe a form — or a
+multi-step wizard — as data, and one renderer walks that data and produces the DOM.
+Field appearance (Material, plain HTML, or your own) and layout (CSS grid, Tailwind,
+or your own) are adapters you configure once. It sits on top of Angular's headless
+[signal forms](https://angular.dev/guide/forms/signals), which own value and
+validation but render nothing, and supplies the rendering and multi-step orchestration.
 
-- 🧩 **Render from config** — fields, layout, visibility, and dynamic components as data.
-- 🪜 **Multi-step wizards** — navigation, a completion gate, and cross-step autofill.
-- 🎨 **Two adapter axes** — swap controls and layout independently; defaults need zero dependencies.
-- 🧪 **100% native validation** — your `schema` runs on the real `FieldTree`; nothing is re-invented.
-- 📦 **One peer dependency** — [`formodel`](https://www.npmjs.com/package/formodel), the typed form description it renders.
+- **Render from config** — fields, layout, visibility, and dynamic components as data.
+- **Multi-step wizards** — navigation, a completion gate, and cross-step prefill.
+- **Pluggable adapters** — swap controls and layout independently; the defaults need no extra dependencies.
+- **Native validation** — your `schema` runs on the real `FieldTree`; ngx-formad adds no validation layer of its own.
+- **One peer dependency** — [`formodel`](https://www.npmjs.com/package/formodel), the typed form description it renders.
+
+> **Status — early release.** This is `0.1.x` and built on the signal-forms API that
+> is *experimental* in Angular 21. Both the API underneath and this library's own
+> surface may change in breaking ways before a 1.0. It has unit tests but no
+> significant production track record yet; evaluate it on a small form first.
 
 ## Quick look
 
@@ -111,10 +116,9 @@ and field state, but you hand-write a template for every field. ngx-formad suppl
 the missing renderer and the multi-step orchestration, while leaving validation and
 field state entirely native.
 
-It is built for teams that render **many forms from configuration** rather than
-hand-writing each one: **CMS and admin panels** with user-defined content types,
-low-code/no-code builders, onboarding and checkout wizards, and survey engines —
-the audience that reached for Angular Formly on the reactive-forms stack.
+It is built for teams that render many forms from configuration rather than
+hand-writing each one: CMS and admin panels with user-defined content types,
+low-code/no-code builders, onboarding and checkout wizards, and survey engines.
 
 ## When should I use it?
 
@@ -125,13 +129,15 @@ or admin screens multiply faster than you can hand-write templates.
 **Skip it if** you are building one bespoke form. Native signal forms plus a
 hand-written template will be smaller and clearer, and this adds nothing.
 
-| | Native signal forms | ngx-formad | legacies |
-| --- | --- | --- | --- |
-| Forms engine | Signals (built-in) | **Native signals** | Reactive forms |
-| Renders from config | No (headless) | **Yes** | Yes |
-| Multi-step + shared state | No | **Yes** | Add-on |
-| Validation | Native | **Native (unchanged)** | Custom layer |
-| Signal-forms native | — | **Yes** | No |
+### What it gives you
+
+- **Config-driven rendering** — fields, nested groups, and repeating arrays drawn from a `FormConfig`, with no per-field template.
+- **Pluggable adapters** — control and layout axes you swap independently; a ready-made Angular Material control adapter ships in the box.
+- **Multi-step wizards** — navigation with a completion gate folded from each field's native `valid()`.
+- **Flows that bend to the data** — conditional, optional, lazy, and deferred steps; branching that rejoins, and forking that returns a typed result.
+- **Cross-step shared state** — directional prefill that seeds a later field and leaves a user's edit untouched.
+- **Native validation, unchanged** — your `schema` runs on the real `FieldTree`; nothing is re-implemented.
+- **Headless core** — drive the `StepperController` directly for a fully custom wizard UI.
 
 ## Install
 
@@ -779,9 +785,9 @@ forms; wrap it in your own `@defer` if you want to honour `deferTrigger()`. The
 controller is also exported, so a fully bespoke host can construct and drive it
 directly without the token.
 
-### Performance: zero work until needed, no input lag
+### Performance
 
-The suite is built so the orchestrator never gets in the way of typing or clicking:
+A few properties keep the orchestrator off the critical path of typing and clicking:
 
 - **Nothing is built ahead of time.** `build()` is data-only; the controller
   materializes only the *current* step, caches it by node identity, and re-seeds
@@ -961,8 +967,8 @@ for your grid **once**, and every form reuses them. See [Theming with adapters](
 
 **4. The wizard shell maps cleanly.** `StepperBuilder` + `withState` + `createStep`,
 including prefill links (e.g. an email entered at the cart step arrives in the billing
-step via `bind`). This is the strongest fit — the hundreds of lines of repetitive
-field declarations and `<mat-form-field>` markup collapse into config.
+step via `bind`). This is where the payoff is clearest — repetitive field
+declarations and `<mat-form-field>` markup collapse into config.
 
 **5. Dynamic and business behaviors use the escape hatches:**
 
@@ -979,8 +985,8 @@ materialControls })` from [`ngx-formad/material`](#angular-material) gives you
 `mat-form-field`/`mat-select`/`mat-checkbox` across every form — so step (3) is now
 "install and wire", not "write".
 
-**What to expect.** The boilerplate savings are large; the remaining real cost is the
-reactive→signal move (1). A pragmatic order: migrate the **shell + a couple of flat
+**What to expect.** The boilerplate reduction is the main benefit; the remaining real
+cost is the reactive→signal move (1). A pragmatic order: migrate the **shell + a couple of flat
 steps** (cart, contact) first, then bring over the nested address steps and any
 line-item arrays — both render, validate, and bind today.
 
@@ -1043,8 +1049,8 @@ the shared `StepperController` (above). For total control, the primitives —
 `StepperController`, `materializeStep`, `effectiveSteps`, the instance registry — let
 you build a host from scratch, as the live example's `WizardHost` does.
 
-**Will a big wizard cause input lag?** No — see [Performance](#performance-zero-work-until-needed-no-input-lag). Nothing builds ahead of time, typing never wakes the orchestrator, and navigation defers the form build off the click.
+**Will a big wizard cause input lag?** It is designed not to — see [Performance](#performance). Nothing builds ahead of time, typing does not wake the orchestrator, and navigation defers the form build off the click.
 
 ## License
 
-MIT
+[0BSD](./LICENSE) — BSD Zero Clause License. Use it for any purpose, with or without attribution.
