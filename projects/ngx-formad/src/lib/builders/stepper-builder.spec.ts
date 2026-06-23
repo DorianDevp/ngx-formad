@@ -82,6 +82,34 @@ describe('StepperBuilder', () => {
     expect(formNode.links).toEqual([{ modelKey: 'email', sharedKey: 'email' }]);
   });
 
+  // Regression guard for the `addForm` key inference. `vat` exists on `billing`
+  // but not on `account`; binding it only type-checks if `bind`'s model type is
+  // narrowed to the selected form. If `K` widened back to the pool union, `m.vat`
+  // would not exist and this would fail to compile, not just at runtime.
+  it('types bind against the selected form, not the pool union', () => {
+    const stepper = new StepperBuilder()
+      .withState({ vat: '' })
+      .createForm('account', account)
+      .createForm('billing', billing)
+      .createStep((step) =>
+        step.createPage({ options: { heading: 'Billing' } }, (page) =>
+          page.addForm((f) => f.billing, {
+            bind: (l) =>
+              l.link(
+                (m) => m.vat,
+                (s) => s.vat,
+              ),
+          }),
+        ),
+      )
+      .build();
+
+    const formNode = stepper.steps[0].pages[0].children.find(
+      (c) => c.kind === 'form',
+    ) as FormNode;
+    expect(formNode.links).toEqual([{ modelKey: 'vat', sharedKey: 'vat' }]);
+  });
+
   it('normalizes a dynamic component into bindings', () => {
     const stepper = buildStepper();
     const children = stepper.steps[0].pages[0].children;

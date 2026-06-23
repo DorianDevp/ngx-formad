@@ -52,8 +52,13 @@ export class PageBuilder<TForms, TShared extends Record<string, unknown>> {
   }
 
   /** A form from the pool, selected by callback, optionally linked to shared state. */
-  addForm<K extends keyof TForms>(
-    select: (forms: FieldRefs<TForms>) => FieldRefs<TForms>[K],
+  // `K` is inferred from the selected `FieldRef`'s `__key`, not from the indexed
+  // return type `FieldRefs<TForms>[K]` — TS cannot infer a type param out of an
+  // indexed access in return position and silently widens it to `keyof TForms`,
+  // which would type `bind` against the union of every pooled model. Reading the
+  // key off the ref pins `K` to the one form selected, so `FormModel` is exact.
+  addForm<K extends keyof TForms & string>(
+    select: (forms: FieldRefs<TForms>) => FieldRef<K, unknown>,
     opts: {
       submitLabel?: string;
       visibleWhen?: () => boolean;
