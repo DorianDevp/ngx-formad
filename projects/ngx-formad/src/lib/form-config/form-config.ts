@@ -1,21 +1,62 @@
 import { SchemaOrSchemaFn } from '@angular/forms/signals';
-import { UiFormControlNode, UiFormGroupConfig } from 'formodel';
+import {
+  RepeatingGroupNode,
+  UiFormControlNode,
+  UiFormGroupConfig,
+  UiFormGroupNode,
+} from 'formodel';
 import { ItemSpec } from '../layout/layout-adapter';
 
 // form-config is the render description, not a rival to native `form()`. formodel
-// already turns a model into a typed config of nodes (kind + label + options);
-// this layer only adapts that config into a flat list the renderer can walk and
-// attach a layout hint to. Validation and field state stay entirely native.
+// already turns a model into a typed config of nodes (kind + label + options, and
+// for objects/arrays a nested controlsConfig/itemConfig); this layer adapts that
+// config into a tree the renderer can walk recursively. Validation and field state
+// stay entirely native — nesting included, since `form(model)` already produces a
+// nested `FieldTree` (`root.location.city`) and folds validity over the whole tree.
 
-/** One field ready to render: the model key, its formodel node, a layout hint. */
+/** One scalar field ready to render: the model key, its formodel node, a layout
+ *  hint, and the full path from the form root (`['location','city']`). */
 export interface FieldConfig {
-  /** The top-level model key this field edits. */
+  /** The key of this field within its immediate group. */
   readonly key: string;
+  /** The path from the form root to this field; `[key]` at the top level. */
+  readonly path: readonly string[];
   /** The formodel node — `type` is the control kind, plus label/options/etc. */
   readonly node: UiFormControlNode;
   /** Optional per-field layout, applied by the layout adapter's `item()`. */
   readonly layout?: ItemSpec;
 }
+
+/** A scalar control in the render tree. */
+export interface ControlNode extends FieldConfig {
+  readonly kind: 'control';
+}
+
+/** A nested group (a model object): its own label, column count, and children. */
+export interface GroupNode {
+  readonly kind: 'group';
+  readonly key: string;
+  readonly path: readonly string[];
+  readonly label: string;
+  readonly maxCols: number;
+  readonly children: readonly RenderNode[];
+  readonly layout?: ItemSpec;
+}
+
+/** A repeating group (a model array). Rendering of repeats is not built yet — the
+ *  node is recognized and skipped, so a config with arrays still renders its
+ *  scalars and groups rather than throwing. */
+export interface ArrayNode {
+  readonly kind: 'array';
+  readonly key: string;
+  readonly path: readonly string[];
+  readonly node: RepeatingGroupNode<unknown>;
+  readonly item: readonly RenderNode[];
+  readonly layout?: ItemSpec;
+}
+
+/** Anything the renderer can draw at one level of the tree. */
+export type RenderNode = ControlNode | GroupNode | ArrayNode;
 
 /**
  * One form as renderable data: a factory for a fresh model (so the same form
@@ -28,26 +69,74 @@ export interface FormConfig<M extends Record<string, unknown>> {
   readonly schema?: SchemaOrSchemaFn<M>;
 }
 
-// Group nodes carry `controlsConfig`, array nodes carry `itemConfig`. A plain
-// control node has neither; that is how we tell a renderable scalar field apart
-// from the nested shapes the flat renderer does not yet descend into.
-function isControlNode(node: unknown): node is UiFormControlNode {
+// A group node carries `controlsConfig`; a repeating array carries `type: 'array'`
+// + `itemConfig`. A plain control (incl. select/file, even for array-typed model
+// keys) has neither marker, so it falls through to the scalar case.
+function isGroupNode(node: unknown): node is UiFormGroupNode<Record<string, unknown>> {
+  return !!node && typeof node === 'object' && 'controlsConfig' in node;
+}
+function isArrayNode(node: unknown): node is RepeatingGroupNode<unknown> {
   return (
-    !!node && typeof node === 'object' && !('controlsConfig' in node) && !('itemConfig' in node)
+    !!node &&
+    typeof node === 'object' &&
+    (node as { type?: string }).type === 'array' &&
+    'itemConfig' in node
   );
 }
 
 /**
- * Flattens a formodel config into the renderer's field list. Only top-level
- * scalar controls are emitted; nested groups and arrays are skipped for now,
- * since they need recursive layout the flat renderer does not provide.
+ * Builds the recursive render tree from a formodel config: scalars become control
+ * nodes, objects become group nodes (descending into `controlsConfig`), arrays
+ * become array nodes (descending into `itemConfig`). Each node carries its full
+ * path from the root so consumers can address the matching nested field tree.
+ */
+export function buildNodes(
+  ui: UiFormGroupConfig<Record<string, unknown>>,
+  path: readonly string[] = [],
+): RenderNode[] {
+  const nodes: RenderNode[] = [];
+  for (const [key, node] of Object.entries(ui as Record<string, unknown>)) {
+    const here = [...path, key];
+    if (isGroupNode(node)) {
+      nodes.push({
+        kind: 'group',
+        key,
+        path: here,
+        label: node.label,
+        maxCols: node.maxCols,
+        children: buildNodes(node.controlsConfig as UiFormGroupConfig<Record<string, unknown>>, here),
+      });
+    } else if (isArrayNode(node)) {
+      nodes.push({
+        kind: 'array',
+        key,
+        path: here,
+        node,
+        item: buildNodes(node.itemConfig as UiFormGroupConfig<Record<string, unknown>>, here),
+      });
+    } else {
+      nodes.push({ kind: 'control', key, path: here, node: node as UiFormControlNode });
+    }
+  }
+  return nodes;
+}
+
+/**
+ * Flattens the render tree to its scalar leaves (depth-first), each with its full
+ * path. The renderer descends structurally; this list is for consumers that fold
+ * over every field — a validation summary, a "mark all touched" pass — and want to
+ * address each leaf by path. Array contents are excluded (their length is dynamic).
  */
 export function flattenFields(ui: UiFormGroupConfig<Record<string, unknown>>): FieldConfig[] {
-  const fields: FieldConfig[] = [];
-  for (const [key, node] of Object.entries(ui)) {
-    if (isControlNode(node)) fields.push({ key, node });
-  }
-  return fields;
+  const leaves: FieldConfig[] = [];
+  const walk = (nodes: readonly RenderNode[]) => {
+    for (const node of nodes) {
+      if (node.kind === 'control') leaves.push(node);
+      else if (node.kind === 'group') walk(node.children);
+    }
+  };
+  walk(buildNodes(ui));
+  return leaves;
 }
 
 /**

@@ -17,6 +17,7 @@ export * from './lib/form-config/form-config';
 export * from './lib/renderer/instantiate-form';
 export * from './lib/renderer/field-outlet';
 export * from './lib/renderer/component-outlet';
+export * from './lib/renderer/nodes-view';
 export * from './lib/renderer/form-renderer';
 
 // Multi-step authoring: the typed builder chain and its node tree.

@@ -424,6 +424,22 @@ body {
   font-size: 13.5px;
 }
 
+/* Nested group — a fieldset around a sub-object (address.*, investor.*, …). */
+.ngx-formad-group {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px 14px 4px;
+  margin: 4px 0 15px;
+  min-width: 0;
+}
+.ngx-formad-group-label {
+  padding: 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--accent-dark);
+}
+
 /* ── Nav bar ── */
 .nav {
   display: flex;
