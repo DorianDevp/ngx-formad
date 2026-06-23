@@ -303,9 +303,35 @@ signal, which
 [per the field-state docs](https://angular.dev/guide/forms/signals/field-state-management)
 does not mark a field dirty — so a seed never trips its own gate, and nothing can loop.
 
-That is the whole arc: a **form** renders one content type, a **page** composes
-forms and components into a screen, a **stepper** sequences pages into a wizard with
-shared state. The rest of this document is the reference.
+### …and the flow can bend to the data
+
+A real publishing wizard isn't a straight line. The same chain bends to the input,
+and none of it is imperative — it's all data the engine reads at each navigation
+boundary:
+
+- **Nested models** render as nested fieldsets — an Article with an `seo: { title,
+  metaDescription }` object becomes an SEO group with no extra work. See
+  [Nested groups](#nested-groups).
+- **A step can be conditional or optional** — `createStep(build, { when })` drops a
+  step that doesn't apply; `{ optional: true }` lets the user skip it.
+- **The end can fork.** Publishing splits — *publish now* vs *schedule* — into two
+  short arms with **different results**:
+
+```ts
+  .fork((ctx) => ctx.shared.mode, {
+    now:      (arm) => arm.createStep(/* confirm */)
+                          .result(() => ({ kind: 'published' as const })),
+    schedule: (arm) => arm.withState({ at: '' }).createForm('when', whenForm)
+                          .createStep(/* pick date */)
+                          .result(({ shared }) => ({ kind: 'scheduled' as const, at: shared.at })),
+  })
+  .build(); // → Stepper<…, { kind:'published' } | { kind:'scheduled'; at:string }>
+```
+
+So the arc scales: a **form** renders one content type (nested or flat), a **page**
+composes forms and components into a screen, a **stepper** sequences pages — gating,
+branching, and forking on the data — into a wizard that returns a typed result. The
+rest of this document is the reference.
 
 ---
 
@@ -846,12 +872,22 @@ concept above. From the workspace root:
 pnpm examples   # builds the library, then serves the example app
 ```
 
-It demonstrates, end to end: **config-only forms**, a **bring-your-own-UI shell**
-built on `materializeStep` and the instance registry rather than `StepperComponent`,
-**directional autofill** (a tax ID typed on step 1 arrives prefilled six steps later,
-with a "we pre-filled this" banner), and **validation surfaced two ways** — inline on
-blur, plus a summary that lists every offending field when you press Continue on an
-invalid step, with navigation gated on the completion fold.
+It demonstrates, end to end:
+
+- **Config-only forms**, including a **nested address group** on the billing step
+  (renders as a fieldset, validates by nested path).
+- A **custom chrome over `StepperController`** — the host (`WizardHost`) is a
+  bring-your-own-UI chrome that reads the controller's signals and actions rather
+  than re-implementing the engine; the numbered rail, banners, and validation
+  summary are all its own.
+- **Directional autofill** (the tax ID typed on step 1 arrives prefilled on the
+  billing step, with a "we pre-filled this" banner).
+- **An optional step** (Skip) and a **fork** — the return's *Refund* step splits into
+  *store credit* vs *card refund*, two arms with **different typed results** that the
+  success screen reads back.
+- **Validation surfaced two ways** — inline on blur, plus a summary that lists every
+  offending field (nested ones included) when you press Continue on an invalid step,
+  with navigation gated on the completion fold.
 
 ## Migrating an existing form
 
