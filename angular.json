@@ -6,5 +6,32 @@
   },
   "newProjectRoot": "projects",
   "projects": {
+    "ngx-formad": {
+      "projectType": "library",
+      "root": "projects/ngx-formad",
+      "sourceRoot": "projects/ngx-formad/src",
+      "prefix": "lib",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/ngx-formad/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/ngx-formad/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "projects/ngx-formad/tsconfig.spec.json",
+            "runnerConfig": "vitest.config.ts"
+          }
+        }
+      }
+    }
   }
 }

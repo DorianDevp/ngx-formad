@@ -1,59 +1,40 @@
-# NgxFormad
+# ngx-formad — workspace
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.2.13.
+This is the Angular workspace for the **ngx-formad** library. The library itself
+— including its README, which is the one published to npm — lives in
+[`projects/ngx-formad`](./projects/ngx-formad/README.md).
 
-## Development server
+ngx-formad is config-driven rendering and multi-step orchestration for Angular
+signal forms: describe a form or wizard as data, and one renderer walks it.
 
-To start a local development server, run:
-
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Working in this repo
 
 ```bash
-ng generate component component-name
+pnpm install        # install dependencies
+pnpm test           # run the Vitest suite once
+pnpm build          # build the library into dist/ngx-formad
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+`pnpm test` uses the Angular `@angular/build:unit-test` builder on Vitest;
+[`vitest.config.ts`](./vitest.config.ts) inlines `formodel` so its ESM resolves
+in the test runtime.
+
+## Layout
+
+```
+projects/ngx-formad/src/lib/
+  layout/      layout adapter + zero-dep CSS-grid default
+  controls/    control adapter + zero-dep plain-HTML controls
+  form-config/ the formodel-backed field description the renderer consumes
+  renderer/    instantiate a form, then draw it (FormRenderer, outlets)
+  sync/        cross-step shared state + the directional sync engine
+  registry/    the signal-backed instance registry + completion fold
+  builders/    the typed StepperBuilder chain and its node tree
+  runtime/     materialize a step, and the navigable stepper shell
+```
+
+Publishing is done from the build output:
 
 ```bash
-ng generate --help
+pnpm build && cd dist/ngx-formad && npm publish
 ```
-
-## Building
-
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.

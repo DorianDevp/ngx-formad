@@ -1,0 +1,87 @@
+import { computed, Injector, runInInjectionContext, Signal } from '@angular/core';
+import { FieldTree } from '@angular/forms/signals';
+import { FormConfig } from '../form-config/form-config';
+import { FormState, instantiateForm } from '../renderer/instantiate-form';
+import { FormNode, LayoutNode, StepNode } from '../builders/nodes';
+import { InstanceRegistry } from '../registry/instance-registry';
+import { commitToShared, seedFromShared } from '../sync/directional-sync';
+import { fieldSync } from '../sync/field-sync';
+import { SharedState } from '../sync/shared-state';
+
+// Turning a step's config into live forms is where lifecycle, registry, and sync
+// meet. It happens here, not in the builder: `form()` is reactive and needs an
+// injection context, and a step is reached from a navigation event — not a
+// reactive context — so `runInInjectionContext` is the right and sufficient
+// wrapper. Each materialized form joins the step's registry (so completion folds
+// it) and carries its own seed/commit for the directional sync.
+
+/** A live form within a step, with the two directional-sync triggers. */
+export interface LiveForm {
+  readonly name: string;
+  readonly state: FormState<Record<string, unknown>>;
+  /** shared -> field for every link, run on entry; seeds only pristine fields. */
+  seed(): void;
+  /** field -> shared for every link, run on a commit (blur / submit). */
+  commit(): void;
+}
+
+/** The live result of materializing a step. */
+export interface LiveStep {
+  readonly registry: InstanceRegistry;
+  readonly forms: readonly LiveForm[];
+}
+
+// Forms can be nested in rows, so gather them depth-first across the step.
+function formNodes(step: StepNode): FormNode[] {
+  const found: FormNode[] = [];
+  const walk = (nodes: readonly LayoutNode[]) => {
+    for (const node of nodes) {
+      if (node.kind === 'form') found.push(node);
+      else if (node.kind === 'row') walk(node.children);
+    }
+  };
+  for (const page of step.pages) walk(page.children);
+  return found;
+}
+
+/** Instantiates a step's forms, registers them, and wires their shared links. */
+export function materializeStep(
+  step: StepNode,
+  pool: Record<string, FormConfig<Record<string, unknown>>>,
+  shared: SharedState<Record<string, unknown>>,
+  injector: Injector,
+): LiveStep {
+  const registry = new InstanceRegistry();
+  const forms: LiveForm[] = [];
+
+  for (const node of formNodes(step)) {
+    const config = pool[node.name];
+    if (!config) continue;
+
+    const state = runInInjectionContext(injector, () => instantiateForm(config));
+    const root = state.rootForm as unknown as Record<string, FieldTree<unknown>>;
+
+    const visible: Signal<boolean> = node.visibleWhen
+      ? computed(node.visibleWhen)
+      : computed(() => true);
+
+    registry.add({ rootForm: state.rootForm as unknown as FieldTree<unknown>, visible });
+
+    const seed = () => {
+      for (const link of node.links) {
+        seedFromShared(fieldSync(root[link.modelKey]), shared.slot(link.sharedKey));
+      }
+    };
+    const commit = () => {
+      for (const link of node.links) {
+        commitToShared(fieldSync(root[link.modelKey]), shared.slot(link.sharedKey));
+      }
+    };
+
+    // Seed once on materialization — that is this form's entry.
+    seed();
+    forms.push({ name: node.name, state, seed, commit });
+  }
+
+  return { registry, forms };
+}

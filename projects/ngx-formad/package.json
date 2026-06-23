@@ -1,0 +1,30 @@
+{
+  "name": "ngx-formad",
+  "version": "0.1.0",
+  "description": "Config-driven rendering and multi-step orchestration for Angular signal forms. You describe a form or wizard as data; one renderer walks it.",
+  "keywords": [
+    "angular",
+    "signal-forms",
+    "forms",
+    "stepper",
+    "wizard",
+    "dynamic-forms",
+    "form-builder",
+    "formodel"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dorixsearch/ngx-formad.git"
+  },
+  "peerDependencies": {
+    "@angular/common": "^21.2.0 || ^22.0.0",
+    "@angular/core": "^21.2.0 || ^22.0.0",
+    "@angular/forms": "^21.2.0 || ^22.0.0",
+    "formodel": "^0.1.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false
+}
