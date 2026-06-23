@@ -4,15 +4,21 @@ import { SharedState } from '../sync/shared-state';
 import { ComponentCfg, toBindings } from './dynamic-component';
 import { LayoutNode, PageNode, PageOptions, StepNode } from './nodes';
 import { FieldRef, FieldRefs, recordLinks, selectedKey, SharedLink } from './shared-link';
+import {
+  AnyFormProvider,
+  DeferTrigger,
+  FormModel,
+  FormProvider,
+  RuntimeStepCondition,
+  StepCondition,
+  StepContext,
+} from './step-context';
 
 // One typed chain describes the whole wizard. Only `TForms` is threaded through
 // the generics: `createForm` narrows it, and `addForm`/`bind` read it. There is
 // no step/child tuple accumulator — nothing at a use site reads one, and the
 // renderer walks plain `StepNode[]` generically. Per-call generics (`C`, `K`)
 // still give full local inference.
-
-/** Extracts the model type out of a pooled `FormConfig`. */
-type FormModel<F> = F extends FormConfig<infer M> ? M : never;
 
 // The erased pool entry. We don't bound the builder type params by this: a
 // concrete `FormConfig<Account>` is not assignable to `FormConfig<Record<…>>`
@@ -115,6 +121,34 @@ export class Stepper<TForms, TShared extends Record<string, unknown>> {
 /** A stepper with its precise pool/shared types erased, as the runtime sees it. */
 export type RuntimeStepper = Stepper<Record<string, AnyForm>, Record<string, unknown>>;
 
+// The built `Stepper` is the source of truth for step conditions: these pull its
+// form pool and shared shape back out, so a `when` predicate — at authoring time
+// or in a typed host — reads `shared` and `value(...)` against the exact wizard.
+/** The form pool of a built stepper. */
+export type StepperForms<S> = S extends Stepper<infer F, infer _> ? F : never;
+/** The shared-state shape of a built stepper. */
+export type StepperShared<S> = S extends Stepper<infer _, infer Sh> ? Sh : never;
+/** The typed step context derived from a built stepper. */
+export type StepContextFor<S extends Stepper<any, any>> = StepContext<
+  StepperForms<S>,
+  StepperShared<S>
+>;
+/** A step condition typed against a built stepper. */
+export type StepConditionFor<S extends Stepper<any, any>> = StepCondition<
+  StepperForms<S>,
+  StepperShared<S>
+>;
+
+/** Per-step options, typed against the stepper the step belongs to. */
+export interface StepOptions<S extends Stepper<any, any>> {
+  /** Drops the step from the sequence when it returns false; reactive. */
+  readonly when?: StepConditionFor<S>;
+  /** Marks the step skippable — the shell shows a Skip that bypasses the gate. */
+  readonly optional?: boolean;
+  /** Renders the step body inside an `@defer` block with this trigger. */
+  readonly defer?: DeferTrigger;
+}
+
 // The chain is typed for authoring; the runtime walks the pool by string name
 // and the shared store by string key, so it works on an erased view. `SharedState`
 // is invariant in its state type, so this widening needs one explicit step —
@@ -127,7 +161,8 @@ export function asStepper<TForms, TShared extends Record<string, unknown>>(
 
 /** The root of the chain. Each method narrows or appends; `build()` freezes it. */
 export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown> = {}> {
-  private readonly forms: Record<string, AnyForm> = {};
+  // The pool stores configs or lazy loaders; the runtime resolves loaders on reach.
+  private readonly forms: Record<string, AnyFormProvider> = {};
   private sharedInit: Record<string, unknown> = {};
   private readonly steps: StepNode[] = [];
 
@@ -137,26 +172,39 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
     return this as unknown as StepperBuilder<TForms, S>;
   }
 
-  /** Registers a form in the pool under `name`; narrows `TForms`. */
+  /** Registers a form in the pool under `name`; narrows `TForms`. The provider may
+   *  be the config itself or a loader (`() => Promise<FormConfig<M>>`) for a form
+   *  whose definition is fetched only when its step is reached — either way the
+   *  pool type records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged. */
   createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    config: FormConfig<M>,
+    provider: FormProvider<M>,
   ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared> {
-    this.forms[name] = config as unknown as AnyForm;
+    this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared>;
   }
 
-  /** Appends a step built from the typed pool and shared state. */
-  createStep(build: (step: StepBuilder<TForms, TShared>) => unknown): this {
+  /** Appends a step built from the typed pool and shared state. `opts.when`,
+   *  `optional`, and `defer` ride on the step node; `when` is typed against the
+   *  stepper this chain builds, then erased once here, where the node is stored. */
+  createStep(
+    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    opts: StepOptions<Stepper<TForms, TShared>> = {},
+  ): this {
     const step = new StepBuilder<TForms, TShared>();
     build(step);
-    this.steps.push(step.drain());
+    this.steps.push({
+      ...step.drain(),
+      when: opts.when as unknown as RuntimeStepCondition,
+      optional: opts.optional,
+      defer: opts.defer,
+    });
     return this;
   }
 
   build(): Stepper<TForms, TShared> {
     return new Stepper(
-      this.forms as TForms,
+      this.forms as unknown as TForms,
       this.steps,
       new SharedState(this.sharedInit as TShared),
     );

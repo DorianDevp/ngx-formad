@@ -22,12 +22,14 @@ export * from './lib/renderer/form-renderer';
 // Multi-step authoring: the typed builder chain and its node tree.
 export * from './lib/builders/dynamic-component';
 export * from './lib/builders/shared-link';
+export * from './lib/builders/step-context';
 export * from './lib/builders/nodes';
 export * from './lib/builders/stepper-builder';
 
 // Runtime: registry, completion fold, step materialization, and the shell.
 export * from './lib/registry/instance-registry';
 export * from './lib/runtime/materialize-step';
+export * from './lib/runtime/effective-sequence';
 export * from './lib/runtime/stepper.component';
 
 // Cross-step shared state and the directional sync engine.

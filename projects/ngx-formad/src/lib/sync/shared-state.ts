@@ -26,6 +26,15 @@ export class SharedState<S extends Record<string, unknown>> {
     return this.cells[key]();
   }
 
+  /** A reactive snapshot of every key as a plain object. Reading it subscribes to
+   *  all cells, so a `computed` that calls this re-runs on any change — the read
+   *  side a step condition needs: typed as `S`, safe for unknown-key access. */
+  snapshot(): S {
+    const out = {} as S;
+    for (const key of Object.keys(this.cells) as (keyof S)[]) out[key] = this.cells[key]();
+    return out;
+  }
+
   /** Merge a partial update. Keys left out (or undefined) are untouched. */
   patch(partial: Partial<S>): void {
     for (const key of Object.keys(partial) as (keyof S)[]) {

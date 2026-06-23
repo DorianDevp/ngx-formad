@@ -1,5 +1,6 @@
 import { computed, Injector, runInInjectionContext, Signal } from '@angular/core';
 import { FieldTree } from '@angular/forms/signals';
+import { AnyFormProvider } from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { FormState, instantiateForm } from '../renderer/instantiate-form';
 import { FormNode, LayoutNode, StepNode } from '../builders/nodes';
@@ -29,6 +30,12 @@ export interface LiveForm {
 export interface LiveStep {
   readonly registry: InstanceRegistry;
   readonly forms: readonly LiveForm[];
+}
+
+/** The names of every form a step references, depth-first. Lets a host check for
+ *  lazy forms (and take a synchronous path when there are none). */
+export function stepFormNames(step: StepNode): readonly string[] {
+  return formNodes(step).map((node) => node.name);
 }
 
 // Forms can be nested in rows, so gather them depth-first across the step.
@@ -84,4 +91,26 @@ export function materializeStep(
   }
 
   return { registry, forms };
+}
+
+/**
+ * Resolves a step's forms ahead of materialization, awaiting any lazy loaders so
+ * the sync `materializeStep` above can consume a plain config map. Eager configs
+ * pass straight through; only steps with lazily-declared forms incur a `Promise`.
+ */
+export async function resolveStepForms(
+  step: StepNode,
+  pool: Record<string, AnyFormProvider>,
+): Promise<Record<string, FormConfig<Record<string, unknown>>>> {
+  const resolved: Record<string, FormConfig<Record<string, unknown>>> = {};
+  for (const node of formNodes(step)) {
+    const entry = pool[node.name];
+    if (!entry) continue;
+    // A config is an object; a loader is a function — that is the discriminator.
+    resolved[node.name] =
+      typeof entry === 'function'
+        ? await entry()
+        : (entry as FormConfig<Record<string, unknown>>);
+  }
+  return resolved;
 }

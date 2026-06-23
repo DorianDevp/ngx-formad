@@ -1,5 +1,6 @@
 import { Binding, Type } from '@angular/core';
 import { LinkPair } from './shared-link';
+import { DeferTrigger, RuntimeStepCondition } from './step-context';
 
 // The builder runs once and emits this plain tree; the renderer walks it. Every
 // node is data — a "show this when" is a `visibleWhen` getter, never an `if` in
@@ -57,4 +58,11 @@ export interface PageNode {
 /** A step: one or more pages. Completion folds over the forms across them. */
 export interface StepNode {
   readonly pages: readonly PageNode[];
+  /** When present and false, the step is dropped from the effective sequence.
+   *  Evaluated reactively against the live shared state and committed values. */
+  readonly when?: RuntimeStepCondition;
+  /** A skippable step: the shell offers a Skip that bypasses the completion gate. */
+  readonly optional?: boolean;
+  /** Render this step's body inside an `@defer` block with the given trigger. */
+  readonly defer?: DeferTrigger;
 }
