@@ -158,7 +158,8 @@ export class WizardHost {
     for (const form of step.forms) {
       const root = form.state.rootForm as unknown as Record<string, FieldTree<unknown>>;
       for (const field of form.state.fields) {
-        const errors = root[field.key]().errors();
+        // Resolve the leaf by its full path so nested-group fields work too.
+        const errors = resolveLeaf(root, field.path).errors();
         if (errors.length) {
           out.push({
             label: field.node.label ?? field.key,
@@ -211,7 +212,7 @@ export class WizardHost {
   private markAllTouched(step: LiveStep): void {
     for (const form of step.forms) {
       const root = form.state.rootForm as unknown as Record<string, FieldTree<unknown>>;
-      for (const field of form.state.fields) root[field.key]().markAsTouched();
+      for (const field of form.state.fields) resolveLeaf(root, field.path).markAsTouched();
     }
   }
 
@@ -239,4 +240,15 @@ export class WizardHost {
 
 function filled(value: unknown): boolean {
   return typeof value === 'string' ? value.length > 0 : Boolean(value);
+}
+
+// Walks the native field tree to a leaf by its path (`['address','city']`) and
+// returns its field state — so a nested-group field reads the same as a top-level
+// one. `FieldTree` is both callable (→ field state) and indexable (→ child tree).
+function resolveLeaf(root: Record<string, FieldTree<unknown>>, path: readonly string[]) {
+  let node: FieldTree<unknown> = root[path[0]];
+  for (let i = 1; i < path.length; i++) {
+    node = (node as unknown as Record<string, FieldTree<unknown>>)[path[i]];
+  }
+  return node();
 }
