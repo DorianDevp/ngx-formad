@@ -20,9 +20,13 @@ const requiredForm = (label: string): FormConfig<Labelled> => ({
 });
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
-  await fixture.whenStable();
-  fixture.detectChanges();
-  await fixture.whenStable();
+  // Navigation defers materialization to afterNextRender, so a step change is a
+  // multi-hop (set target → render placeholder → build → render forms). Pump a few
+  // cycles so the whole chain flushes.
+  for (let i = 0; i < 4; i++) {
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
 }
 
 function buttonByText(fixture: ComponentFixture<unknown>, label: string): HTMLButtonElement | undefined {
@@ -270,5 +274,71 @@ describe('StepperComponent — laziness', () => {
 
     // Now step 2 built — and exactly once.
     expect(built.c).toBe(1);
+  });
+});
+
+type KindModel = { kind: string };
+const kindForm: FormConfig<KindModel> = {
+  model: () => ({ kind: '' }),
+  ui: UiFormConfigBuilder.from({ kind: '' }).kind(text('Kind')),
+};
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" (completed)="done = $event" />`,
+})
+class ForkHost {
+  done: unknown = undefined;
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({ kind: '' })
+      .createForm('start', kindForm)
+      .createStep((s) =>
+        s.createPage({ options: { heading: 'Start' } }, (p) =>
+          p.addForm((f) => f.start, { bind: (l) => l.link((m) => m.kind, (sh) => sh.kind) }),
+        ),
+      )
+      .fork((c) => c.shared.kind, {
+        business: (arm) =>
+          arm
+            .createForm('company', labelForm('Company'))
+            .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm((f) => f.company)))
+            .result(({ shared }) => ({ kind: 'business', via: shared.kind })),
+        individual: (arm) =>
+          arm
+            .createForm('person', labelForm('Person'))
+            .createStep((s) => s.createPage({ options: { heading: 'Person' } }, (p) => p.addForm((f) => f.person)))
+            .result(() => ({ kind: 'individual' })),
+      })
+      .build(),
+  );
+}
+
+describe('StepperComponent — fork', () => {
+  it('navigates the chosen arm and emits its result on finish', async () => {
+    const fixture = TestBed.createComponent(ForkHost);
+    await settle(fixture);
+
+    // The forward (Back-aside) button — its label is Next/Finish depending on the
+    // committed sequence, so target it positionally.
+    const forward = () => {
+      const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+      return buttons[buttons.length - 1];
+    };
+
+    // Choose the business arm on the start step.
+    const input = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    input.value = 'business';
+    input.dispatchEvent(new Event('input'));
+    await settle(fixture);
+
+    forward().click(); // commit kind → the business arm becomes visible → enter it
+    await settle(fixture);
+    expect(fixture.nativeElement.textContent).toContain('Company');
+
+    forward().click(); // last step of the arm → completes
+    await settle(fixture);
+
+    expect(fixture.componentInstance.done).toEqual({ kind: 'business', via: 'business' });
   });
 });

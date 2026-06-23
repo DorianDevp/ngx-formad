@@ -50,3 +50,6 @@ type ErasedShared = Record<string, unknown>;
 export type RuntimeStepContext = StepContext<ErasedForms, ErasedShared>;
 /** The erased step condition stored on a `StepNode`. */
 export type RuntimeStepCondition = StepCondition<ErasedForms, ErasedShared>;
+/** The erased result resolver a fork stores on the `Stepper` — given the runtime
+ *  context, returns the active arm's outcome (or undefined before one is chosen). */
+export type RuntimeResultResolver = (ctx: RuntimeStepContext) => unknown;
