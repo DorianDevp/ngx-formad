@@ -1,5 +1,5 @@
 import { Component, effect, ElementRef, input, viewChild } from '@angular/core';
-import { StepFormsView } from './step-forms-view';
+import { StepPageView } from './step-page-view';
 import { StepperController } from './stepper-controller';
 
 // The bundled chrome — the default look around the headless controller. It reads
@@ -9,7 +9,7 @@ import { StepperController } from './stepper-controller';
 // stepper })`; a custom chrome is the same shape — one `controller` input.
 @Component({
   selector: 'ngx-formad-default-chrome',
-  imports: [StepFormsView],
+  imports: [StepPageView],
   template: `
     @let c = controller();
     @if (c.loading()) {
@@ -19,27 +19,27 @@ import { StepperController } from './stepper-controller';
         @switch (c.deferTrigger()) {
           @case ('viewport') {
             @defer (on viewport) {
-              <ngx-formad-step-forms [step]="step" />
+              <ngx-formad-step-page [step]="step" />
             } @placeholder {
               <div class="ngx-formad-defer"></div>
             }
           }
           @case ('interaction') {
             @defer (on interaction) {
-              <ngx-formad-step-forms [step]="step" />
+              <ngx-formad-step-page [step]="step" />
             } @placeholder {
               <div class="ngx-formad-defer"></div>
             }
           }
           @case ('idle') {
             @defer (on idle) {
-              <ngx-formad-step-forms [step]="step" />
+              <ngx-formad-step-page [step]="step" />
             } @placeholder {
               <div class="ngx-formad-defer"></div>
             }
           }
           @default {
-            <ngx-formad-step-forms [step]="step" />
+            <ngx-formad-step-page [step]="step" />
           }
         }
       </section>

@@ -65,4 +65,9 @@ export interface StepNode {
   readonly optional?: boolean;
   /** Render this step's body inside an `@defer` block with the given trigger. */
   readonly defer?: DeferTrigger;
+  /** An extra completion guard, ANDed with the form fold. A step whose body is
+   *  driven by dynamic components (not forms) has no fields to fold, so it is
+   *  vacuously complete; `completeWhen` lets such a step gate Next on its own
+   *  state (a selection made, a consent given). Evaluated reactively. */
+  readonly completeWhen?: () => boolean;
 }

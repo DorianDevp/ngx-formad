@@ -3,7 +3,7 @@ import { FieldTree } from '@angular/forms/signals';
 import { AnyFormProvider } from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { FormState, instantiateForm } from '../renderer/instantiate-form';
-import { FormNode, LayoutNode, StepNode } from '../builders/nodes';
+import { FormNode, LayoutNode, PageNode, StepNode } from '../builders/nodes';
 import { InstanceRegistry } from '../registry/instance-registry';
 import { commitToShared, seedFromShared } from '../sync/directional-sync';
 import { fieldSync } from '../sync/field-sync';
@@ -30,6 +30,10 @@ export interface LiveForm {
 export interface LiveStep {
   readonly registry: InstanceRegistry;
   readonly forms: readonly LiveForm[];
+  /** The step's page tree, retained so a chrome can render the full layout —
+   *  forms *and* dynamic components, rows, and content slots — in place, not just
+   *  the flat form list. Forms are resolved back to their live state by name. */
+  readonly pages: readonly PageNode[];
 }
 
 /** The names of every form a step references, depth-first. Lets a host check for
@@ -103,7 +107,7 @@ export function materializeStep(
     forms.push({ name: node.name, state, seed, commit });
   }
 
-  return { registry, forms };
+  return { registry, forms, pages: step.pages };
 }
 
 /**

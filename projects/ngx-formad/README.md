@@ -470,6 +470,11 @@ new StepperBuilder()
   and the sequence re-shapes live.
 - **`optional: true`** makes the step skippable — the bundled shell renders a **Skip**
   that advances past the completion gate.
+- **`completeWhen: () => boolean`** is an extra gate ANDed with the form fold. A step
+  whose body is a dynamic component rather than a form (a selection grid, a custom
+  picker) contributes no fields to the fold, so it is otherwise *vacuously complete*
+  and Next is always enabled; `completeWhen` lets it gate Next on its own state — e.g.
+  `{ completeWhen: () => picked().length > 0 }`. It is reactive.
 - **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
   fetched only when its step is reached (eager steps stay synchronous). The pool type
   still records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged.
@@ -674,9 +679,16 @@ export const myControls: ControlAdapter = {
 ```
 
 Returning `null` instead of throwing is the contract: a typo degrades to a text
-input, and a kind only *your* adapter knows (`'date'`, `'file'`) coexists with the
-defaults. The defaults handle `text`, `email`, `password`, `tel`, `url`, `textarea`,
-`number`, `select`, `radio`, `checkbox`.
+input, and a kind only *your* adapter knows coexists with the defaults. The defaults
+handle `text`, `email`, `password`, `tel`, `url`, `textarea`, `number`, `select`,
+`radio`, `checkbox`, `date`, and `file`. The `checkbox` control also takes an
+`innerHTML` input (from the node) for a rich label — a consent line with links, say.
+
+> **Reserved input names.** `value`, `touched`, `errors`, `disabled`, `required`,
+> and the validation-metadata names `min`, `max`, `minLength`, `maxLength`,
+> `pattern`, `step` belong to the native `FormValueControl` contract (and are typed
+> — `min`/`max` are `number`). A presentational input must not reuse them, which is
+> why the bundled `date` control names its bounds `minDate`/`maxDate`.
 
 ### Writing a layout adapter
 
@@ -727,11 +739,14 @@ bootstrapApplication(App, {
 });
 ```
 
-Every form then renders with `mat-form-field` / `mat-select` / `mat-checkbox`, no
-change to any form config. It implements the same `ControlAdapter` contract as the
-default, mapping the same kinds; errors bridge to Material's `<mat-error>` via a
-per-control `ErrorStateMatcher` reading the field's touched/errors signals. Swapping
-the layout or stepper-chrome axis is independent, as always.
+Every form then renders with `mat-form-field` / `mat-select` / `mat-checkbox` /
+`mat-datepicker` (and a Material file picker), no change to any form config. It
+implements the same `ControlAdapter` contract as the default, mapping the same kinds
+(including `date` and `file`); errors bridge to Material's `<mat-error>` via a
+per-control `ErrorStateMatcher` reading the field's touched/errors signals. The
+`date` control needs a `DateAdapter` in the app (`provideNativeDateAdapter()` or a
+Moment/Luxon adapter), as any Material datepicker does. Swapping the layout or
+stepper-chrome axis is independent, as always.
 
 ### Writing a stepper chrome
 
@@ -743,18 +758,18 @@ input is the controller — and register it; you never reimplement the engine.
 
 ```ts
 import { Component, input } from '@angular/core';
-import { StepFormsView, StepperController } from 'ngx-formad';
+import { StepPageView, StepperController } from 'ngx-formad';
 
 @Component({
   selector: 'app-chrome',
-  imports: [StepFormsView],
+  imports: [StepPageView],
   template: `
     <header>{{ c().heading() }} — step {{ c().index() + 1 }} of {{ c().total() }}</header>
 
     @if (c().loading()) {
       <div class="skeleton"></div>
     } @else if (c().step(); as step) {
-      <ngx-formad-step-forms [step]="step" /> <!-- renders the step's forms -->
+      <ngx-formad-step-page [step]="step" /> <!-- renders the step's whole page -->
     }
 
     <footer>
@@ -779,11 +794,16 @@ provideFormadSuite({ stepper: AppChrome });
 ```
 
 `StepperController` exposes signals — `step`, `loading`, `index`, `total`,
-`heading`, `subheading`, `canBack`, `canNext`, `isLast`, `optional`, `deferTrigger`
-— and the actions `next()`, `back()`, `skip()`. `StepFormsView` renders a step's
-forms; wrap it in your own `@defer` if you want to honour `deferTrigger()`. The
-controller is also exported, so a fully bespoke host can construct and drive it
-directly without the token.
+`heading`, `subheading`, `canBack`, `canNext`, `isLast`, `optional`, `deferTrigger`,
+`result`, and `committed` (every form's last-committed model, the data-egress for
+persisting as you go) — and the actions `next()`, `back()`, `skip()`, and `reset()`
+(restart: clears committed values, resets shared state, re-enters the first step).
+`StepPageView` (`ngx-formad-step-page`) renders a step's **whole page** — forms,
+dynamic components, rows, and content slots; wrap it in your own `@defer` to honour
+`deferTrigger()`. (`StepFormsView` / `ngx-formad-step-forms` is the forms-only
+subset, for a chrome that never uses `addComponent`.) The controller is also
+exported, so a fully bespoke host can construct and drive it directly without the
+token.
 
 ### Performance
 
@@ -834,18 +854,19 @@ Everything is exported from the package root (`ngx-formad`).
 | `asStepper(stepper)` | The single, named widening from a typed `Stepper` to `RuntimeStepper`. |
 | `RuntimeStepper` | `Stepper` with pool/shared types erased — what the runtime and shell consume. |
 | `SharedLink<M, S>` | The `bind` recorder: `.link(m => m.field, s => s.key)` ties a model field to a shared key. |
-| `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) />` shell — builds the controller, renders the chrome, emits the fork result on finish. |
+| `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) (stepCommitted) />` shell — builds the controller, renders the chrome, emits the fork result on finish, and emits every form's committed model on each navigation. |
 
 ### Run it yourself (bring-your-own-UI)
 
 | Symbol | What it is |
 | --- | --- |
-| `StepperController` | The headless engine: state signals (`step`, `index`, `canNext`, `result`, …) + `next`/`back`/`skip`. |
-| `StepFormsView` | `<ngx-formad-step-forms [step] />` — renders one step's forms; drop into your own `@defer`. |
+| `StepperController` | The headless engine: state signals (`step`, `index`, `canNext`, `result`, `committed`, …) + `next`/`back`/`skip`/`reset`. |
+| `StepPageView` | `<ngx-formad-step-page [step] />` — renders one step's **whole page** (forms + components + rows + content); drop into your own `@defer`. |
+| `StepFormsView` | `<ngx-formad-step-forms [step] />` — the forms-only subset of `StepPageView`, for a chrome that never uses `addComponent`. |
 | `materializeStep(step, pool, shared, inj)` | Instantiates a step's forms, registers them, wires the sync. Returns a `LiveStep`. |
 | `resolveStepForms(step, pool)` | Awaits a step's lazy form loaders into a plain config map (eager ones pass through). |
 | `effectiveSteps(steps, ctx)` | The pure conditional filter — the steps whose `when` passes, in order. |
-| `LiveStep` / `LiveForm` | `LiveStep = { registry, forms }`; `LiveForm = { name, state, seed(), commit() }`. |
+| `LiveStep` / `LiveForm` | `LiveStep = { registry, forms, pages }`; `LiveForm = { name, state, seed(), commit() }`. |
 | `InstanceRegistry` | Collects a step's live forms; `completed()` folds `valid()` over the visible ones. |
 | `SharedState<S>` | The plain-signal cross-step store; `get(key)`, `patch(partial)`, `select(key)`, `slot(key)`, `snapshot()`. |
 
@@ -897,6 +918,7 @@ createStep((step) => …, {                     // step: StepBuilder<TForms, TSh
   when?: (ctx) => boolean,                    // ctx: StepContextFor<Stepper<TForms, TShared>>
   optional?: boolean,                         //   ctx.shared : TShared, ctx.value('x') : that model
   defer?: 'idle' | 'viewport' | 'interaction',
+  completeWhen?: () => boolean,               // extra gate, ANDed with the form fold (see below)
 })
 branch((ctx) => key, {                        // ctx: StepContextFor<…>; key narrows `branches`
   [key]: (b) => b.step((step) => …, opts?)    // b: BranchBuilder — guarded steps; nests via b.branch()
@@ -920,14 +942,16 @@ page.insertRow('grid-cols-2', (row) => …)     // a nested PageBuilder
 ## Live examples
 
 A runnable showcase ships under `projects/examples` — a storefront self-service
-portal with three multi-step flows (Return, Complaint, Warranty) built on every
-concept above. From the workspace root:
+portal with three multi-step flows (Return, Complaint, Warranty). From the workspace
+root:
 
 ```bash
 pnpm examples   # builds the library, then serves the example app
 ```
 
-It demonstrates, end to end:
+It focuses on the config-form and orchestration concepts (dynamic-component slots
+via `addComponent` and the `completeWhen` gate are exercised by the unit tests, not
+these flows). It demonstrates, end to end:
 
 - **Config-only forms**, including a **nested address group** on the billing step
   (renders as a fieldset, validates by nested path).

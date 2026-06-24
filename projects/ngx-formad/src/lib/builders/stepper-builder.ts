@@ -174,6 +174,7 @@ function appendStep<TForms, TShared extends Record<string, unknown>>(
     when: combineConditions(guard, opts.when as unknown as RuntimeStepCondition | undefined),
     optional: opts.optional,
     defer: opts.defer,
+    completeWhen: opts.completeWhen,
   });
 }
 
@@ -321,6 +322,10 @@ export interface StepOptions<S extends Stepper<any, any, any>> {
   readonly optional?: boolean;
   /** Renders the step body inside an `@defer` block with this trigger. */
   readonly defer?: DeferTrigger;
+  /** An extra completion guard, ANDed with the form fold so a step driven by
+   *  dynamic components (which contribute no fields to fold) can still gate Next
+   *  on its own state. Reactive — read shared/external signals here. */
+  readonly completeWhen?: () => boolean;
 }
 
 // The chain is typed for authoring; the runtime walks the pool by string name

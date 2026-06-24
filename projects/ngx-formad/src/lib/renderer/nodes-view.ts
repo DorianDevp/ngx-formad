@@ -13,7 +13,7 @@ import { FieldOutlet } from './field-outlet';
 // `form(model)` already nests the `FieldTree` and folds validity over the whole.
 @Component({
   selector: 'ngx-formad-nodes',
-  imports: [FieldOutlet, NodesView],
+  imports: [FieldOutlet],
   template: `
     <div [class]="containerClass()" [style]="containerStyle()">
       @for (node of nodes(); track node.key) {
@@ -23,6 +23,7 @@ import { FieldOutlet } from './field-outlet';
               @if (group(node).label) {
                 <legend class="ngx-formad-group-label">{{ group(node).label }}</legend>
               }
+
               <ngx-formad-nodes
                 [nodes]="group(node).children"
                 [tree]="childTree(node.key)"
@@ -37,12 +38,15 @@ import { FieldOutlet } from './field-outlet';
           }
           @case ('array') {
             <fieldset class="ngx-formad-array" style="grid-column: 1 / -1">
+
               @if (array(node).node.label) {
                 <legend class="ngx-formad-group-label">{{ array(node).node.label }}</legend>
               }
+
               @for (i of itemIndexes(node.key); track i) {
                 <div class="ngx-formad-array-item">
                   <ngx-formad-nodes [nodes]="array(node).item" [tree]="itemTree(node.key, i)" />
+
                   @if (array(node).node.removable !== false) {
                     <button
                       type="button"

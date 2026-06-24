@@ -1,8 +1,11 @@
 import { Component, input, model } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
 import { ErrorStateMatcher } from '@angular/material/core';
+import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
 import { MatOption, MatSelect } from '@angular/material/select';
 
@@ -192,7 +195,13 @@ export class MatSelectControl implements FormValueControl<unknown> {
       (change)="value.set($event.checked)"
       (blur)="touched.set(true)"
     >
-      {{ label() }}
+      @if (innerHTML()) {
+        <!-- Rich consent prose (links included); author-controlled config, not
+             user input, so binding it is safe. -->
+        <span class="mat-formad-checkbox-label" [innerHTML]="innerHTML()"></span>
+      } @else {
+        {{ label() }}
+      }
     </mat-checkbox>
     @if (touched() && errors().length) {
       <small class="mat-formad-error">{{ errors()[0]?.message }}</small>
@@ -202,8 +211,101 @@ export class MatSelectControl implements FormValueControl<unknown> {
 export class MatCheckboxControl implements FormValueControl<boolean> {
   value = model(false);
   label = input('');
+  innerHTML = input('');
   disabled = input(false);
   touched = model(false);
   required = input(false);
   errors = input<Errors>([]);
+}
+
+@Component({
+  selector: 'mat-formad-date',
+  imports: [MatFormFieldModule, MatInputModule, MatDatepickerModule],
+  template: `
+    <mat-form-field appearance="outline" class="mat-formad-field">
+      <mat-label>{{ label() }}</mat-label>
+      <input
+        matInput
+        [matDatepicker]="picker"
+        [value]="value()"
+        [disabled]="disabled()"
+        [required]="required()"
+        [min]="minDate()"
+        [max]="maxDate()"
+        [errorStateMatcher]="matcher"
+        (dateChange)="value.set($event.value)"
+        (blur)="touched.set(true)"
+      />
+      <mat-datepicker-toggle matIconSuffix [for]="picker" />
+      <mat-datepicker #picker />
+      @if (touched() && errors().length) {
+        <mat-error>{{ errors()[0]?.message }}</mat-error>
+      }
+    </mat-form-field>
+  `,
+})
+export class MatDateControl implements FormValueControl<Date | null> {
+  value = model<Date | null>(null);
+  label = input('');
+  disabled = input(false);
+  // `min`/`max` are reserved by the control contract (numeric), so the date
+  // bounds use distinct names.
+  minDate = input<Date | null>(null);
+  maxDate = input<Date | null>(null);
+  touched = model(false);
+  required = input(false);
+  errors = input<Errors>([]);
+  protected readonly matcher = new SignalErrorStateMatcher(
+    () => this.touched() && this.errors().length > 0,
+  );
+}
+
+@Component({
+  selector: 'mat-formad-file',
+  imports: [MatButtonModule, MatIconModule],
+  template: `
+    <div class="mat-formad-file">
+      <button type="button" mat-stroked-button [disabled]="disabled()" (click)="input.click()">
+        <mat-icon>attach_file</mat-icon>
+        {{ label() || 'Choose file' }}
+      </button>
+      <input
+        #input
+        hidden
+        type="file"
+        [accept]="accept()"
+        [multiple]="multiple()"
+        (change)="pick($event)"
+        (blur)="touched.set(true)"
+      />
+      @if (value().length) {
+        <ul class="mat-formad-file-list">
+          @for (file of value(); track $index) {
+            <li>{{ file.name }}</li>
+          }
+        </ul>
+      }
+      @if (touched() && errors().length) {
+        <small class="mat-formad-error">{{ errors()[0]?.message }}</small>
+      }
+    </div>
+  `,
+})
+export class MatFileControl implements FormValueControl<readonly File[]> {
+  value = model<readonly File[]>([]);
+  label = input('');
+  accept = input('');
+  multiple = input(false);
+  maxFiles = input<number | null>(null);
+  disabled = input(false);
+  touched = model(false);
+  required = input(false);
+  errors = input<Errors>([]);
+
+  protected pick(e: Event): void {
+    const picked = Array.from((e.target as HTMLInputElement).files ?? []);
+    const cap = this.maxFiles();
+    this.value.set(cap != null ? picked.slice(0, cap) : picked);
+    this.touched.set(true);
+  }
 }

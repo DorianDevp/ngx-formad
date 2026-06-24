@@ -3,6 +3,8 @@ import { FormValueControl } from '@angular/forms/signals';
 import { ControlAdapter } from './control-adapter';
 import {
   CheckboxControl,
+  DateControl,
+  FileControl,
   NumberControl,
   SelectControl,
   TextControl,
@@ -24,11 +26,12 @@ const registry: Record<string, Type<FormValueControl<unknown>>> = {
   select: SelectControl,
   radio: SelectControl,
   checkbox: CheckboxControl,
+  date: DateControl,
+  file: FileControl,
 } as Record<string, Type<FormValueControl<unknown>>>;
 
 // The zero-dependency control registry. Unknown kinds return null so the
-// renderer can fall back to text rather than blow up on a typo or a kind only a
-// richer adapter (date pickers, file uploads) knows how to render.
+// renderer can fall back to text rather than blow up on a typo.
 export const defaultControls: ControlAdapter = {
   controlFor: (kind) => registry[kind] ?? null,
 };
