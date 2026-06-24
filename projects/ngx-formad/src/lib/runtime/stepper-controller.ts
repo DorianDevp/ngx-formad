@@ -49,9 +49,17 @@ export interface StepperController {
   readonly deferTrigger: Signal<DeferTrigger | null>;
   /** The active fork arm's result, or null (no fork / no arm chosen yet). */
   readonly result: Signal<unknown>;
+  /** Every form's last-committed model, keyed by pool name. Updated on each
+   *  navigation (Next / Back / Skip) — the data-egress a host reads to persist a
+   *  step's values without waiting for the final `completed`. */
+  readonly committed: Signal<Record<string, Record<string, unknown>>>;
   next(): void;
   back(): void;
   skip(): void;
+  /** Restarts the wizard: clears committed values and cached step instances,
+   *  resets the shared state to its initial values, and re-enters the first step
+   *  with fresh (factory-built) forms. */
+  reset(): void;
 }
 
 export class FormadStepperController implements StepperController {
@@ -59,18 +67,20 @@ export class FormadStepperController implements StepperController {
   private readonly liveStep = signal<LiveStep | null>(null);
   // Starts true so the first frame shows the placeholder, not an empty shell.
   private readonly loadingNow = signal(true);
-  // Each form's last-committed model — the source of truth for `value(name)`.
-  private readonly committed = signal<Record<string, Record<string, unknown>>>({});
+  // Each form's last-committed model — the source of truth for `value(name)` and
+  // for the public `committed` egress signal.
+  private readonly committedModels = signal<Record<string, Record<string, unknown>>>({});
   // Retain instances per step node so a revisit keeps user edits.
   private readonly cache = new Map<StepNode, LiveStep>();
 
   readonly step = this.liveStep.asReadonly();
   readonly loading = this.loadingNow.asReadonly();
+  readonly committed = this.committedModels.asReadonly();
 
   // The reactive condition context: live shared snapshot + committed values.
   private context(): RuntimeStepContext {
     const shared = (this.stepper.shared as SharedState<Record<string, unknown>>).snapshot();
-    const committed = this.committed();
+    const committed = this.committedModels();
     return { shared, value: (name) => committed[name] };
   }
 
@@ -85,7 +95,14 @@ export class FormadStepperController implements StepperController {
   readonly total = computed(() => this.effective().length);
   readonly canBack = computed(() => this.position() > 0);
   readonly isLast = computed(() => this.position() === this.effective().length - 1);
-  readonly canNext = computed(() => this.liveStep()?.registry.completed() ?? false);
+  // The completion gate: every visible form valid (the fold) AND, when present,
+  // the step's own `completeWhen` — the hook for a component-driven step that has
+  // no fields to fold but still gates Next on its own state.
+  readonly canNext = computed(() => {
+    const formsComplete = this.liveStep()?.registry.completed() ?? false;
+    const guard = this.currentNode()?.completeWhen;
+    return formsComplete && (guard ? guard() : true);
+  });
   readonly optional = computed(() => this.currentNode()?.optional ?? false);
   readonly deferTrigger = computed(() => this.currentNode()?.defer ?? null);
   readonly heading = computed(() => this.options()?.heading ?? '');
@@ -101,6 +118,9 @@ export class FormadStepperController implements StepperController {
     private readonly injector: Injector,
     // Invoked when the user finishes the last step, with the (forked) result.
     private readonly onComplete?: (result: unknown) => void,
+    // Invoked after each commit (Next / Back / Skip) with the committed models —
+    // the shell wires it to its `stepCommitted` output.
+    private readonly onStep?: (values: Record<string, Record<string, unknown>>) => void,
   ) {
     // Enter the first step after the first render — never during construction.
     afterNextRender(
@@ -168,16 +188,34 @@ export class FormadStepperController implements StepperController {
   }
 
   // field -> shared for the step being left, and snapshot each form's model so a
-  // later step's condition can read it through `value(name)`.
+  // later step's condition can read it through `value(name)` and a host can read
+  // it through `committed` / the shell's `stepCommitted` output.
   private commitCurrent(): void {
     const step = this.liveStep();
     if (!step) return;
-    const snapshot = { ...this.committed() };
+    const snapshot = { ...this.committedModels() };
     for (const form of step.forms) {
       form.commit();
       snapshot[form.name] = { ...form.state.model() };
     }
-    this.committed.set(snapshot);
+    this.committedModels.set(snapshot);
+    this.onStep?.(snapshot);
+  }
+
+  // Restart the wizard from a clean slate: drop committed values and cached step
+  // instances, restore the shared store to its initial values, then re-enter the
+  // first effective step — which rebuilds its forms from their model factories.
+  reset(): void {
+    (this.stepper.shared as SharedState<Record<string, unknown>>).reset();
+    this.committedModels.set({});
+    this.cache.clear();
+    const first = this.effective()[0];
+    if (first) this.enter(first);
+    else {
+      this.currentNode.set(null);
+      this.liveStep.set(null);
+      this.loadingNow.set(false);
+    }
   }
 
   // Always-smooth: flip the target + show a placeholder synchronously; build after

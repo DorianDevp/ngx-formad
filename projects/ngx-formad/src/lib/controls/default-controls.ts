@@ -196,7 +196,13 @@ export class SelectControl implements FormValueControl<unknown> {
         (change)="value.set(asChecked($event))"
         (blur)="touched.set(true)"
       />
-      <span>${labelText}</span>
+      @if (innerHTML()) {
+        <!-- A rich label, e.g. a consent with links. The node's innerHTML is
+             author-controlled config, not user input, so binding it is safe. -->
+        <span class="ngx-formad-checkbox-label" [innerHTML]="innerHTML()"></span>
+      } @else {
+        <span>${labelText}</span>
+      }
       ${errorLine}
     </label>
   `,
@@ -205,6 +211,9 @@ export class CheckboxControl implements FormValueControl<boolean> {
   protected readonly cid = nextControlId();
   value = model(false);
   label = input('');
+  // A consent-style checkbox carries its prose (often with links) as HTML on the
+  // node; when present it renders instead of the plain label.
+  innerHTML = input('');
   disabled = input(false);
   touched = model(false);
   required = input(false);
@@ -212,5 +221,98 @@ export class CheckboxControl implements FormValueControl<boolean> {
 
   protected asChecked(e: Event): boolean {
     return (e.target as HTMLInputElement).checked;
+  }
+}
+
+@Component({
+  selector: 'ngx-formad-date',
+  template: `
+    <label class="ngx-formad-field">
+      <span>${labelText}</span>
+      <input
+        type="date"
+        [value]="asInputValue(value())"
+        [disabled]="disabled()"
+        [min]="asInputValue(minDate())"
+        [max]="asInputValue(maxDate())"
+        ${ariaAttrs}
+        (input)="value.set(asDate($event))"
+        (blur)="touched.set(true)"
+      />
+      ${errorLine}
+    </label>
+  `,
+})
+export class DateControl implements FormValueControl<Date | null> {
+  protected readonly cid = nextControlId();
+  value = model<Date | null>(null);
+  label = input('');
+  disabled = input(false);
+  // Optional bounds, forwarded from a formodel `date` node's `limit`. Named
+  // `minDate`/`maxDate` because `min`/`max` are reserved by the native control
+  // contract (numeric constraints synced from the field).
+  minDate = input<Date | null>(null);
+  maxDate = input<Date | null>(null);
+  touched = model(false);
+  required = input(false);
+  errors = input<Errors>([]);
+
+  // `<input type="date">` speaks `yyyy-MM-dd`; the field carries a real `Date`.
+  protected asInputValue(date: Date | null): string {
+    if (!date) return '';
+    const y = date.getFullYear();
+    const m = `${date.getMonth() + 1}`.padStart(2, '0');
+    const d = `${date.getDate()}`.padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  protected asDate(e: Event): Date | null {
+    const raw = (e.target as HTMLInputElement).value;
+    return raw ? new Date(`${raw}T00:00:00`) : null;
+  }
+}
+
+@Component({
+  selector: 'ngx-formad-file',
+  template: `
+    <label class="ngx-formad-field ngx-formad-file">
+      <span>${labelText}</span>
+      <input
+        type="file"
+        [accept]="accept()"
+        [multiple]="multiple()"
+        [disabled]="disabled()"
+        ${ariaAttrs}
+        (change)="value.set(asFiles($event))"
+        (blur)="touched.set(true)"
+      />
+      @if (value().length) {
+        <ul class="ngx-formad-file-list">
+          @for (file of value(); track $index) {
+            <li>{{ file.name }}</li>
+          }
+        </ul>
+      }
+      ${errorLine}
+    </label>
+  `,
+})
+export class FileControl implements FormValueControl<readonly File[]> {
+  protected readonly cid = nextControlId();
+  value = model<readonly File[]>([]);
+  label = input('');
+  accept = input('');
+  multiple = input(false);
+  maxFiles = input<number | null>(null);
+  disabled = input(false);
+  touched = model(false);
+  required = input(false);
+  errors = input<Errors>([]);
+
+  // Capture the picked files (capped at `maxFiles` when set) as a plain array;
+  // the field validates and the form holds them like any other value.
+  protected asFiles(e: Event): readonly File[] {
+    const picked = Array.from((e.target as HTMLInputElement).files ?? []);
+    const cap = this.maxFiles();
+    return cap != null ? picked.slice(0, cap) : picked;
   }
 }

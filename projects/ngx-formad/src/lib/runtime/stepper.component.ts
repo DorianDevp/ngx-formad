@@ -37,6 +37,10 @@ export class StepperComponent implements OnInit {
    *  any). Erased to `unknown` here — cast to the wizard's result union, or read
    *  the typed `controller.result()` from a custom chrome. */
   readonly completed = output<unknown>();
+  /** Emitted after each commit (Next / Back / Skip) with every form's last-committed
+   *  model, keyed by pool name — the egress for persisting a step's values before
+   *  the wizard finishes. The same data is on `controller.committed()`. */
+  readonly stepCommitted = output<Record<string, Record<string, unknown>>>();
 
   private readonly injector = inject(EnvironmentInjector);
   // The chrome component to render: the configured adapter, or the bundled default.
@@ -51,8 +55,11 @@ export class StepperComponent implements OnInit {
     // The input is available by ngOnInit; the controller defers its first build to
     // afterNextRender, so constructing it here does no heavy work.
     this.controller.set(
-      new FormadStepperController(this.stepper(), this.injector, (result) =>
-        this.completed.emit(result),
+      new FormadStepperController(
+        this.stepper(),
+        this.injector,
+        (result) => this.completed.emit(result),
+        (values) => this.stepCommitted.emit(values),
       ),
     );
   }

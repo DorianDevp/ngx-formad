@@ -1,0 +1,100 @@
+import { Component, input, signal } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { UiFormConfigBuilder, text } from 'formodel';
+import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { FormConfig } from '../form-config/form-config';
+import { StepperComponent } from './stepper.component';
+
+// Proves the page renderer the chrome now uses draws a step's *whole* tree —
+// dynamic components beside forms, and a component-only step gated by
+// `completeWhen` — not just the flat form list.
+
+async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+}
+
+function buttonByText(fixture: ComponentFixture<unknown>, label: string): HTMLButtonElement | undefined {
+  return Array.from(
+    fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+  ).find((b) => b.textContent?.trim() === label);
+}
+
+@Component({ selector: 'x-banner', template: `<div class="x-banner">{{ note() }}</div>` })
+class Banner {
+  readonly note = input('');
+}
+
+type Only = { v: string };
+const onlyForm: FormConfig<Only> = {
+  model: () => ({ v: '' }),
+  ui: UiFormConfigBuilder.from({ v: '' }).v(text('Field')),
+};
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class ComponentHost {
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({})
+      .createForm('only', onlyForm)
+      .createStep((s) =>
+        s.createPage({ options: { heading: 'One' } }, (p) =>
+          p.addComponent(Banner, { inputs: { note: 'hello from a slot' } }).addForm((f) => f.only),
+        ),
+      )
+      .build(),
+  );
+}
+
+describe('StepPageView — dynamic components', () => {
+  it('renders a page component alongside the form', async () => {
+    const fixture = TestBed.createComponent(ComponentHost);
+    await settle(fixture);
+
+    expect(fixture.nativeElement.querySelector('input')).toBeTruthy();
+    const banner = fixture.nativeElement.querySelector('.x-banner');
+    expect(banner).toBeTruthy();
+    expect(banner.textContent).toContain('hello from a slot');
+  });
+});
+
+// A component-only step: no forms to fold, so it is vacuously complete — the
+// `completeWhen` gate is what holds Next until the host's signal flips.
+const ready = signal(false);
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class GatedHost {
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({})
+      .createStep(
+        (s) => s.createPage({ options: { heading: 'Pick' } }, (p) => p.addComponent(Banner, { inputs: { note: 'choose' } })),
+        { completeWhen: () => ready() },
+      )
+      .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
+      .build(),
+  );
+}
+
+describe('StepPageView — completeWhen gate', () => {
+  it('gates Next on a component-only step until the guard passes', async () => {
+    ready.set(false);
+    const fixture = TestBed.createComponent(GatedHost);
+    await settle(fixture);
+
+    expect(buttonByText(fixture, 'Next')!.disabled).toBe(true);
+
+    ready.set(true);
+    await settle(fixture);
+
+    expect(buttonByText(fixture, 'Next')!.disabled).toBe(false);
+  });
+});

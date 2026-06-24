@@ -43,9 +43,9 @@ export interface GroupNode {
   readonly layout?: ItemSpec;
 }
 
-/** A repeating group (a model array). Rendering of repeats is not built yet — the
- *  node is recognized and skipped, so a config with arrays still renders its
- *  scalars and groups rather than throwing. */
+/** A repeating group (a model array): the array node plus the render tree for one
+ *  item. The renderer draws each item from `item` with Add/Remove controls (see
+ *  `NodesView`), bound to that item's field tree. */
 export interface ArrayNode {
   readonly kind: 'array';
   readonly key: string;
@@ -62,6 +62,11 @@ export type RenderNode = ControlNode | GroupNode | ArrayNode;
  * One form as renderable data: a factory for a fresh model (so the same form
  * reused in two steps stays two independent instances), the formodel UI config
  * that drives rendering, and an optional native schema that owns validation.
+ *
+ * Declare the model `M` as a `type` alias, not an `interface`: the `Record<string,
+ * unknown>` bound is satisfied by an object **type** (which gets an implicit index
+ * signature) but not by an `interface` (which doesn't), so an interface model is
+ * rejected with a "not assignable to Record<string, unknown>" error.
  */
 export interface FormConfig<M extends Record<string, unknown>> {
   readonly model: () => M;
@@ -169,6 +174,23 @@ export function extraInputsFor(node: UiFormControlNode): Record<string, unknown>
       break;
     case 'radio':
       inputs['options'] = node.options.map((o) => ({ value: o.value, label: o.label }));
+      break;
+    case 'date':
+      // Forward the optional bounds; the date control clamps the native picker.
+      // (`minDate`/`maxDate`, since `min`/`max` are reserved control inputs.)
+      if (node.limit) {
+        inputs['minDate'] = node.limit.min;
+        inputs['maxDate'] = node.limit.max;
+      }
+      break;
+    case 'file':
+      if (node.accept) inputs['accept'] = node.accept;
+      if (node.multiple != null) inputs['multiple'] = node.multiple;
+      if (node.maxFiles != null) inputs['maxFiles'] = node.maxFiles;
+      break;
+    case 'checkbox':
+      // A consent-style checkbox renders rich prose from the node's `innerHTML`.
+      if (node.innerHTML) inputs['innerHTML'] = node.innerHTML;
       break;
   }
 

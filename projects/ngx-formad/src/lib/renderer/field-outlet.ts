@@ -46,6 +46,7 @@ export class FieldOutlet {
     // Presentational inputs (label, options, input type) come from the node;
     // the field-state inputs are handled by FormField, so they are not repeated.
     const extras = extraInputsFor(this.config().node);
+
     const bindings = Object.entries(extras).map(([name, value]) => inputBinding(name, () => value));
 
     this.anchor().createComponent(control, {

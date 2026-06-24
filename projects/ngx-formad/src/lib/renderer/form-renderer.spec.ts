@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FieldTree } from '@angular/forms/signals';
-import { array, UiFormConfigBuilder, email, text } from 'formodel';
+import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { FormRenderer } from './form-renderer';
 import { asRenderable, instantiateForm } from './instantiate-form';
@@ -13,11 +13,14 @@ async function pump(fixture: ComponentFixture<unknown>): Promise<void> {
   }
 }
 
-type Account = { email: string; name: string };
+type Account = { email: string; name: string; type: '' };
 
 const accountConfig: FormConfig<Account> = {
-  model: () => ({ email: '', name: '' }),
-  ui: UiFormConfigBuilder.from({ email: '', name: '' }).email(email('Email')).name(text('Name')),
+  model: () => ({ email: '', name: '', type: '' }),
+  ui: UiFormConfigBuilder.from({ email: '', name: '', type: '' })
+    .email(email('Email'))
+    .name(text('Name'))
+    .type(select('Type', [ { value: 'Admin', description: '' }, { value: 'User', description: '' } ])),
 };
 
 // A host that builds live state in its constructor (an injection context) and

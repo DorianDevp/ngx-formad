@@ -3,6 +3,8 @@ import { FormValueControl } from '@angular/forms/signals';
 import { ControlAdapter } from 'ngx-formad';
 import {
   MatCheckboxControl,
+  MatDateControl,
+  MatFileControl,
   MatNumberControl,
   MatSelectControl,
   MatTextControl,
@@ -25,6 +27,8 @@ const registry: Record<string, Type<FormValueControl<unknown>>> = {
   select: MatSelectControl,
   radio: MatSelectControl,
   checkbox: MatCheckboxControl,
+  date: MatDateControl,
+  file: MatFileControl,
 } as Record<string, Type<FormValueControl<unknown>>>;
 
 /** An Angular Material control adapter. Unknown kinds return null so the renderer

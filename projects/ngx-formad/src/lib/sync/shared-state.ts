@@ -7,13 +7,26 @@ import { SharedSlot } from './directional-sync';
 // the suite's only runtime dependency is formodel, not @ngrx.
 export class SharedState<S extends Record<string, unknown>> {
   private readonly cells: { readonly [K in keyof S]: WritableSignal<S[K]> };
+  // A deep copy of the initial values, so `reset()` can restore them even after
+  // nested objects in the store have been mutated.
+  private readonly initial: S;
 
   constructor(initial: S) {
+    this.initial = structuredClone(initial);
     const cells = {} as { [K in keyof S]: WritableSignal<S[K]> };
     for (const key of Object.keys(initial) as (keyof S)[]) {
-      cells[key] = signal(initial[key]);
+      cells[key] = signal(structuredClone(initial[key]));
     }
     this.cells = cells;
+  }
+
+  /** Restores every key to the value the store was constructed with — the
+   *  cross-step half of a wizard restart (`StepperController.reset()`). */
+  reset(): void {
+    const fresh = structuredClone(this.initial);
+    for (const key of Object.keys(this.cells) as (keyof S)[]) {
+      this.cells[key].set(fresh[key]);
+    }
   }
 
   /** One key as a read-only signal, for templates and computed reads. */
