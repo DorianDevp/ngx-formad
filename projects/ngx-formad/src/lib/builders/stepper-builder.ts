@@ -1,7 +1,25 @@
 import { Type } from '@angular/core';
+import { FormValueControl } from '@angular/forms/signals';
 import { FormConfig } from '../form-config/form-config';
+import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
 import { ComponentCfg, toBindings } from './dynamic-component';
+
+/** The control kinds the suite ships out of the box — the starting set a stepper's
+ *  `addControlType` forbids re-adding (use `overrideControlType` to replace one). */
+export type BuiltInControlKind =
+  | 'text'
+  | 'email'
+  | 'password'
+  | 'tel'
+  | 'url'
+  | 'textarea'
+  | 'number'
+  | 'select'
+  | 'radio'
+  | 'checkbox'
+  | 'date'
+  | 'file';
 import { LayoutNode, PageNode, PageOptions, StepNode } from './nodes';
 import { FieldRef, FieldRefs, recordLinks, selectedKey, SharedLink } from './shared-link';
 import {
@@ -288,6 +306,9 @@ export class Stepper<TForms, TShared extends Record<string, unknown>, TResult = 
     readonly shared: SharedState<TShared>,
     /** Set by `fork`: maps the runtime context to the active arm's result. */
     readonly resolveResult?: RuntimeResultResolver,
+    /** Wizard-scoped control kinds (from `addControlType`/`overrideControlType`),
+     *  layered over the global adapter by the shell for this stepper's subtree. */
+    readonly controlTypes: ControlTypeMap = {},
   ) {}
 }
 
@@ -338,18 +359,48 @@ export function asStepper<TForms, TShared extends Record<string, unknown>, TResu
   return stepper as unknown as RuntimeStepper;
 }
 
-/** The root of the chain. Each method narrows or appends; `build()` freezes it. */
-export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown> = {}> {
+/** The root of the chain. Each method narrows or appends; `build()` freezes it.
+ *  `TKinds` tracks the registered control kinds (seeded with the built-ins) so
+ *  `addControlType` rejects a name that already exists. */
+export class StepperBuilder<
+  TForms = {},
+  TShared extends Record<string, unknown> = {},
+  TKinds extends string = BuiltInControlKind,
+> {
   // The pool stores configs or lazy loaders; the runtime resolves loaders on reach.
   private readonly forms: Record<string, AnyFormProvider> = {};
   private sharedInit: Record<string, unknown> = {};
   private readonly steps: StepNode[] = [];
   private resultResolver?: RuntimeResultResolver;
+  private readonly controlTypes: ControlTypeMap = {};
+
+  /** Registers a NEW control kind for this wizard (resolved before the global
+   *  adapter and the built-ins). Re-adding an existing kind is a compile error —
+   *  use {@link overrideControlType} to replace one. */
+  addControlType<K extends string>(
+    kind: K extends TKinds ? never : K,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    component: Type<FormValueControl<any>>,
+  ): StepperBuilder<TForms, TShared, TKinds | K> {
+    this.controlTypes[kind as string] = component;
+    return this as unknown as StepperBuilder<TForms, TShared, TKinds | K>;
+  }
+
+  /** Replaces an existing control kind (a built-in, or one added earlier) for this
+   *  wizard. The kind must already exist — to introduce one use {@link addControlType}. */
+  overrideControlType<K extends TKinds>(
+    kind: K,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    component: Type<FormValueControl<any>>,
+  ): StepperBuilder<TForms, TShared, TKinds> {
+    this.controlTypes[kind] = component;
+    return this;
+  }
 
   /** Declares the cross-step shared state; narrows `TShared`. */
-  withState<S extends Record<string, unknown>>(initial: S): StepperBuilder<TForms, S> {
+  withState<S extends Record<string, unknown>>(initial: S): StepperBuilder<TForms, S, TKinds> {
     this.sharedInit = initial;
-    return this as unknown as StepperBuilder<TForms, S>;
+    return this as unknown as StepperBuilder<TForms, S, TKinds>;
   }
 
   /** Registers a form in the pool under `name`; narrows `TForms`. The provider may
@@ -359,9 +410,9 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
   createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
     provider: FormProvider<M>,
-  ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared> {
+  ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds> {
     this.forms[name] = provider as unknown as AnyFormProvider;
-    return this as unknown as StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared>;
+    return this as unknown as StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds>;
   }
 
   /** Appends a step built from the typed pool and shared state. `opts.when`,
@@ -444,6 +495,7 @@ export class StepperBuilder<TForms = {}, TShared extends Record<string, unknown>
       this.steps,
       new SharedState(this.sharedInit as TShared),
       this.resultResolver,
+      this.controlTypes,
     );
   }
 }
