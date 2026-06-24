@@ -20,6 +20,9 @@ import { FieldOutlet } from './field-outlet';
   template: `
     <div [class]="containerClass()" [style]="containerStyle()">
       @for (node of nodes(); track node.key) {
+        <!-- Honor the native field state: a field hidden by the schema's
+             \`hidden()\` logic drops out of the DOM (and out of validation). -->
+        @if (!hiddenAt(node.key)) {
         @switch (node.kind) {
           @case ('group') {
             <fieldset class="ngx-formad-group" style="grid-column: 1 / -1">
@@ -69,6 +72,7 @@ import { FieldOutlet } from './field-outlet';
             </fieldset>
           }
         }
+        }
       }
     </div>
   `,
@@ -90,6 +94,13 @@ export class NodesView {
   }
   protected childTree(key: string): Record<string, FieldTree<unknown>> {
     return this.tree()[key] as unknown as Record<string, FieldTree<unknown>>;
+  }
+
+  // Whether the field/group at `key` is hidden by the schema's native `hidden()`
+  // logic — read reactively so the `@if` toggles as the condition changes.
+  protected hiddenAt(key: string): boolean {
+    const node = this.tree()[key];
+    return node ? (node as unknown as () => FieldState<unknown>)().hidden() : false;
   }
 
   // Narrowing helpers for the template's `@switch` (templates can't cast).
