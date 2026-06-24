@@ -33,6 +33,7 @@ export * from './lib/registry/instance-registry';
 export * from './lib/runtime/materialize-step';
 export * from './lib/runtime/effective-sequence';
 export * from './lib/runtime/stepper-controller';
+export * from './lib/runtime/wizard-context';
 export * from './lib/runtime/step-forms-view';
 export * from './lib/runtime/step-page-view';
 export * from './lib/runtime/default-stepper-chrome';
