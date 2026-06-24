@@ -51,3 +51,41 @@ describe('Custom control kinds', () => {
     expect(stars.textContent).toContain('max 5');
   });
 });
+
+// ── Per-stepper registration ──
+import { asStepper, RuntimeStepper, StepperBuilder } from './builders/stepper-builder';
+import { StepperComponent } from './runtime/stepper.component';
+
+const starForm: FormConfig<{ rating: number }> = {
+  model: () => ({ rating: 0 }),
+  ui: { rating: { type: 'stars', props: { max: 7 } } } as unknown as FormConfig<{
+    rating: number;
+  }>['ui'],
+};
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class StepperHost {
+  // 'stars' is registered ON THE STEPPER (no global provideFormadSuite for it).
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .addControlType('stars', StarsControl)
+      .createForm('f', starForm)
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.f)))
+      .build(),
+  );
+}
+
+describe('Per-stepper control types', () => {
+  it('resolves a wizard-scoped kind through the merged adapter', async () => {
+    const fixture = TestBed.createComponent(StepperHost);
+    for (let i = 0; i < 5; i++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+    const stars = fixture.nativeElement.querySelector('.stars') as HTMLElement | null;
+    expect(stars?.textContent).toContain('max 7');
+  });
+});
