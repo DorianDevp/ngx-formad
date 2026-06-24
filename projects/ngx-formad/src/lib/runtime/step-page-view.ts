@@ -19,6 +19,7 @@ import { LiveForm, LiveStep } from './materialize-step';
 @Component({
   selector: 'ngx-formad-page-nodes',
   imports: [FormRenderer, ComponentOutlet, PageNodesView],
+  host: { style: 'display: contents' },
   template: `
     @for (node of nodes(); track $index) {
       @switch (node.kind) {
@@ -85,11 +86,18 @@ export class PageNodesView {
 @Component({
   selector: 'ngx-formad-step-page',
   imports: [PageNodesView],
+  host: { style: 'display: contents' },
+  // A page only gets a wrapping element when it actually declares a layout class;
+  // otherwise its nodes render straight into the chrome, keeping the DOM flat.
   template: `
     @for (page of step().pages; track $index) {
-      <div class="ngx-formad-page" [class]="page.options.layout ?? ''">
+      @if (page.options.layout; as layout) {
+        <div class="ngx-formad-page" [class]="layout">
+          <ngx-formad-page-nodes [nodes]="page.children" [forms]="formMap()" />
+        </div>
+      } @else {
         <ngx-formad-page-nodes [nodes]="page.children" [forms]="formMap()" />
-      </div>
+      }
     }
   `,
 })

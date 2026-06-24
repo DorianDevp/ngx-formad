@@ -14,6 +14,9 @@ import { FieldOutlet } from './field-outlet';
 @Component({
   selector: 'ngx-formad-nodes',
   imports: [FieldOutlet],
+  // `display: contents` so this wrapper adds no layout box — the grid `<div>` below
+  // is the real container, and nested groups stack without piling up extra nesting.
+  host: { style: 'display: contents' },
   template: `
     <div [class]="containerClass()" [style]="containerStyle()">
       @for (node of nodes(); track node.key) {
@@ -32,9 +35,9 @@ import { FieldOutlet } from './field-outlet';
             </fieldset>
           }
           @case ('control') {
-            <div [class]="itemClass(node)" [style]="itemStyle(node)">
-              <ngx-formad-field-outlet [node]="leaf(node.key)" [config]="control(node)" />
-            </div>
+            <!-- The directive mounts the control as the grid item itself — no
+                 wrapper div; the field's own layout lands on the control host. -->
+            <ng-container ngxFormadField [node]="leaf(node.key)" [config]="control(node)" />
           }
           @case ('array') {
             <fieldset class="ngx-formad-array" style="grid-column: 1 / -1">
@@ -126,13 +129,6 @@ export class NodesView {
   private readonly container = computed(() => this.layoutAdapter.container(this.layout()));
   protected readonly containerClass = computed(() => this.container().class ?? '');
   protected readonly containerStyle = computed(() => this.container().style ?? {});
-
-  protected itemClass(node: ControlNode): string {
-    return this.layoutAdapter.item(node.layout ?? {}).class ?? '';
-  }
-  protected itemStyle(node: ControlNode): Record<string, string> {
-    return this.layoutAdapter.item(node.layout ?? {}).style ?? {};
-  }
 }
 
 // A fresh array item, built from the item's render nodes: controls get a kind-

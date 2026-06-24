@@ -8,6 +8,7 @@ import { ComponentNode } from '../builders/nodes';
 // out of the way, matching how hidden forms are handled.
 @Component({
   selector: 'ngx-formad-component-outlet',
+  host: { style: 'display: contents' },
   template: `<ng-container #anchor />`,
 })
 export class ComponentOutlet {

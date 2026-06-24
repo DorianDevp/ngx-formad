@@ -12,6 +12,8 @@ import { NodesView } from './nodes-view';
 @Component({
   selector: 'ngx-formad-form',
   imports: [NodesView],
+  // Layout-transparent: the form is a pass-through to its grid, not a box.
+  host: { style: 'display: contents' },
   template: `<ngx-formad-nodes [nodes]="nodes()" [tree]="rootTree()" [layout]="layout()" />`,
 })
 export class FormRenderer {
