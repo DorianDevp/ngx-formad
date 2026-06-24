@@ -52,7 +52,14 @@ describe('FormRenderer', () => {
     const labels = Array.from(fixture.nativeElement.querySelectorAll('.ngx-formad-field span')).map(
       (el) => (el as HTMLElement).textContent?.trim(),
     );
-    expect(labels).toEqual(['Email', 'Name']);
+    // Email and Name are <input>s; Type is the <select> — all three carry a label.
+    expect(labels).toEqual(['Email', 'Name', 'Type']);
+  });
+
+  it('renders a select control with its options', () => {
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    expect(select.querySelectorAll('option').length).toBe(2);
   });
 
   it('feeds the native input type through from the node', () => {
@@ -82,7 +89,7 @@ describe('FormRenderer', () => {
 
     // A programmatic seed-style write must leave the field pristine, or the
     // shared-state seed gate would refuse to ever re-seed it.
-    fixture.componentInstance.state.model.set({ email: 'seed@example.com', name: '' });
+    fixture.componentInstance.state.model.set({ email: 'seed@example.com', name: '', type: '' });
     await fixture.whenStable();
     expect(root['email']().dirty()).toBe(false);
 
