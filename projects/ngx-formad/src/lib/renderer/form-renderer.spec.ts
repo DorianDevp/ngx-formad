@@ -1,6 +1,6 @@
 import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { FieldTree } from '@angular/forms/signals';
+import { FieldTree, hidden } from '@angular/forms/signals';
 import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { FormRenderer } from './form-renderer';
@@ -211,5 +211,40 @@ describe('FormRenderer — repeating arrays', () => {
     button('Remove')!.click();
     await pump(fixture);
     expect(inputs().length).toBe(0);
+  });
+});
+
+type AB = { a: string; b: string };
+const conditionalConfig: FormConfig<AB> = {
+  model: () => ({ a: '', b: '' }),
+  ui: UiFormConfigBuilder.from({ a: '', b: '' }).a(text('A')).b(text('B')),
+  // B is hidden until A has a value — the native conditional-field primitive.
+  schema: (p) => hidden(p.b, ({ valueOf }) => valueOf(p.a) === ''),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class ConditionalHost {
+  readonly state = asRenderable(instantiateForm(conditionalConfig));
+}
+
+describe('FormRenderer — conditional fields via hidden()', () => {
+  it('drops a natively-hidden field and shows it when the condition flips', async () => {
+    const fixture = TestBed.createComponent(ConditionalHost);
+    await pump(fixture);
+    const inputs = () =>
+      Array.from(fixture.nativeElement.querySelectorAll('input') as NodeListOf<HTMLInputElement>);
+
+    // A renders; B is hidden (A is empty).
+    expect(inputs().length).toBe(1);
+
+    inputs()[0].value = 'x';
+    inputs()[0].dispatchEvent(new Event('input'));
+    await pump(fixture);
+
+    // A now has a value, so B appears.
+    expect(inputs().length).toBe(2);
   });
 });
