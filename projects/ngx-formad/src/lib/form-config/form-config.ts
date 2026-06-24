@@ -157,6 +157,13 @@ export function flattenFields(ui: UiFormGroupConfig<Record<string, unknown>>): F
  * options — which the renderer feeds as plain input bindings.
  */
 export function extraInputsFor(node: UiFormControlNode): Record<string, unknown> {
+  // A custom-kind node (from `customInputType`) hands the control exactly one
+  // presentational input — its typed `props` bag. We forward nothing else (a
+  // custom control declares no `label`/`type`/… inputs, so binding them would
+  // throw); anything it needs, including a label, lives in `props`.
+  const props = (node as { props?: unknown }).props;
+  if (props !== undefined) return { props };
+
   const inputs: Record<string, unknown> = {};
 
   if (node.label != null) inputs['label'] = node.label;
