@@ -1,11 +1,17 @@
 import { SchemaOrSchemaFn } from '@angular/forms/signals';
 import {
   RepeatingGroupNode,
+  SelectFormControlNode,
   UiFormControlNode,
   UiFormGroupConfig,
   UiFormGroupNode,
 } from 'formodel';
 import { ItemSpec } from '../layout/layout-adapter';
+
+/** One option of a `select` / `radio` / `multiselect` field — `{ value, description }`,
+ *  exactly what formodel's `select(label, options)` takes. Exported so app code can
+ *  type its option lists by name instead of re-declaring the shape. */
+export type SelectOption = SelectFormControlNode['options'][number];
 
 // form-config is the render description, not a rival to native `form()`. formodel
 // already turns a model into a typed config of nodes (kind + label + options, and
