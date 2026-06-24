@@ -748,6 +748,14 @@ per-control `ErrorStateMatcher` reading the field's touched/errors signals. The
 Moment/Luxon adapter), as any Material datepicker does. Swapping the layout or
 stepper-chrome axis is independent, as always.
 
+`mat-form-field` is `inline-block`, so a field renders at its content width rather
+than filling its grid column. The adapter ships a small stylesheet for this —
+`@use` it once from your global styles (it's plain CSS you can override, not a theme):
+
+```scss
+@use 'ngx-formad/material/styles';
+```
+
 ### Writing a stepper chrome
 
 The wizard shell is split in two: a headless **`StepperController`** owns all the
