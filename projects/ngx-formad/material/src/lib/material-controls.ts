@@ -1,4 +1,4 @@
-import { Component, input, model } from '@angular/core';
+import { Component, effect, input, model, Signal, viewChild } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
 import { ErrorStateMatcher } from '@angular/material/core';
 import { MatButtonModule } from '@angular/material/button';
@@ -6,7 +6,7 @@ import { MatCheckboxModule } from '@angular/material/checkbox';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
-import { MatInputModule } from '@angular/material/input';
+import { MatInput, MatInputModule } from '@angular/material/input';
 import { MatOption, MatSelect } from '@angular/material/select';
 
 // Angular Material controls for ngx-formad. Each implements the native
@@ -33,6 +33,21 @@ class SignalErrorStateMatcher implements ErrorStateMatcher {
   isErrorState(): boolean {
     return this.inError();
   }
+}
+
+// Material recomputes `errorState` in its own `ngDoCheck`, which our *external*
+// `touched`/`errors` signals don't trigger — so the invalid outline would never
+// light up. This pokes the Material control's `updateErrorState()` whenever those
+// signals change, keeping the red outline in sync with the field's validity. Call
+// it from a control's constructor (an injection context).
+function syncMatErrorState(
+  field: Signal<{ updateErrorState(): void } | undefined>,
+  track: () => void,
+): void {
+  effect(() => {
+    track(); // read touched()/errors() so the effect re-runs when they change
+    field()?.updateErrorState();
+  });
 }
 
 @Component({
@@ -70,6 +85,13 @@ export class MatTextControl implements FormValueControl<string> {
   protected readonly matcher = new SignalErrorStateMatcher(
     () => this.touched() && this.errors().length > 0,
   );
+  private readonly matInput = viewChild(MatInput);
+  constructor() {
+    syncMatErrorState(this.matInput, () => {
+      this.touched();
+      this.errors();
+    });
+  }
 }
 
 @Component({
@@ -107,6 +129,13 @@ export class MatTextareaControl implements FormValueControl<string> {
   protected readonly matcher = new SignalErrorStateMatcher(
     () => this.touched() && this.errors().length > 0,
   );
+  private readonly matInput = viewChild(MatInput);
+  constructor() {
+    syncMatErrorState(this.matInput, () => {
+      this.touched();
+      this.errors();
+    });
+  }
 }
 
 @Component({
@@ -141,6 +170,13 @@ export class MatNumberControl implements FormValueControl<number | null> {
   protected readonly matcher = new SignalErrorStateMatcher(
     () => this.touched() && this.errors().length > 0,
   );
+  private readonly matInput = viewChild(MatInput);
+  constructor() {
+    syncMatErrorState(this.matInput, () => {
+      this.touched();
+      this.errors();
+    });
+  }
   protected asNumber(e: Event): number | null {
     const raw = (e.target as HTMLInputElement).value;
     return raw === '' ? null : Number(raw);
@@ -182,6 +218,13 @@ export class MatSelectControl implements FormValueControl<unknown> {
   protected readonly matcher = new SignalErrorStateMatcher(
     () => this.touched() && this.errors().length > 0,
   );
+  private readonly matSelect = viewChild(MatSelect);
+  constructor() {
+    syncMatErrorState(this.matSelect, () => {
+      this.touched();
+      this.errors();
+    });
+  }
 }
 
 @Component({
@@ -258,6 +301,13 @@ export class MatDateControl implements FormValueControl<Date | null> {
   protected readonly matcher = new SignalErrorStateMatcher(
     () => this.touched() && this.errors().length > 0,
   );
+  private readonly matInput = viewChild(MatInput);
+  constructor() {
+    syncMatErrorState(this.matInput, () => {
+      this.touched();
+      this.errors();
+    });
+  }
 }
 
 @Component({
