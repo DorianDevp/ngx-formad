@@ -3,5 +3,6 @@
   "dest": "../../dist/ngx-formad",
   "lib": {
     "entryFile": "src/public-api.ts"
-  }
+  },
+  "assets": ["./material/styles.scss"]
 }

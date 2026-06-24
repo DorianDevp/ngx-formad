@@ -1,0 +1,22 @@
+// ngx-formad — Angular Material adapter stylesheet.
+//
+// Drop-in field styling for the Material controls. Import it once from your
+// global stylesheet:
+//
+//   @use 'ngx-formad/material/styles';
+//
+// `mat-form-field` is `inline-block`, and the control host is the grid item, so
+// without this a field renders at its content width instead of filling its
+// column. Everything here is plain CSS you can override — it ships no theme.
+
+.mat-formad-field {
+  width: 100%;
+}
+
+mat-formad-text,
+mat-formad-textarea,
+mat-formad-number,
+mat-formad-select,
+mat-formad-date {
+  display: block;
+}
