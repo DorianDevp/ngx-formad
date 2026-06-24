@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { provideFormadSuite } from '../provide';
@@ -8,6 +8,7 @@ import { FormConfig } from '../form-config/form-config';
 import { StepFormsView } from './step-forms-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
+import { FormadWizard } from './wizard-context';
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -130,5 +131,47 @@ describe('StepperController.reset', () => {
     // Back to step 1, and its form is fresh (the model factory ran again).
     expect(idx()).toBe('0');
     expect((fixture.nativeElement.querySelector('input') as HTMLInputElement).value).toBe('');
+  });
+});
+
+// A slot on a later step that reads collected data straight from DI.
+@Component({ selector: 'wiz-summary', template: `<span class="sum">{{ value() }}</span>` })
+class WizSummary {
+  private readonly wiz = inject(FormadWizard, { optional: true });
+  protected readonly value = computed(
+    () => (this.wiz?.committed()['a'] as { v?: string } | undefined)?.v ?? '',
+  );
+}
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class WizCtxHost {
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({})
+      .createForm('a', oneForm)
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addComponent(WizSummary, {})))
+      .build(),
+  );
+}
+
+describe('FormadWizard — injectable context', () => {
+  it('lets a slot read committed values without host wiring', async () => {
+    const fixture = TestBed.createComponent(WizCtxHost);
+    await settle(fixture);
+
+    const input = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    input.value = 'typed';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+    buttons[buttons.length - 1].click(); // Next → commits 'a', enters step 2
+    await settle(fixture);
+
+    expect(fixture.nativeElement.querySelector('.sum')?.textContent?.trim()).toBe('typed');
   });
 });

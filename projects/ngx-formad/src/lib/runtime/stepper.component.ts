@@ -10,10 +10,12 @@ import {
   signal,
   Type,
 } from '@angular/core';
+import { SharedState } from '../sync/shared-state';
 import { RuntimeStepper } from '../builders/stepper-builder';
 import { STEPPER_ADAPTER } from '../provide';
 import { DefaultStepperChrome } from './default-stepper-chrome';
 import { FormadStepperController, StepperController } from './stepper-controller';
+import { FormadWizard } from './wizard-context';
 
 // The public stepper entry point. It is a thin wrapper: it builds the headless
 // `StepperController` from the input wizard once, then renders the configured
@@ -24,6 +26,9 @@ import { FormadStepperController, StepperController } from './stepper-controller
 @Component({
   selector: 'ngx-formad-stepper',
   imports: [NgComponentOutlet],
+  // One wizard context per stepper, inherited by the chrome and every slot it
+  // renders — so a summary or custom control can `inject(FormadWizard)`.
+  providers: [FormadWizard],
   template: `
     @if (chromeInputs(); as inputs) {
       <ng-container *ngComponentOutlet="chrome; inputs: inputs" />
@@ -43,6 +48,7 @@ export class StepperComponent implements OnInit {
   readonly stepCommitted = output<Record<string, Record<string, unknown>>>();
 
   private readonly injector = inject(EnvironmentInjector);
+  private readonly wizard = inject(FormadWizard);
   // The chrome component to render: the configured adapter, or the bundled default.
   protected readonly chrome: Type<unknown> = inject(STEPPER_ADAPTER, { optional: true }) ?? DefaultStepperChrome;
   private readonly controller = signal<StepperController | null>(null);
@@ -54,13 +60,13 @@ export class StepperComponent implements OnInit {
   ngOnInit(): void {
     // The input is available by ngOnInit; the controller defers its first build to
     // afterNextRender, so constructing it here does no heavy work.
-    this.controller.set(
-      new FormadStepperController(
-        this.stepper(),
-        this.injector,
-        (result) => this.completed.emit(result),
-        (values) => this.stepCommitted.emit(values),
-      ),
+    const controller = new FormadStepperController(
+      this.stepper(),
+      this.injector,
+      (result) => this.completed.emit(result),
+      (values) => this.stepCommitted.emit(values),
     );
+    this.wizard._init(controller, this.stepper().shared as SharedState<Record<string, unknown>>);
+    this.controller.set(controller);
   }
 }
