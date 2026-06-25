@@ -955,7 +955,8 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `StepperBuilder` | The fluent chain. Each method narrows the type (see below); `fork(...)` terminates it. |
+| `StepperBuilder` | The fluent chain. Each method narrows the type (see below); `fork(...)` terminates it. Also `addControlType`/`overrideControlType` register wizard-scoped custom control kinds (typed: add rejects an existing kind, override requires one). |
+| `FormadWizard` | Injectable per stepper — `committed()` (every form's committed model), `controller`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
 | `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `step()` and nested `branch()`. |
 | `ForkArmBuilder` / `ForkArm` | Authors one fork arm (`withState`/`createForm`/`createStep`/`branch`) ending in `result(...)`. |
 | `Stepper<TForms, TShared, TResult>` | The built wizard: `{ forms, steps, shared, resolveResult? }`. |
@@ -983,7 +984,7 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `provideFormadSuite(opts?)` | Registers the three adapters. No args = zero-dependency defaults + the bundled chrome. |
+| `provideFormadSuite(opts?)` | Registers the three adapters. No args = zero-dependency defaults + the bundled chrome. `controlTypes` (a `ControlTypeMap`) layers custom kinds over the base adapter, app-wide. |
 | `ControlAdapter` / `LayoutAdapter` | The control and layout axes; `defaultControls` and `cssLayout` are the defaults. |
 | `STEPPER_ADAPTER` / `DefaultStepperChrome` | The chrome axis token and its bundled default component. |
 
