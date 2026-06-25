@@ -3,6 +3,7 @@ import { FieldTree } from '@angular/forms/signals';
 import { LayoutSpec } from '../layout/layout-adapter';
 import { FormState } from './instantiate-form';
 import { NodesView } from './nodes-view';
+import { BoundOutputEffect } from './output-effect';
 
 // Draws one form. It takes already-live state, never a raw config, so it does no
 // `form()` call and needs no injection-context tricks — it is a pure view over a
@@ -14,13 +15,15 @@ import { NodesView } from './nodes-view';
   imports: [NodesView],
   // Layout-transparent: the form is a pass-through to its grid, not a box.
   host: { style: 'display: contents' },
-  template: `<ngx-formad-nodes [nodes]="nodes()" [tree]="rootTree()" [layout]="layout()" />`,
+  template: `<ngx-formad-nodes [nodes]="nodes()" [tree]="rootTree()" [layout]="layout()" [effects]="effects()" />`,
 })
 export class FormRenderer {
   /** The live form state, from `instantiateForm(config)`. */
   readonly state = input.required<FormState<Record<string, unknown>>>();
   /** How the top-level fields are arranged; resolved through the layout adapter. */
   readonly layout = input<LayoutSpec>({});
+  /** Control-output effects to wire onto matching fields (from a stepper's `addForm`). */
+  readonly effects = input<readonly BoundOutputEffect[]>([]);
 
   protected readonly nodes = computed(() => this.state().nodes);
   // The root field tree, indexed by top-level key — the same `root.email` move

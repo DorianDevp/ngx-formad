@@ -3,6 +3,7 @@ import { FieldTree } from '@angular/forms/signals';
 import { AnyFormProvider } from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { FormState, instantiateForm } from '../renderer/instantiate-form';
+import { BoundOutputEffect } from '../renderer/output-effect';
 import { FormNode, LayoutNode, PageNode, StepNode } from '../builders/nodes';
 import { InstanceRegistry } from '../registry/instance-registry';
 import { commitToShared, seedFromShared } from '../sync/directional-sync';
@@ -16,10 +17,12 @@ import { SharedState } from '../sync/shared-state';
 // wrapper. Each materialized form joins the step's registry (so completion folds
 // it) and carries its own seed/commit for the directional sync.
 
-/** A live form within a step, with the two directional-sync triggers. */
+/** A live form within a step, with the two directional-sync triggers and its
+ *  control-output effects (handlers bound to this form's live model). */
 export interface LiveForm {
   readonly name: string;
   readonly state: FormState<Record<string, unknown>>;
+  readonly effects: readonly BoundOutputEffect[];
   /** shared -> field for every link, run on entry; seeds only pristine fields. */
   seed(): void;
   /** field -> shared for every link, run on a commit (blur / submit). */
@@ -102,9 +105,16 @@ export function materializeStep(
       }
     };
 
+    // Each recorded effect, with its handler bound to this form's live model.
+    const effects: BoundOutputEffect[] = node.effects.map((effect) => ({
+      path: effect.modelPath,
+      output: effect.output,
+      run: (payload: unknown) => effect.handler(payload, state.model),
+    }));
+
     // Seed once on materialization — that is this form's entry.
     seed();
-    forms.push({ name: node.name, state, seed, commit });
+    forms.push({ name: node.name, state, effects, seed, commit });
   }
 
   return { registry, forms, pages: step.pages };

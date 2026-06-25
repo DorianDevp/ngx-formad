@@ -71,3 +71,53 @@ export function recordLinks<M, S>(configure: (link: SharedLink<M, S>) => void): 
 export function selectedKey<T>(select: (refs: FieldRefs<T>) => FieldRef<keyof T, unknown>): string {
   return String(select(fieldRefs<T>()).__key);
 }
+
+// ── Output effects ──
+// A control may emit outputs beyond its value (a VAT-ID field that resolves a company).
+// `effects` on `addForm` wires such an output to patch sibling fields: pick the
+// field whose control emits, name the output, and update the form model. Recorded
+// the same way as `bind`, with a typed model selector and a free payload type.
+
+/** A handler that patches the form `model` in response to a control's output. */
+export type OutputHandler<M, P> = (payload: P, model: WritableModel<M>) => void;
+/** The model surface a handler may update — just `WritableSignal`'s shape, kept
+ *  local so this file stays Angular-free. */
+export interface WritableModel<M> {
+  (): M;
+  set(value: M): void;
+  update(updater: (current: M) => M): void;
+}
+
+/** Fluent recorder of control-output -> model-patch effects for one form. */
+export interface FormEffects<M> {
+  on<P>(
+    field: (m: FieldRefs<M>) => FieldRef<PropertyKey, unknown>,
+    output: string,
+    handler: OutputHandler<M, P>,
+  ): FormEffects<M>;
+}
+
+/** One recorded effect: the emitting field's path, the output name, the handler. */
+export interface OutputEffect {
+  readonly modelPath: readonly string[];
+  readonly output: string;
+  readonly handler: OutputHandler<Record<string, unknown>, unknown>;
+}
+
+/** Runs an `effects` callback and returns the effects it declared. */
+export function recordEffects<M>(configure: (e: FormEffects<M>) => void): OutputEffect[] {
+  const effects: OutputEffect[] = [];
+  const recorder: FormEffects<M> = {
+    on(field, output, handler) {
+      const ref = field(fieldRefs<M>());
+      effects.push({
+        modelPath: [...ref.__path],
+        output,
+        handler: handler as OutputEffect['handler'],
+      });
+      return recorder;
+    },
+  };
+  configure(recorder);
+  return effects;
+}

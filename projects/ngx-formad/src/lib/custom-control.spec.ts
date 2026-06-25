@@ -1,4 +1,4 @@
-import { Component, input, model } from '@angular/core';
+import { Component, input, model, output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl } from '@angular/forms/signals';
 import { FormConfig } from './form-config/form-config';
@@ -87,5 +87,68 @@ describe('Per-stepper control types', () => {
     }
     const stars = fixture.nativeElement.querySelector('.stars') as HTMLElement | null;
     expect(stars?.textContent).toContain('max 7');
+  });
+});
+
+// ── addForm effects (control output → sibling-field patch) ──
+@Component({
+  selector: 'lookup-control',
+  template: `<button class="lookup" type="button" (click)="resolved.emit('Acme')">go</button>`,
+})
+class LookupControl implements FormValueControl<string> {
+  value = model('');
+  resolved = output<string>();
+}
+
+const lookupForm: FormConfig<{ taxId: string; company: string }> = {
+  model: () => ({ taxId: '', company: '' }),
+  ui: {
+    taxId: { type: 'lookup' },
+    company: { type: 'text', label: 'Company' },
+  } as unknown as FormConfig<{ taxId: string; company: string }>['ui'],
+};
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class EffectHost {
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .addControlType('lookup', LookupControl)
+      .createForm('f', lookupForm)
+      .createStep((s) =>
+        s.createPage({ options: { heading: '1' } }, (p) =>
+          p.addForm((f) => f.f, {
+            effects: (e) =>
+              e.on(
+                (m) => m.taxId,
+                'resolved',
+                (payload: string, model) => model.update((m) => ({ ...m, company: payload })),
+              ),
+          }),
+        ),
+      )
+      .build(),
+  );
+}
+
+describe('addForm effects', () => {
+  it('wires a control output to patch a sibling field', async () => {
+    const fixture = TestBed.createComponent(EffectHost);
+    for (let i = 0; i < 5; i++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+
+    (fixture.nativeElement.querySelector('.lookup') as HTMLButtonElement).click();
+    for (let i = 0; i < 3; i++) {
+      fixture.detectChanges();
+      await fixture.whenStable();
+    }
+
+    // The 'company' text field was patched by the lookup control's `resolved` output.
+    const company = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    expect(company.value).toBe('Acme');
   });
 });

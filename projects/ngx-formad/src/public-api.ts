@@ -15,6 +15,7 @@ export * from './lib/controls/default-control-adapter';
 // Form description (over formodel) and the renderer.
 export * from './lib/form-config/form-config';
 export * from './lib/renderer/instantiate-form';
+export * from './lib/renderer/output-effect';
 export * from './lib/renderer/field-outlet';
 export * from './lib/renderer/component-outlet';
 export * from './lib/renderer/nodes-view';

@@ -941,6 +941,8 @@ page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declar
   submitLabel?: string,
   visibleWhen?: () => boolean,                // auto-@if'd by the renderer
   bind?: (l: SharedLink<Model, Shared>) => void,   // m = selected form's model, s = shared shape
+  effects?: (e) => e.on(m => m.taxId, 'resolved', (payload, model) => // control output → model patch
+    model.update(m => ({ ...m, companyName: payload.name }))),       //  (VAT-ID autofill)
 })
 page.addComponent(Component, { inputs, outputs, visibleWhen?, layout? })  // typed to the component
 page.addContent({ layout? })                  // a bare layout slot
