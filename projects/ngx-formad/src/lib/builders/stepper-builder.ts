@@ -21,7 +21,15 @@ export type BuiltInControlKind =
   | 'date'
   | 'file';
 import { LayoutNode, PageNode, PageOptions, StepNode } from './nodes';
-import { FieldRef, FieldRefs, recordLinks, selectedKey, SharedLink } from './shared-link';
+import {
+  FieldRef,
+  FieldRefs,
+  FormEffects,
+  recordEffects,
+  recordLinks,
+  selectedKey,
+  SharedLink,
+} from './shared-link';
 import {
   AnyFormProvider,
   DeferTrigger,
@@ -89,6 +97,9 @@ export class PageBuilder<TForms, TShared extends Record<string, unknown>> {
       submitLabel?: string;
       visibleWhen?: () => boolean;
       bind?: (link: SharedLink<FormModel<TForms[K]>, TShared>) => void;
+      /** Wire a field's control outputs to patch the form model — e.g. a NIP field
+       *  whose `resolved` output fills in company name/address. */
+      effects?: (e: FormEffects<FormModel<TForms[K]>>) => void;
     } = {},
   ): this {
     const name = selectedKey<TForms>(
@@ -100,6 +111,7 @@ export class PageBuilder<TForms, TShared extends Record<string, unknown>> {
       submitLabel: opts.submitLabel,
       visibleWhen: opts.visibleWhen,
       links: opts.bind ? recordLinks(opts.bind) : [],
+      effects: opts.effects ? recordEffects(opts.effects) : [],
     });
     return this;
   }

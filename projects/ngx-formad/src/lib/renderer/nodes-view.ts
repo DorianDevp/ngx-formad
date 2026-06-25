@@ -4,6 +4,7 @@ import { LAYOUT_ADAPTER } from '../provide';
 import { LayoutSpec } from '../layout/layout-adapter';
 import { ArrayNode, ControlNode, GroupNode, RenderNode } from '../form-config/form-config';
 import { FieldOutlet } from './field-outlet';
+import { BoundOutputEffect } from './output-effect';
 
 // Draws one level of the render tree, recursing into nested groups. It is the
 // recursive core the flat `FormRenderer` of old grew into: a control becomes a
@@ -34,13 +35,19 @@ import { FieldOutlet } from './field-outlet';
                 [nodes]="group(node).children"
                 [tree]="childTree(node.key)"
                 [layout]="{ cols: group(node).maxCols }"
+                [effects]="effects()"
               />
             </fieldset>
           }
           @case ('control') {
             <!-- The directive mounts the control as the grid item itself — no
                  wrapper div; the field's own layout lands on the control host. -->
-            <ng-container ngxFormadField [node]="leaf(node.key)" [config]="control(node)" />
+            <ng-container
+              ngxFormadField
+              [node]="leaf(node.key)"
+              [config]="control(node)"
+              [effects]="effects()"
+            />
           }
           @case ('array') {
             <fieldset class="ngx-formad-array" style="grid-column: 1 / -1">
@@ -84,6 +91,8 @@ export class NodesView {
   readonly tree = input.required<Record<string, FieldTree<unknown>>>();
   /** How this level's children are arranged; resolved through the layout adapter. */
   readonly layout = input<LayoutSpec>({});
+  /** Control-output effects, passed through to each field directive (and nested groups). */
+  readonly effects = input<readonly BoundOutputEffect[]>([]);
 
   private readonly layoutAdapter = inject(LAYOUT_ADAPTER);
 

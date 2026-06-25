@@ -1,5 +1,5 @@
 import { Binding, Type } from '@angular/core';
-import { LinkPair } from './shared-link';
+import { LinkPair, OutputEffect } from './shared-link';
 import { DeferTrigger, RuntimeStepCondition } from './step-context';
 
 // The builder runs once and emits this plain tree; the renderer walks it. Every
@@ -22,13 +22,15 @@ export interface ComponentNode {
   readonly layout?: string;
 }
 
-/** A form drawn from the pool by name, with its shared-state links. */
+/** A form drawn from the pool by name, with its shared-state links and any
+ *  control-output effects. */
 export interface FormNode {
   readonly kind: 'form';
   readonly name: string;
   readonly submitLabel?: string;
   readonly visibleWhen?: () => boolean;
   readonly links: readonly LinkPair[];
+  readonly effects: readonly OutputEffect[];
 }
 
 /** A nested layout group. */

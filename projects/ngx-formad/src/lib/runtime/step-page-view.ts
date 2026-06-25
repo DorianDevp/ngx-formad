@@ -25,8 +25,8 @@ import { LiveForm, LiveStep } from './materialize-step';
       @switch (node.kind) {
         @case ('form') {
           @if (visible(form(node))) {
-            @if (stateFor(form(node).name); as state) {
-              <ngx-formad-form [state]="state" />
+            @if (liveFormFor(form(node).name); as live) {
+              <ngx-formad-form [state]="live.state" [effects]="live.effects" />
             }
           }
         }
@@ -53,10 +53,10 @@ export class PageNodesView {
   /** The step's live forms, indexed by name, for resolving a form node in place. */
   readonly forms = input.required<ReadonlyMap<string, LiveForm>>();
 
-  // The live state a form node binds to — undefined if the step never
-  // materialized it (a name with no pool entry), so the `@if` simply skips it.
-  protected stateFor(name: string): FormState<Record<string, unknown>> | undefined {
-    return this.forms().get(name)?.state;
+  // The live form a node binds to (its state + effects) — undefined if the step
+  // never materialized it (a name with no pool entry), so the `@if` skips it.
+  protected liveFormFor(name: string): LiveForm | undefined {
+    return this.forms().get(name);
   }
 
   // A node is shown unless its `visibleWhen` says otherwise — the same default the
