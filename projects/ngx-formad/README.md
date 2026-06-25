@@ -835,6 +835,107 @@ Pair `provideFormadSuite()` with `provideZonelessChangeDetection()` — signal f
 are zoneless, and the whole suite is signal-driven, so change detection stays
 fine-grained.
 
+## Custom control kinds
+
+The built-in kinds (`text`, `select`, `date`, `file`, …) cover ordinary fields. When
+a field is a *widget* — a device picker, a company-lookup field, a colour swatch —
+register it as a **custom control kind** and use it from config like any built-in. A
+custom control is just a `FormValueControl<Value>` plus one typed `props` input; the
+renderer hands it `props` and binds value/validity through the native `FormField`.
+
+```ts
+// 1 — the control: value + a typed props bag (a label, if it wants one, lives in props)
+@Component({ selector: 'app-device-picker', template: `…` })
+class DevicePicker implements FormValueControl<Device[]> {
+  value = model<Device[]>([]);
+  props = input.required<{ max?: number }>();   // ← the only extra input
+}
+
+// 2 — a typed helper from formodel, used like text()/select()
+const devicePicker = customInputType<Device[], { max?: number }>('devicePicker');
+
+// 3 — in a form config; the node only type-checks on a Device[] field
+const fleetForm: FormConfig<{ devices: Device[] }> = {
+  model: () => ({ devices: [] }),
+  ui: UiFormConfigBuilder.from({ devices: [] as Device[] }).devices(devicePicker({ max: 5 })),
+};
+```
+
+Register the kind in one of two places — the renderer resolves it **before** the
+built-ins, so a custom kind can also override one:
+
+```ts
+// global, for every form in the app
+provideFormadSuite({ controls: materialControls, controlTypes: { devicePicker: DevicePicker } });
+
+// or scoped to one wizard, fully typed — `add` rejects an existing kind, `override` requires one
+new StepperBuilder()
+  .addControlType('devicePicker', DevicePicker)   // ✅ new kind
+  .overrideControlType('date', MyFancyDate)       // ✅ replaces the built-in date
+  // .addControlType('text', X)                    // ❌ compile error: 'text' exists
+```
+
+`customInputType<Value, Props>` ties the node to its field by value type — a node
+built for `Device[]` is a type error on a `string` field. A control with no config
+needs no `props` (omit it; the renderer forwards nothing extra). The device step,
+NIP/GUS lookup, and similar widgets all become plain config fields this way.
+
+## Conditional fields
+
+Showing a field only when another has a value is **native** — no new vocabulary. Use
+signal forms' `hidden()` in the schema; the renderer drops a hidden field from the
+DOM (and it's already excluded from validity):
+
+```ts
+schema: (p) => {
+  hidden(p.reseller, ({ valueOf }) => !valueOf(p.otherReseller)); // hide reseller until the box is ticked
+}
+```
+
+Put build-time conditionals (role, a feature flag) in plain TS — a `FormConfig` is a
+function. Reserve `hidden()`/`disabled()`/`readonly()` for what depends on what the
+user *types*.
+
+## Reading collected data from a slot — `FormadWizard`
+
+A summary screen, or a widget that contributes to shared state, needs the wizard's
+data without the host wiring inputs. `<ngx-formad-stepper>` provides a `FormadWizard`
+for its subtree; inject it from any slot or custom control:
+
+```ts
+@Component({ selector: 'app-summary', template: `{{ data() | json }}` })
+class Summary {
+  private readonly wiz = inject(FormadWizard, { optional: true }); // null outside a stepper
+  protected data = computed(() => this.wiz?.committed());           // every form's committed model
+}
+```
+
+`FormadWizard` exposes `controller` (→ `committed()`, `step()`, `result()`, …) and
+`shared` (`get`/`patch`/`snapshot`). Summaries stay free-form — you read the data and
+render it however you like.
+
+## Control-output effects — autofill from a widget
+
+A control can emit *outputs* beyond its value (a NIP field that resolves a company).
+`addForm({ effects })` wires such an output to patch sibling fields — typed against
+the control's payload and the form model:
+
+```ts
+page.addForm((f) => f.thirdParty, {
+  effects: (e) =>
+    e.on(
+      (m) => m.nip,            // the field whose control emits
+      'resolved',              // the output name
+      (company: Company, model) =>
+        model.update((m) => ({ ...m, companyName: company.name, address: company.address })),
+    ),
+});
+```
+
+The handler runs a *programmatic* model write, which stays pristine — so it never
+trips the seed-if-pristine gate of cross-step prefill. This is how the GUS/NIP
+autofill is config, not a bespoke component.
+
 ## API
 
 Everything is exported from the package root (`ngx-formad`).
