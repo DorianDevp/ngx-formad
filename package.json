@@ -7,7 +7,9 @@
     "build": "ng build ngx-formad",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "examples": "ng build ngx-formad && ng serve examples"
+    "examples": "ng build ngx-formad && ng serve examples",
+    "pack": "ng build ngx-formad && npm pack ./dist/ngx-formad",
+    "release": "ng build ngx-formad && npm publish ./dist/ngx-formad --access public"
   },
   "private": true,
   "packageManager": "pnpm@10.28.0",
