@@ -1,0 +1,63 @@
+// ngx-formad — layout utility generator.
+//
+// Ships no breakpoints of its own. YOU pass yours; we generate the classes into
+// your CSS output. Call once from your global stylesheet:
+//
+//   @use 'ngx-formad/styles' as formad;
+//   @include formad.grid((sm: 40rem, md: 48rem, lg: 64rem, xl: 80rem));
+//
+// This backs `classLayout` (the class-based layout adapter): a responsive CSS-grid
+// container plus column-span / column-start utilities. With that adapter + these
+// classes the renderer emits only class names — never inline styles.
+//
+// Breakpoints are emitted mobile-first with `min-width`, so a value set at one
+// breakpoint waterfalls to every wider one until overridden (`col-md-6` still
+// applies at `lg`/`xl`). LIST THEM ASCENDING — the cascade relies on wider
+// breakpoints coming later in the output.
+
+@mixin _utilities($suffix: '', $columns: 12) {
+  @for $n from 1 through $columns {
+    .ngx-formad-cols-#{$suffix}#{$n} {
+      grid-template-columns: repeat(#{$n}, minmax(0, 1fr));
+    }
+    .ngx-formad-col-#{$suffix}#{$n} {
+      grid-column: span #{$n} / span #{$n};
+    }
+    .ngx-formad-col-start-#{$suffix}#{$n} {
+      grid-column-start: #{$n};
+    }
+  }
+}
+
+/// Generate the grid utilities for a set of breakpoints.
+/// @param {Map} $breakpoints - name → min-width, ascending (e.g. `(md: 48rem)`).
+/// @param {Number} $columns - grid columns to generate (default 12).
+@mixin grid($breakpoints, $columns: 12) {
+  .ngx-formad-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(1, minmax(0, 1fr));
+  }
+
+  // A child that always spans the full row (group/array fieldsets).
+  .ngx-formad-col-full {
+    grid-column: 1 / -1;
+  }
+
+  // Gap on the 0.25rem spacing scale (`gap: 4` → 1rem), matching the spec unit.
+  @for $i from 0 through 12 {
+    .ngx-formad-gap-#{$i} {
+      gap: #{$i * 0.25}rem;
+    }
+  }
+
+  // Base (no media query): `.ngx-formad-col-6`, `.ngx-formad-cols-2`, …
+  @include _utilities('', $columns);
+
+  // Per-breakpoint: `.ngx-formad-col-md-6`, `.ngx-formad-cols-lg-3`, …
+  @each $bp, $width in $breakpoints {
+    @media (min-width: $width) {
+      @include _utilities('#{$bp}-', $columns);
+    }
+  }
+}

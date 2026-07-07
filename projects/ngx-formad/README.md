@@ -207,6 +207,88 @@ stylesheet, no build step:
 `state.rootForm` is the live native `FieldTree`, so `rootForm.title().value()` and
 the field's validation are entirely native — a fact the page and the stepper lean on.
 
+### Custom layout: place fields and components in a responsive grid
+
+By default a form renders its fields in declared order. To arrange them — put two
+fields side by side, drop a component *between* fields, group a cluster into its own
+sub-grid — add a **layout overlay** to the `FormConfig`. Field-building in `ui` is
+untouched; the overlay only decides order, grid placement, and where components sit.
+Build it with `formLayout(...)`:
+
+```ts
+import { formLayout, FormConfig } from 'ngx-formad';
+import { PasswordChecklist } from './password-checklist';
+
+type Signup = { first: string; last: string; password: string; repeat: string };
+
+const signupForm: FormConfig<Signup> = {
+  model: () => ({ first: '', last: '', password: '', repeat: '' }),
+  ui: UiFormConfigBuilder.from({ first: '', last: '', password: '', repeat: '' })
+    .first(text('First name'))
+    .last(text('Last name'))
+    .password(password('Password'))
+    .repeat(password('Repeat password')),
+  layout: formLayout<Signup>()
+    .cols({ base: 1, md: 2 }) // one column on mobile, two from `md` up
+    .field('first', { colSpan: { md: 1 } })
+    .field('last', { colSpan: { md: 1 } }) // first | last, side by side ≥ md
+    .field('password', { colSpan: { base: 1, md: 2 } })
+    .field('repeat', { colSpan: { base: 1, md: 2 } })
+    // A component, its inputs bound to the LIVE form — updates as you type.
+    .component(PasswordChecklist, {
+      colSpan: { base: 1, md: 2 },
+      inputs: { value: (ctx) => ctx.model.password },
+    })
+    .build(),
+};
+```
+
+A component's inputs (and `visibleWhen`) are functions of a **context** — the live
+model value, the field tree (per-field `errors()`/`touched()`, not just values), and,
+when the form runs inside a stepper page, the cross-step `shared` store (`null`
+standalone):
+
+```ts
+.component(SummaryCard, {
+  inputs: {
+    name: (ctx) => ctx.model.first,
+    invalid: (ctx) => ctx.form.password().invalid(),
+    plan: (ctx) => ctx.shared?.get('plan'),
+  },
+  visibleWhen: (ctx) => ctx.model.password.length > 0,
+})
+```
+
+Group a cluster into its own sub-grid with `.row(grid, build)`:
+
+```ts
+.row({ cols: 3 }, (row) => row.field('city').field('postCode').field('country'))
+```
+
+Fields left out of the overlay still validate (they are in the schema) but do not
+render — list every field you want shown.
+
+**Responsive layout needs the class adapter + stylesheet.** `colSpan`/`cols` accept a
+constant (`2`) or a per-breakpoint map (`{ base: 1, md: 2 }`). The zero-dependency
+default (`cssLayout`) resolves only the `base` value (inline styles can't carry media
+queries). For real responsive layouts, register `classLayout` (it emits class names)
+and generate the backing CSS for **your** breakpoints from the shipped stylesheet:
+
+```scss
+// styles.scss — pass your own breakpoints; we generate the utilities.
+@use 'ngx-formad/styles' as formad;
+@include formad.grid((sm: 40rem, md: 48rem, lg: 64rem, xl: 80rem));
+```
+
+```ts
+import { classLayout, provideFormadSuite } from 'ngx-formad';
+
+provideFormadSuite({ layout: classLayout /* , controls, stepper */ });
+```
+
+Breakpoints are yours to name and size; they are emitted mobile-first, so a value set
+at one breakpoint waterfalls to every wider one until overridden.
+
 ## Tour
 
 A real CMS editor screen is more than one form. It is a *page*: a few forms side by

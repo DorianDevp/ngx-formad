@@ -29,6 +29,12 @@ export class FormadWizard {
     return this._shared;
   }
 
+  /** The shared store, or `null` if not yet wired — for readers (like a form's
+   *  layout components) that must not throw before the stepper shell initializes it. */
+  sharedOrNull(): SharedState<Record<string, unknown>> | null {
+    return this._shared;
+  }
+
   /** @internal — wired once by the stepper shell. */
   _init(controller: StepperController, shared: SharedState<Record<string, unknown>>): void {
     this._shared = shared;

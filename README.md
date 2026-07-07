@@ -10,7 +10,7 @@ library. It contains two projects:
 
 `ngx-formad` is config-driven rendering and multi-step orchestration on top of
 Angular's headless signal forms: describe a form or wizard as data, and one renderer
-walks it. It is an early release (0.1.x) built on the signal-forms API that is
+walks it. It is an early release (0.3.x) built on the signal-forms API that is
 *experimental* in Angular 21, so expect breaking changes. The full story lives in the
 [library README](./projects/ngx-formad/README.md); this file only covers working in
 the repo.

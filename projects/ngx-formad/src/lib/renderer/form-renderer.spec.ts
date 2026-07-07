@@ -1,8 +1,9 @@
-import { Component } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FieldTree, hidden } from '@angular/forms/signals';
 import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
+import { formLayout } from '../form-config/form-layout';
 import { FormRenderer } from './form-renderer';
 import { asRenderable, instantiateForm } from './instantiate-form';
 
@@ -246,5 +247,56 @@ describe('FormRenderer — conditional fields via hidden()', () => {
 
     // A now has a value, so B appears.
     expect(inputs().length).toBe(2);
+  });
+});
+
+@Component({ selector: 'test-echo', template: `<p class="echo">{{ value() }}</p>` })
+class Echo {
+  readonly value = input('');
+}
+
+type FL = { first: string; last: string };
+const layoutConfig: FormConfig<FL> = {
+  model: () => ({ first: '', last: '' }),
+  ui: UiFormConfigBuilder.from({ first: '', last: '' }).first(text('First')).last(text('Last')),
+  layout: formLayout<FL>()
+    .field('first')
+    .component(Echo, { inputs: { value: (ctx) => ctx.model.first } })
+    .field('last')
+    .build(),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class LayoutHost {
+  readonly state = asRenderable(instantiateForm(layoutConfig));
+}
+
+describe('FormRenderer — layout overlay with a component', () => {
+  let fixture: ComponentFixture<LayoutHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(LayoutHost);
+    await pump(fixture);
+  });
+
+  it('renders the component between the fields, in overlay order', () => {
+    const order = Array.from(
+      fixture.nativeElement.querySelectorAll('input, .echo') as NodeListOf<HTMLElement>,
+    ).map((el) => (el.tagName === 'INPUT' ? 'input' : 'echo'));
+    expect(order).toEqual(['input', 'echo', 'input']);
+  });
+
+  it('binds the component input to the live model, per keystroke', async () => {
+    const first = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    first.value = 'Ada';
+    first.dispatchEvent(new Event('input'));
+    await pump(fixture);
+
+    expect((fixture.nativeElement.querySelector('.echo') as HTMLElement).textContent?.trim()).toBe(
+      'Ada',
+    );
   });
 });

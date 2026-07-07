@@ -1,7 +1,16 @@
 import { signal, WritableSignal } from '@angular/core';
 import { FieldTree, form } from '@angular/forms/signals';
 import { UiFormGroupConfig } from 'formodel';
-import { buildNodes, FieldConfig, FormConfig, flattenFields, RenderNode } from '../form-config/form-config';
+import {
+  buildLayoutNodes,
+  buildNodes,
+  FieldConfig,
+  FormConfig,
+  FormLayoutItem,
+  flattenFields,
+  RenderNode,
+} from '../form-config/form-config';
+import { LayoutSpec } from '../layout/layout-adapter';
 
 // Turning config into live state is the one step that needs an injection context
 // — `form()` calls `inject()` internally. So it is a plain function, not a method
@@ -15,10 +24,13 @@ import { buildNodes, FieldConfig, FormConfig, flattenFields, RenderNode } from '
 export interface FormState<M extends Record<string, unknown>> {
   readonly model: WritableSignal<M>;
   readonly rootForm: FieldTree<M>;
-  /** The recursive render tree (controls, groups, arrays) the renderer walks. */
+  /** The recursive render tree (controls, groups, arrays, and — with a layout
+   *  overlay — components/rows) the renderer walks. */
   readonly nodes: readonly RenderNode[];
   /** Every scalar leaf, each with its full path — for folds over all fields. */
   readonly fields: readonly FieldConfig[];
+  /** The container grid from a layout overlay, if the config declared one. */
+  readonly grid?: LayoutSpec;
 }
 
 /** Builds live form state from config. Must run inside an injection context. */
@@ -30,7 +42,19 @@ export function instantiateForm<M extends Record<string, unknown>>(
   // the optional schema and stays entirely native — nested groups included.
   const rootForm = config.schema ? form(model, config.schema) : form(model);
   const ui = config.ui as UiFormGroupConfig<Record<string, unknown>>;
-  return { model, rootForm, nodes: buildNodes(ui), fields: flattenFields(ui) };
+  // With a layout overlay, walk it (order + placement + components); otherwise the
+  // declared field order. Either way `flattenFields` folds every declared field, so
+  // validation covers fields a layout may have left out.
+  const items = config.layout?.items as
+    | readonly FormLayoutItem<Record<string, unknown>>[]
+    | undefined;
+  return {
+    model,
+    rootForm,
+    nodes: items ? buildLayoutNodes(ui, items) : buildNodes(ui),
+    fields: flattenFields(ui),
+    grid: config.layout?.grid,
+  };
 }
 
 /** Form state with its model type erased, as the renderer consumes it. */

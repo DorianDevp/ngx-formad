@@ -6,6 +6,7 @@ export * from './lib/provide';
 // Layout axis.
 export * from './lib/layout/layout-adapter';
 export * from './lib/layout/css-layout';
+export * from './lib/layout/class-layout';
 
 // Control axis.
 export * from './lib/controls/control-adapter';
@@ -14,6 +15,7 @@ export * from './lib/controls/default-control-adapter';
 
 // Form description (over formodel) and the renderer.
 export * from './lib/form-config/form-config';
+export * from './lib/form-config/form-layout';
 export * from './lib/renderer/instantiate-form';
 export * from './lib/renderer/output-effect';
 export * from './lib/renderer/field-outlet';
