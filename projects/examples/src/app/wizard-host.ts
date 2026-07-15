@@ -1,6 +1,6 @@
 import { Component, computed, effect, EnvironmentInjector, inject, input, OnInit, output, signal, untracked } from '@angular/core';
 import { FieldTree } from '@angular/forms/signals';
-import { FormadStepperController, FormRenderer, RuntimeStepper, StepperController } from 'ngx-formad';
+import { FormadStepperController, FormRenderer, readReactive, RuntimeStepper, StepperController } from 'ngx-formad';
 import { FlowTheme } from './theme';
 
 /** One field's current error, as the validation summary lists it. */
@@ -147,7 +147,11 @@ export class WizardHost implements OnInit {
       for (const field of form.state.fields) {
         const errors = resolveLeaf(root, field.path).errors();
         if (errors.length) {
-          out.push({ label: field.node.label ?? field.key, message: errors[0]?.message ?? 'Invalid value' });
+          // A node's label may be signal-backed; `readReactive` reads either form.
+          out.push({
+            label: readReactive(field.node.label) ?? field.key,
+            message: errors[0]?.message ?? 'Invalid value',
+          });
         }
       }
     }

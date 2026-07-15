@@ -962,6 +962,47 @@ built for `Product[]` is a type error on a `string` field. A control with no con
 needs no `props` (omit it; the renderer forwards nothing extra). The product step,
 VAT-ID lookup, and similar widgets all become plain config fields this way.
 
+## Reactive props — seed a select after the form exists
+
+Options often arrive later than the form: a country list from an API, sub-categories
+that depend on an earlier answer. Any *presentational* prop of a control node —
+select/radio `options`, `label`, `placeholder`, a date's `limit`, a custom control's
+`props` — may be a **signal** instead of a value. The renderer reads it live; set the
+signal whenever the data lands and the control follows. Nothing re-instantiates.
+
+```ts
+const countries = signal<SelectOption[]>([]); // empty at first
+
+const addressForm = defineForm({
+  model: () => ({ country: '' }),
+  ui: { country: { type: 'select', label: 'Country', options: countries } },
+});
+```
+
+`defineForm` (or `satisfies FormConfig<M>`) keeps the *authored* type, so the live
+state hands your signal back writable — the form state is the one handle you need:
+
+```ts
+const state = instantiateForm(addressForm);
+state.ui.country.options.set(await api.countries()); // the rendered select updates
+```
+
+Configs built with formodel's fluent builder work too — thread the signal through the
+plain-typed helpers with `reactive(...)`, and keep your own reference to seed it:
+
+```ts
+ui: UiFormConfigBuilder.from({ country: '' })
+  .country(select('Country', reactive(countries))),
+```
+
+This costs nothing where you don't use it: the widening is type-level, and a
+signal/`computed` exists only for a prop you actually authored as one — static
+configs render exactly as before. Structural config stays static by design (`type`,
+group/array shape): fields that appear and disappear are the schema's job
+(`hidden()`, below), not a prop binding. If you fold over `FormState.fields`
+yourself (say, for an error summary), read node props through `readReactive(...)`,
+which passes plain values through and unwraps signals.
+
 ## Conditional fields
 
 Showing a field only when another has a value is **native** — no new vocabulary. Use

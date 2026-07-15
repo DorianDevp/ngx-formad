@@ -3,12 +3,12 @@ import { FieldTree, SchemaOrSchemaFn } from '@angular/forms/signals';
 import {
   RepeatingGroupNode,
   SelectFormControlNode,
-  UiFormControlNode,
   UiFormGroupConfig,
   UiFormGroupNode,
 } from 'formodel';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
+import { mapReactive, ReactiveControlNode, ReactiveUiConfig } from './reactive';
 
 /** One option of a `select` / `radio` / `multiselect` field — `{ value, description }`,
  *  exactly what formodel's `select(label, options)` takes. Exported so app code can
@@ -29,8 +29,10 @@ export interface FieldConfig {
   readonly key: string;
   /** The path from the form root to this field; `[key]` at the top level. */
   readonly path: readonly string[];
-  /** The formodel node — `type` is the control kind, plus label/options/etc. */
-  readonly node: UiFormControlNode;
+  /** The formodel node — `type` is the control kind, plus label/options/etc.
+   *  Presentational props may be signals (see `ReactiveValue`); read them through
+   *  `readReactive` rather than directly. */
+  readonly node: ReactiveControlNode;
   /** Optional per-field layout, applied by the layout adapter's `item()`. */
   readonly layout?: ItemSpec;
 }
@@ -151,15 +153,43 @@ export interface FormLayout<M extends Record<string, unknown>> {
  * signature) but not by an `interface` (which doesn't), so an interface model is
  * rejected with a "not assignable to Record<string, unknown>" error.
  */
-export interface FormConfig<M extends Record<string, unknown>> {
+export interface FormConfig<
+  M extends Record<string, unknown>,
+  U extends ReactiveUiConfig<M> = ReactiveUiConfig<M>,
+> {
   readonly model: () => M;
-  readonly ui: UiFormGroupConfig<M>;
+  /** The formodel UI config, with presentational props widened to also accept a
+   *  signal — `options: myOptionsSignal` renders live, so a select can be seeded
+   *  (and re-seeded) after the form is instantiated. Plain configs, including
+   *  everything `UiFormConfigBuilder` produces, are assignable unchanged; to pass
+   *  a signal *through* the builder's helpers, wrap it in `reactive(...)`.
+   *
+   *  The `U` parameter carries the *authored* type through to `FormState.ui`, so
+   *  a config declared with `defineForm` (or `satisfies FormConfig<M>`) hands back
+   *  your writable signals exactly as you typed them — `state.ui.country.options
+   *  .set(...)` seeds the live select with no cast. An explicit `FormConfig<M>`
+   *  annotation erases `U` to the widened default (readable, not writable). */
+  readonly ui: U;
   readonly schema?: SchemaOrSchemaFn<M>;
   /** Optional render-order overlay: arranges the `ui` fields in a responsive grid and
    *  drops components between them. When present the renderer walks THIS; fields left
    *  out still validate (they are in the schema) but do not render — list every field
    *  you want shown. Build it with `formLayout(ui)`. */
   readonly layout?: FormLayout<M>;
+}
+
+/**
+ * Declares a form config while *keeping* the authored `ui` type. A plain
+ * `const cfg: FormConfig<M> = {...}` annotation widens `ui` to the reactive
+ * default, so signals you put in come back as maybe-values; this identity helper
+ * checks the config the same way but lets `U` infer, so `instantiateForm(cfg)`
+ * returns a `FormState` whose `.ui` still has your `WritableSignal`s writable.
+ * (`satisfies FormConfig<M>` achieves the same; this reads better inline.)
+ */
+export function defineForm<M extends Record<string, unknown>, U extends ReactiveUiConfig<M>>(
+  config: FormConfig<M, U>,
+): FormConfig<M, U> {
+  return config;
 }
 
 // A group node carries `controlsConfig`; a repeating array carries `type: 'array'`
@@ -212,7 +242,7 @@ function buildFieldNode(
       layout,
     };
   }
-  return { kind: 'control', key, path: here, node: node as UiFormControlNode, layout };
+  return { kind: 'control', key, path: here, node: node as ReactiveControlNode, layout };
 }
 
 /**
@@ -296,18 +326,28 @@ export function flattenFields(ui: UiFormGroupConfig<Record<string, unknown>>): F
  * The non-contract inputs a control needs beyond the field binding. `FormField`
  * supplies value/errors/disabled/touched/required from the field; this fills in
  * the purely presentational extras the node carries — label, input type, select
- * options — which the renderer feeds as plain input bindings.
+ * options — which the renderer feeds as input bindings.
+ *
+ * A prop authored as a signal stays a signal in the result (derived props — the
+ * option mapping, the date bounds — become `computed`s, so identity is stable
+ * between emissions). The renderer binds every entry through `readReactive`, which
+ * is what keeps a live prop live: set the options signal after instantiation and
+ * the rendered select follows.
  */
-export function extraInputsFor(node: UiFormControlNode): Record<string, unknown> {
+export function extraInputsFor(node: ReactiveControlNode): Record<string, unknown> {
   // A custom-kind node (from `customInputType`) hands the control exactly one
   // presentational input — its typed `props` bag. We forward nothing else (a
   // custom control declares no `label`/`type`/… inputs, so binding them would
-  // throw); anything it needs, including a label, lives in `props`.
+  // throw); anything it needs, including a label, lives in `props` — which may
+  // itself be a signal, unwrapped like any other entry.
   const props = (node as { props?: unknown }).props;
   if (props !== undefined) return { props };
 
   const inputs: Record<string, unknown> = {};
 
+  // Presence checks read the *prop*, not its value: a signal-backed prop is
+  // always bound (its current value may legitimately be empty), a static empty
+  // one is skipped as before.
   if (node.label != null) inputs['label'] = node.label;
   if (node.placeholder) inputs['placeholder'] = node.placeholder;
 
@@ -325,17 +365,21 @@ export function extraInputsFor(node: UiFormControlNode): Record<string, unknown>
       break;
     case 'select':
       // formodel labels select options `description`; the control wants `label`.
-      inputs['options'] = node.options.map((o) => ({ value: o.value, label: o.description }));
+      inputs['options'] = mapReactive(node.options, (options) =>
+        options.map((o) => ({ value: o.value, label: o.description })),
+      );
       break;
     case 'radio':
-      inputs['options'] = node.options.map((o) => ({ value: o.value, label: o.label }));
+      inputs['options'] = mapReactive(node.options, (options) =>
+        options.map((o) => ({ value: o.value, label: o.label })),
+      );
       break;
     case 'date':
       // Forward the optional bounds; the date control clamps the native picker.
       // (`minDate`/`maxDate`, since `min`/`max` are reserved control inputs.)
       if (node.limit) {
-        inputs['minDate'] = node.limit.min;
-        inputs['maxDate'] = node.limit.max;
+        inputs['minDate'] = mapReactive(node.limit, (limit) => limit?.min ?? null);
+        inputs['maxDate'] = mapReactive(node.limit, (limit) => limit?.max ?? null);
       }
       break;
     case 'file':

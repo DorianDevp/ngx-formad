@@ -1,8 +1,8 @@
-import { Component, input } from '@angular/core';
+import { Component, input, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FieldTree, hidden } from '@angular/forms/signals';
 import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
-import { FormConfig } from '../form-config/form-config';
+import { defineForm, FormConfig, SelectOption } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { FormRenderer } from './form-renderer';
 import { asRenderable, instantiateForm } from './instantiate-form';
@@ -247,6 +247,54 @@ describe('FormRenderer — conditional fields via hidden()', () => {
 
     // A now has a value, so B appears.
     expect(inputs().length).toBe(2);
+  });
+});
+
+// Options authored as a signal in a literal ui — the reactive layer's headline:
+// instantiate first, seed the select whenever the data arrives.
+const countryOptions = signal<SelectOption[]>([{ value: 'pl', description: 'Poland' }]);
+const countryConfig = defineForm({
+  model: () => ({ country: '' }),
+  ui: { country: { type: 'select', label: 'Country', options: countryOptions } },
+});
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class ReactiveHost {
+  // `defineForm` kept the authored ui type, so this handle is the WritableSignal
+  // itself — the typed seeding surface, no cast.
+  readonly live = instantiateForm(countryConfig);
+  readonly state = asRenderable(this.live);
+}
+
+describe('FormRenderer — reactive select options', () => {
+  let fixture: ComponentFixture<ReactiveHost>;
+
+  beforeEach(async () => {
+    countryOptions.set([{ value: 'pl', description: 'Poland' }]);
+    fixture = TestBed.createComponent(ReactiveHost);
+    await pump(fixture);
+  });
+
+  const optionTexts = () =>
+    Array.from(fixture.nativeElement.querySelectorAll('option') as NodeListOf<HTMLElement>).map(
+      (o) => o.textContent?.trim(),
+    );
+
+  it('renders the options the signal held at instantiation', () => {
+    expect(optionTexts()).toEqual(['Poland']);
+  });
+
+  it('re-renders the select when the options are seeded after instantiation', async () => {
+    fixture.componentInstance.live.ui.country.options.set([
+      { value: 'pl', description: 'Poland' },
+      { value: 'de', description: 'Germany' },
+    ]);
+    await pump(fixture);
+
+    expect(optionTexts()).toEqual(['Poland', 'Germany']);
   });
 });
 

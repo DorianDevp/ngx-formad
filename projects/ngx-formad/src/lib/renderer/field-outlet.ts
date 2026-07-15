@@ -10,6 +10,7 @@ import {
 import { FieldTree, FormField } from '@angular/forms/signals';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { FieldConfig, extraInputsFor } from '../form-config/form-config';
+import { readReactive } from '../form-config/reactive';
 import { BoundOutputEffect, samePath } from './output-effect';
 
 // Renders a single field — as a *directive*, not a component, so it adds no host
@@ -51,8 +52,13 @@ export class FieldOutlet {
 
     // Presentational inputs (label, options, input type) come from the node;
     // the field-state inputs are handled by FormField, so they are not repeated.
+    // Each binding reads through `readReactive`: a static prop passes through, a
+    // signal-authored one is unwrapped *inside* the getter — which is what keeps
+    // the input live when the config's signal is set after instantiation.
     const extras = extraInputsFor(config.node);
-    const bindings = Object.entries(extras).map(([name, value]) => inputBinding(name, () => value));
+    const bindings = Object.entries(extras).map(([name, value]) =>
+      inputBinding(name, () => readReactive(value)),
+    );
 
     // Wire this field's control-output effects (e.g. a VAT-ID field's `resolved`).
     for (const effect of this.effects()) {

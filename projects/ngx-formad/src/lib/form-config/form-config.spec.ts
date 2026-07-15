@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, isSignal, Signal, signal } from '@angular/core';
 import { UiFormConfigBuilder, email, select, text, UiFormGroupConfig } from 'formodel';
 import {
   buildLayoutNodes,
@@ -9,8 +9,10 @@ import {
   FormRowNode,
   flattenFields,
   GroupNode,
+  SelectOption,
 } from './form-config';
 import { formLayout } from './form-layout';
+import { reactive, ReactiveControlNode, readReactive } from './reactive';
 
 const erase = (ui: unknown) => ui as UiFormGroupConfig<Record<string, unknown>>;
 const eraseItems = (items: readonly FormLayoutItem<Record<string, string>>[]) =>
@@ -91,6 +93,46 @@ describe('extraInputsFor', () => {
       'placeholder',
       'Jane',
     );
+  });
+});
+
+describe('extraInputsFor — reactive props', () => {
+  it('maps signal-backed select options through a live computed', () => {
+    const options = signal<SelectOption[]>([{ value: 'admin', description: 'Admin' }]);
+    const node: ReactiveControlNode = { type: 'select', label: 'Role', options };
+
+    const mapped = extraInputsFor(node)['options'] as Signal<
+      readonly { value: unknown; label: string }[]
+    >;
+
+    // The mapping stays live: it is a computed over the authored signal, so
+    // seeding the options after instantiation re-maps without re-rendering.
+    expect(isSignal(mapped)).toBe(true);
+    expect(mapped()).toEqual([{ value: 'admin', label: 'Admin' }]);
+
+    options.set([
+      { value: 'admin', description: 'Admin' },
+      { value: 'user', description: 'User' },
+    ]);
+    expect(mapped()).toEqual([
+      { value: 'admin', label: 'Admin' },
+      { value: 'user', label: 'User' },
+    ]);
+  });
+
+  it('threads a signal through formodel builder helpers via reactive()', () => {
+    const options = signal<SelectOption[]>([{ value: 'a', description: 'A' }]);
+    const node = select('Role', reactive(options));
+
+    const mapped = extraInputsFor(node)['options'];
+
+    expect(isSignal(mapped)).toBe(true);
+    expect(readReactive(mapped)).toEqual([{ value: 'a', label: 'A' }]);
+  });
+
+  it('readReactive unwraps a signal and passes a plain value through', () => {
+    expect(readReactive('x')).toBe('x');
+    expect(readReactive(signal('y'))).toBe('y');
   });
 });
 
