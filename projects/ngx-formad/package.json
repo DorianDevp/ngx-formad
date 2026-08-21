@@ -1,6 +1,6 @@
 {
   "name": "ngx-formad",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Config-driven rendering and multi-step orchestration for Angular signal forms. You describe a form or wizard as data; one renderer walks it.",
   "keywords": [
     "angular",
@@ -34,8 +34,12 @@
     "formodel": "^0.2.0"
   },
   "peerDependenciesMeta": {
-    "@angular/cdk": { "optional": true },
-    "@angular/material": { "optional": true }
+    "@angular/cdk": {
+      "optional": true
+    },
+    "@angular/material": {
+      "optional": true
+    }
   },
   "dependencies": {
     "tslib": "^2.3.0"

@@ -27,8 +27,9 @@ import { LiveStep, materializeStep, resolveStepForms, stepFormNames } from './ma
 //  • Conditions are evaluated at navigation boundaries, not per keystroke: bound
 //    values commit to shared on move, and `value()` is the last-committed snapshot,
 //    so typing touches only the focused field — the orchestrator stays idle.
-//  • Navigation never blocks the click. `enter` only flips the target and shows a
-//    one-frame placeholder; the (possibly heavy) form build runs in the following
+//  • Navigation costs a frame only when there is something to wait for. A step whose
+//    forms are all eager materializes synchronously in `enter`, so it appears at once;
+//    a step with a lazy form shows the one-frame placeholder and builds in the following
 //    `afterNextRender`, off the event's critical path. Cached steps are instant.
 export interface StepperController {
   /** The current step's live forms, or null while it is (re)building. */
@@ -218,8 +219,11 @@ export class FormadStepperController implements StepperController {
     }
   }
 
-  // Always-smooth: flip the target + show a placeholder synchronously; build after
-  // the next render so the click returns immediately. Cached steps skip the wait.
+  // Cached steps are re-seeded and shown straight away. A step whose forms are all eager
+  // materializes synchronously, so it is built in place: deferring it would only make an
+  // instant step flash a placeholder, which reads as the wizard generating each step live.
+  // Only a step with a lazy form has real work to wait on, so only that one defers - the
+  // click still returns immediately in the case the deferral was there for.
   private enter(node: StepNode): void {
     this.currentNode.set(node);
     const cached = this.cache.get(node);
@@ -229,17 +233,29 @@ export class FormadStepperController implements StepperController {
       this.loadingNow.set(false);
       return;
     }
+
+    const pool = this.stepper.forms as unknown as Record<string, AnyFormProvider>;
+    const hasLazy = stepFormNames(node).some((name) => typeof pool[name] === 'function');
+
+    // An eager step materializes synchronously, so build it in place: the step appears
+    // with the click instead of flashing a placeholder, which is what made every step read
+    // as if it were being generated on the spot. Only a lazy step, which has real work to
+    // wait on, gives up a frame to keep the click responsive.
+    if (!hasLazy) {
+      this.build(node, false);
+      return;
+    }
+
     this.liveStep.set(null);
     this.loadingNow.set(true);
-    afterNextRender(() => this.build(node), { injector: this.injector });
+    afterNextRender(() => this.build(node, true), { injector: this.injector });
   }
 
-  private build(node: StepNode): void {
+  private build(node: StepNode, hasLazy: boolean): void {
     if (this.currentNode() !== node) return; // navigated away during the frame
     const pool = this.stepper.forms as unknown as Record<string, AnyFormProvider>;
     const shared = this.stepper.shared as SharedState<Record<string, unknown>>;
     const names = stepFormNames(node);
-    const hasLazy = names.some((name) => typeof pool[name] === 'function');
 
     if (!hasLazy) {
       const resolved: Record<string, FormConfig<Record<string, unknown>>> = {};

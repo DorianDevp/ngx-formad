@@ -4,6 +4,26 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.5.0
+
+### Changed
+
+- **A step no longer flashes a placeholder when it has nothing to wait for.** `enter`
+  used to defer every first-time build to `afterNextRender`, so each step showed the
+  loading state for a frame - across a long wizard that reads as if every step were being
+  generated on the spot. A step whose forms are all eager materializes synchronously, so
+  it is now built in place and appears with the click. A step with a lazy form still
+  shows the placeholder and builds in the following frame, which is the case the deferral
+  existed for.
+
+### Fixed
+
+- **`StepPageView` reused views across steps.** Its `@for` loops tracked by `$index`, so
+  moving between steps of the same shape reused the previous step's nodes instead of
+  replacing them; the placeholder frame had been masking it. Both loops now track the node
+  and page objects. Without this, mounting a step in place rendered the *previous* step's
+  forms.
+
 ## 0.4.0
 
 ### Added

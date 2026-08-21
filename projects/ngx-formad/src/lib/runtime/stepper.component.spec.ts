@@ -156,6 +156,17 @@ describe('StepperComponent — conditional steps', () => {
     expect(fixture.nativeElement.textContent).toContain('Third');
     expect(fixture.nativeElement.textContent).not.toContain('Second');
   });
+
+  it('mounts a step whose forms are all eager without a loading frame', async () => {
+    const fixture = TestBed.createComponent(ConditionalHost);
+    await settle(fixture);
+
+    buttonByText(fixture, 'Next')!.click();
+    fixture.detectChanges();
+
+    // Built during the click itself, so one pass is enough - no placeholder hop.
+    expect(fixture.nativeElement.textContent).toContain('Third');
+  });
 });
 
 @Component({
