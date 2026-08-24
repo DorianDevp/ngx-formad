@@ -41,7 +41,7 @@ const oneForm: FormConfig<One> = {
   template: `<ngx-formad-stepper [stepper]="stepper" (stepCommitted)="last = $event" />`,
 })
 class EgressHost {
-  last: Record<string, Record<string, unknown>> | null = null;
+  last: Record<string, unknown> | null = null;
   readonly stepper: RuntimeStepper = asStepper(
     new StepperBuilder()
       .withState({})

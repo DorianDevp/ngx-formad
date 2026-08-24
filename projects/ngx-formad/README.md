@@ -552,11 +552,16 @@ new StepperBuilder()
   and the sequence re-shapes live.
 - **`optional: true`** makes the step skippable — the bundled shell renders a **Skip**
   that advances past the completion gate.
-- **`completeWhen: () => boolean`** is an extra gate ANDed with the form fold. A step
-  whose body is a dynamic component rather than a form (a selection grid, a custom
-  picker) contributes no fields to the fold, so it is otherwise *vacuously complete*
-  and Next is always enabled; `completeWhen` lets it gate Next on its own state — e.g.
-  `{ completeWhen: () => picked().length > 0 }`. It is reactive.
+- **`completeWhen(ctx)`** is an extra gate ANDed with the form fold, reading the same
+  typed context as `when` (plus anything you close over). A step whose body is a
+  dynamic component rather than a form contributes no fields to the fold, so it is
+  otherwise *vacuously complete* and Next is always enabled; `completeWhen` lets it
+  gate Next on its own state — e.g. `{ completeWhen: ({ shared }) => shared.consented }`.
+  Pair it with **`incompleteMessage`** ("Accept the terms to continue") — that is what
+  the blocked-Next explainer shows when this guard is what holds. It is reactive.
+  For a component that *carries a value* (a picker, a selection grid), prefer a
+  [standalone control](#standalone-value-controls): its validity gates Next
+  declaratively and its errors explain themselves.
 - **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
   fetched only when its step is reached (eager steps stay synchronous). The pool type
   still records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged.
@@ -862,12 +867,21 @@ import { StepPageView, StepperController } from 'ngx-formad';
       <ngx-formad-step-page [step]="step" /> <!-- renders the step's whole page -->
     }
 
+    @if (c().nextBlocked()) {
+      <aside role="alert">   <!-- why Next refused: labeled, human-readable -->
+        @for (issue of c().blockers(); track $index) {
+          <p>{{ issue.label }}: {{ issue.message }}</p>
+        }
+      </aside>
+    }
+
     <footer>
       <button [disabled]="!c().canBack()" (click)="c().back()">Back</button>
       @if (c().optional()) {
         <button (click)="c().skip()">Skip</button>
       }
-      <button [disabled]="!c().canNext()" (click)="c().next()">
+      <!-- keep Next clickable: a blocked click *explains* instead of advancing -->
+      <button [attr.aria-disabled]="!c().canNext()" (click)="c().next()">
         {{ c().isLast() ? 'Finish' : 'Next' }}
       </button>
     </footer>
@@ -884,10 +898,16 @@ provideFormadSuite({ stepper: AppChrome });
 ```
 
 `StepperController` exposes signals — `step`, `loading`, `index`, `total`,
-`heading`, `subheading`, `canBack`, `canNext`, `isLast`, `optional`, `deferTrigger`,
-`result`, and `committed` (every form's last-committed model, the data-egress for
-persisting as you go) — and the actions `next()`, `back()`, `skip()`, and `reset()`
-(restart: clears committed values, resets shared state, re-enters the first step).
+`heading`, `subheading`, `canBack`, `canNext`, `nextBlocked` + `blockers` (why a
+refused Next refused: every visible invalid field's labeled errors, plus the step's
+`incompleteMessage` when `completeWhen` is what holds — see [the blocked-Next
+explainer](#a-blocked-next-explains-itself)), `isLast`, `optional`, `deferTrigger`,
+`result`, and `committed` (every last-committed value — a form's model, a standalone
+control's raw value — the data-egress for persisting as you go) — and the actions
+`next()`, `back()`, `skip()`, and `reset()` (restart: clears committed values,
+resets shared state, re-enters the first step). Calling `next()` while the gate is
+closed does not navigate: it marks everything touched and raises `nextBlocked`, so
+keep the button clickable (`aria-disabled`, not `disabled`) and let it answer.
 `StepPageView` (`ngx-formad-step-page`) renders a step's **whole page** — forms,
 dynamic components, rows, and content slots; wrap it in your own `@defer` to honour
 `deferTrigger()`. (`StepFormsView` / `ngx-formad-step-forms` is the forms-only
@@ -961,6 +981,84 @@ new StepperBuilder()
 built for `Product[]` is a type error on a `string` field. A control with no config
 needs no `props` (omit it; the renderer forwards nothing extra). The product step,
 VAT-ID lookup, and similar widgets all become plain config fields this way.
+
+## Standalone value controls
+
+A custom control *kind* still lives inside a form. Sometimes the widget **is** the
+step — a plan picker, a consent card, a selection grid — and authoring a one-field
+formodel config around it is ceremony. `createControl` registers a bare
+`FormValueControl` component in the pool, beside the forms, and `addControl` places
+it on a page; the runtime wraps it in an implicit single-value field tree, so it is
+a full citizen of every pipeline a form is in:
+
+```ts
+@Component({ selector: 'app-plan-picker', template: `…` })
+class PlanPicker implements FormValueControl<Plan | null> {
+  value = model<Plan | null>(null);   // the value type below is read off this model
+}
+
+const planSchema = z.union([z.literal('basic'), z.literal('pro')], {
+  error: 'Pick a plan first.',
+});
+
+new StepperBuilder()
+  .withState({ plan: null as Plan | null })
+  .createControl('plan', PlanPicker, {
+    initial: null,
+    schema: planSchema,        // ← any Standard Schema: zod 4, valibot, arktype
+    label: 'Plan',             //    (used when its errors appear in `blockers`)
+  })
+  .createStep((s) =>
+    s.createPage({ options: { heading: 'Choose a plan' } }, (p) =>
+      p.addControl((c) => c.plan, { bind: 'plan' }),
+    ),
+  )
+  // later: ctx.value('plan') : Plan | null — typed, like any form's value
+```
+
+What falls out, with nothing else wired:
+
+- **Completion** — the schema's verdict is the implicit field's validity, which folds
+  into `canNext` exactly like a form field. "A selection was made" stops being an
+  imperative `completeWhen` and becomes data.
+- **Validation** — `schema` is any [Standard Schema](https://standardschema.dev)
+  (zod 4, valibot, arktype…), run natively by signal forms' `validateStandardSchema`.
+  Issue messages surface on the field and in the blocked-Next explainer below. The
+  suite vendors only the spec's *types* — no validation dependency is added.
+- **Commit & typing** — the value commits on leave under its pool name, raw:
+  `ctx.value('plan')` in a later step's `when`/`completeWhen` is `Plan | null`,
+  `committed()['plan']` likewise. The component's `value` model is the single source
+  of the type (`createControl` reads it off `FormValueControl<T>`).
+- **Shared sync** — `bind: 'plan'` links the value to one shared key through the same
+  directional engine forms use (seed on entry if pristine, commit on leave). The key
+  must hold exactly the control's value type — a mismatch is a compile error.
+- **Placement extras** — `addControl` also takes `inputs`/`outputs` (typed to the
+  component, minus `value` — the `FormField` directive owns that binding),
+  `visibleWhen` (a hidden control leaves the completion fold), and `layout`.
+
+`FormValueControl` is the same contract custom control kinds implement, so a widget
+can graduate in either direction: field-in-a-form (`addControlType` + config) when it
+belongs to a model, standalone (`createControl` + `addControl`) when it *is* the step.
+
+### A blocked Next explains itself
+
+The classic wizard dead-end: every visible form is valid, yet Next stays greyed out —
+some `completeWhen` (or an invisible invalid control) holds the gate, and the user
+has no idea what it wants. The suite treats a blocked Next as a question, not a wall:
+
+- The bundled chrome's Next is **never `disabled`** (it carries `aria-disabled` and a
+  `ngx-formad-blocked` class for styling). A dead button can't be clicked, so it can't
+  explain itself.
+- Clicking Next while the gate is closed does not navigate. The controller marks every
+  field and control **touched** (so each shows its own errors in place) and raises
+  `nextBlocked`; the chrome renders `blockers` — every visible invalid field's labeled
+  errors (`Plan: Pick a plan first.`), plus the step's `incompleteMessage` when a
+  `completeWhen` guard is what holds.
+- The display is reactive and self-retracting: fix the last problem and the list (and
+  `nextBlocked`) clears without another click — no stale error box.
+
+Give every `completeWhen` an `incompleteMessage`. The guard is an opaque predicate —
+without the message, the explainer can only say *"This step is not complete yet."*
 
 ## Reactive props — seed a select after the form exists
 
@@ -1151,7 +1249,8 @@ createStep((step) => …, {                     // step: StepBuilder<TForms, TSh
   when?: (ctx) => boolean,                    // ctx: StepContextFor<Stepper<TForms, TShared>>
   optional?: boolean,                         //   ctx.shared : TShared, ctx.value('x') : that model
   defer?: 'idle' | 'viewport' | 'interaction',
-  completeWhen?: () => boolean,               // extra gate, ANDed with the form fold (see below)
+  completeWhen?: (ctx) => boolean,            // extra gate ANDed with the form fold; same ctx as `when`
+  incompleteMessage?: string,                 // what `blockers` says when completeWhen is what holds
 })
 branch((ctx) => key, {                        // ctx: StepContextFor<…>; key narrows `branches`
   [key]: (b) => b.step((step) => …, opts?)    // b: BranchBuilder — guarded steps; nests via b.branch()
@@ -1160,6 +1259,11 @@ fork((ctx) => key, {                          // TERMINAL — only build() after
   [key]: (arm) => arm                         // arm: ForkArmBuilder — its own state/forms/steps
     .createStep((step) => …)
     .result((ctx) => ({ kind: key, … })),     // each arm's result → union into TResult
+})
+createControl('plan', PlanPicker, {           // pools a bare FormValueControl beside the forms
+  initial: null,                              // T is read off the component's `value` model
+  schema?: planSchema,                        // any Standard Schema (zod 4 / valibot / arktype)
+  label?: 'Plan',                             // its name in the `blockers` list
 })
 step.createPage({ options: PageOptions }, (page) => …)    // page: PageBuilder<…>
 page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declared forms only
@@ -1170,6 +1274,12 @@ page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declar
     model.update(m => ({ ...m, companyName: payload.name }))),       //  (VAT-ID autofill)
 })
 page.addComponent(Component, { inputs, outputs, visibleWhen?, layout? })  // typed to the component
+page.addControl((c) => c.name, {              // c: FieldRefs<TForms> — declared controls only
+  inputs?, outputs?,                          // typed to the component, minus `value` (FormField owns it)
+  visibleWhen?: () => boolean,                // hidden ⇒ out of the completion fold
+  bind?: 'sharedKey',                         // key must hold exactly the control's value type
+  layout?: string,
+})
 page.addContent({ layout? })                  // a bare layout slot
 page.insertRow('grid-cols-2', (row) => …)     // a nested PageBuilder
 ```

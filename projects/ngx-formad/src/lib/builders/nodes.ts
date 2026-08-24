@@ -33,6 +33,22 @@ export interface FormNode {
   readonly effects: readonly OutputEffect[];
 }
 
+/** A standalone value control drawn from the pool by name (`createControl` +
+ *  `addControl`): a `FormValueControl` component the runtime wraps in an implicit
+ *  single-value field tree, so its validity folds into step completion and its
+ *  value commits like a form's. */
+export interface ValueControlNode {
+  readonly kind: 'control';
+  readonly name: string;
+  /** Extra presentational inputs/outputs; the value itself is bound by `FormField`. */
+  readonly bindings: Binding[];
+  readonly visibleWhen?: () => boolean;
+  readonly layout?: string;
+  /** Shared-state key the value syncs with (directional: seed on entry if
+   *  pristine, commit on leave) — same engine as a form field's `bind`. */
+  readonly sharedKey?: string;
+}
+
 /** A nested layout group. */
 export interface RowNode {
   readonly kind: 'row';
@@ -41,7 +57,7 @@ export interface RowNode {
 }
 
 /** Anything that can sit in a page. */
-export type LayoutNode = ContentNode | ComponentNode | FormNode | RowNode;
+export type LayoutNode = ContentNode | ComponentNode | FormNode | ValueControlNode | RowNode;
 
 /** Page chrome. */
 export interface PageOptions {
@@ -70,6 +86,11 @@ export interface StepNode {
   /** An extra completion guard, ANDed with the form fold. A step whose body is
    *  driven by dynamic components (not forms) has no fields to fold, so it is
    *  vacuously complete; `completeWhen` lets such a step gate Next on its own
-   *  state (a selection made, a consent given). Evaluated reactively. */
-  readonly completeWhen?: () => boolean;
+   *  state (a selection made, a consent given). Receives the same context as
+   *  `when` — live shared state plus committed values. Evaluated reactively. */
+  readonly completeWhen?: RuntimeStepCondition;
+  /** Shown in the blocker list when `completeWhen` is what holds Next back — the
+   *  guard is an opaque predicate, so without this the user sees only a generic
+   *  "not complete yet" and can be left guessing. */
+  readonly incompleteMessage?: string;
 }

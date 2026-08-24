@@ -194,7 +194,7 @@ describe('StepperComponent — optional steps', () => {
     await settle(fixture);
 
     // The required field is empty, so Next is disabled — but Skip is offered.
-    expect(buttonByText(fixture, 'Next')!.disabled).toBe(true);
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('true');
     const skip = buttonByText(fixture, 'Skip');
     expect(skip).toBeTruthy();
 

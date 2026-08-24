@@ -44,12 +44,30 @@ import { StepperController } from './stepper-controller';
         }
       </section>
     }
+    @if (c.nextBlocked() && c.blockers().length) {
+      <div class="ngx-formad-blockers" role="alert">
+        <ul>
+          @for (issue of c.blockers(); track $index) {
+            <li><strong>{{ issue.label }}</strong>: {{ issue.message }}</li>
+          }
+        </ul>
+      </div>
+    }
     <nav class="ngx-formad-nav">
       <button type="button" [disabled]="!c.canBack()" (click)="c.back()">Back</button>
       @if (c.optional()) {
         <button type="button" (click)="c.skip()">Skip</button>
       }
-      <button type="button" [disabled]="!c.canNext()" (click)="c.next()">
+      <!-- Never \`disabled\`: a dead button is exactly the stuck-user trap — it can't
+           be clicked, so it can't explain itself. A blocked Next stays clickable;
+           the controller answers with the blocker list instead of advancing. -->
+      <button
+        type="button"
+        class="ngx-formad-next"
+        [class.ngx-formad-blocked]="!c.canNext()"
+        [attr.aria-disabled]="!c.canNext()"
+        (click)="c.next()"
+      >
         {{ c.isLast() ? 'Finish' : 'Next' }}
       </button>
     </nav>

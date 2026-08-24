@@ -67,10 +67,11 @@ export class StepperComponent implements OnInit {
    *  any). Erased to `unknown` here — cast to the wizard's result union, or read
    *  the typed `controller.result()` from a custom chrome. */
   readonly completed = output<unknown>();
-  /** Emitted after each commit (Next / Back / Skip) with every form's last-committed
-   *  model, keyed by pool name — the egress for persisting a step's values before
-   *  the wizard finishes. The same data is on `controller.committed()`. */
-  readonly stepCommitted = output<Record<string, Record<string, unknown>>>();
+  /** Emitted after each commit (Next / Back / Skip) with every last-committed
+   *  value, keyed by pool name — a form commits its model record, a standalone
+   *  control its raw value. The egress for persisting a step's values before the
+   *  wizard finishes; the same data is on `controller.committed()`. */
+  readonly stepCommitted = output<Record<string, unknown>>();
 
   private readonly injector = inject(EnvironmentInjector);
   private readonly wizard = inject(FormadWizard);

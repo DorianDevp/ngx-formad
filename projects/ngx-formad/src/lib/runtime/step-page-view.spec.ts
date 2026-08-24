@@ -90,11 +90,43 @@ describe('StepPageView — completeWhen gate', () => {
     const fixture = TestBed.createComponent(GatedHost);
     await settle(fixture);
 
-    expect(buttonByText(fixture, 'Next')!.disabled).toBe(true);
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('true');
 
     ready.set(true);
     await settle(fixture);
 
-    expect(buttonByText(fixture, 'Next')!.disabled).toBe(false);
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('false');
+  });
+});
+
+// The guard receives the same context as `when`, so a component-only step can
+// gate Next on the live shared state — no closed-over signal needed.
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class SharedGatedHost {
+  readonly built = new StepperBuilder()
+    .withState({ agreed: false })
+    .createStep(
+      (s) => s.createPage({ options: { heading: 'Consent' } }, (p) => p.addComponent(Banner, { inputs: { note: 'agree' } })),
+      { completeWhen: (ctx) => ctx.shared.agreed },
+    )
+    .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
+    .build();
+  readonly stepper: RuntimeStepper = asStepper(this.built);
+}
+
+describe('StepPageView — completeWhen context', () => {
+  it('re-evaluates the guard when the shared state it reads changes', async () => {
+    const fixture = TestBed.createComponent(SharedGatedHost);
+    await settle(fixture);
+
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('true');
+
+    fixture.componentInstance.built.shared.patch({ agreed: true });
+    await settle(fixture);
+
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('false');
   });
 });

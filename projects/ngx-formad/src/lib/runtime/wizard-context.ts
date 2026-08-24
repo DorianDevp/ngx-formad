@@ -18,8 +18,9 @@ export class FormadWizard {
   /** The headless controller — `committed()`, `step()`, `index()`, `result()`, … */
   readonly controller: Signal<StepperController | null> = this._controller.asReadonly();
 
-  /** Every form's last-committed model, keyed by pool name (reactive). */
-  readonly committed = computed<Record<string, Record<string, unknown>>>(
+  /** Every last-committed value, keyed by pool name (reactive): a form's model
+   *  record, or a standalone control's raw value. */
+  readonly committed = computed<Record<string, unknown>>(
     () => this._controller()?.committed() ?? {},
   );
 

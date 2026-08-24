@@ -4,6 +4,44 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.6.0
+
+### Added
+
+- **Standalone value controls — `createControl` + `addControl`.** A bare
+  `FormValueControl` component (a plan picker, a consent card) can now be pooled beside
+  the forms and placed on a page directly, without authoring a one-field form around it.
+  The runtime wraps it in an implicit single-value field tree bound through the native
+  `FormField` directive, so it is a full citizen of every existing pipeline: its
+  validity folds into `canNext`, its value commits on leave under its pool name (typed
+  in `ctx.value(...)` — the type is read off the component's `value` model), and
+  `bind: 'key'` syncs it with shared state through the directional engine. An optional
+  `schema` accepts any Standard Schema (zod 4, valibot, arktype), validated natively by
+  signal forms' `validateStandardSchema` — the suite vendors only the spec's types, so
+  no dependency is added.
+- **A blocked Next explains itself.** Calling `next()` while the completion gate is
+  closed no longer refuses silently: it marks every field and control touched (so each
+  shows its own errors in place) and raises the new `nextBlocked` signal, with
+  `blockers` listing every visible invalid field's labeled errors — plus the step's new
+  `incompleteMessage` when a `completeWhen` guard is what holds. The list is
+  self-retracting: fixing the last problem clears it without another click. The bundled
+  chrome renders it and keeps Next clickable (`aria-disabled` + an `ngx-formad-blocked`
+  class instead of `disabled`) — a dead button was exactly the stuck-user trap this
+  removes.
+
+### Changed
+
+- **`completeWhen` now receives the step context.** The guard gets the same typed
+  `{ shared, value(...) }` as `when`, so a component-driven step can gate Next on shared
+  state or a previous step's committed value. Zero-argument guards keep compiling — the
+  argument is simply ignored.
+- **`committed` / `stepCommitted` / `FormadWizard.committed` widened to
+  `Record<string, unknown>`.** A standalone control commits its raw value (not a model
+  record), so the egress map's value type is now honest about holding both.
+- **`addForm` selects forms only.** Its selector is typed against the pool's form
+  entries (`FormKeys`), so selecting a pooled control is a compile error — and vice
+  versa for `addControl`.
+
 ## 0.5.0
 
 ### Changed
