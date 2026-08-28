@@ -265,6 +265,17 @@ Group a cluster into its own sub-grid with `.row(grid, build)`:
 .row({ cols: 3 }, (row) => row.field('city').field('postCode').field('country'))
 ```
 
+Prose between the fields - a group heading, a hint under a cluster - is `.content(build)`,
+the same tag builder [pages use](#content--prose-as-data), gated on the same context:
+
+```ts
+.content((c) => c.h3('Contact for this report'))
+.fields('name', 'phone')
+.content((c) => c.p('We only call about this report.', { className: 'hint' }), {
+  visibleWhen: (ctx) => ctx.model.phone.length > 0,
+})
+```
+
 Fields left out of the overlay still validate (they are in the schema) but do not
 render — list every field you want shown.
 
@@ -295,8 +306,9 @@ A real CMS editor screen is more than one form. It is a *page*: a few forms side
 side, a dynamic component or two (a publish-status banner, a live preview), and blocks
 that appear only when relevant — arranged in a layout. You author a page with the
 builder. `createPage` hands you a callback where you `addForm` (by name, from a typed
-pool), `addComponent`, `insertRow`, and gate any node with `visibleWhen`. Visibility
-is *data*: the renderer auto-`@if`s on it, so you never write the `@if`. The same
+pool), `addComponent`, `addContent` (prose - see [below](#content--prose-as-data)),
+`insertRow`, and gate any node with `visibleWhen`. Visibility is *data*: the renderer
+auto-`@if`s on it, so you never write the `@if`. The same
 builder scales to many steps — here we use a single one.
 
 ```ts
@@ -335,6 +347,72 @@ way the form section described, the row arranges SEO into its own group, and
 `ScheduleNotice` exists in the DOM **only while `status()` is `'scheduled'`** — the
 renderer added and removed it for you. Flip the signal back to `'draft'` and the
 component is gone, with no `@if` anywhere in your code.
+
+## Content - prose as data
+
+A page is rarely only forms. There is the sentence above the field, the note that
+appears when a rule bites, the "or" between two blocks, the hint whose middle word is
+a link. All of that used to need a component written for one paragraph, because a
+content slot was a bare `<div>`. `addContent` closes that hole: the builder's methods
+*are* the tags, and what comes out is the same node tree as everything else here.
+
+```ts
+page
+  .addContent({ layout: 'callout' }, (c) =>
+    c.div({ className: () => `callout ${tone()}` }, (d) =>
+      d
+        .span('info', { className: 'material-symbols-outlined', attrs: { 'aria-hidden': true } })
+        .p('We found ')
+        .insert((p) => p.strong(() => `${products().length} products`))
+        .continue(' in your basket.'),
+    ),
+  )
+  .addForm((f) => f.issue)
+  .addContent((c) =>
+    c
+      .p('Check the ')
+      .insert((p) => p.a('warranty terms', { href: '/terms' }))
+      .continue(' first.')
+      .ul((list) => list.li('On the product page').li('In your order confirmation')),
+  );
+```
+
+- **A tag takes its text, its options and its children** - `p('A line', { className },
+  (p) => …)` - each optional, sorted out by shape: an object is options, a callback
+  that takes the builder is the children, and a getter (which takes nothing) is text.
+  So a container is `div({ className }, (d) => …)`, or just `ul((list) => …)`.
+- **`insert(build, at?)` writes *inside* the tag you just added, and leaves the cursor
+  there**; `continue(text, at?)` keeps writing text in it. That is how a sentence with
+  a link or a `<strong>` in the middle stays one flat chain instead of nesting itself
+  in a callback - and both can repeat, so a paragraph can hold two links and the words
+  between them. `at` puts the run at a position among that tag's children.
+- **Text may be a getter.** `p(() => count() + ' products')` follows the signal, and a
+  getter is its own binding, so a change touches one DOM node. A constant stays a
+  constant on the node - written once, subscribed to never - which also means a fully
+  static block is plain data, JSON included.
+- **Content renders as part of change detection**, so it is in server-rendered output;
+  hydration of a content block has not been verified yet, so treat SSR + hydration as
+  untested rather than supported.
+- **`visibleWhen`** gates a tag (and its subtree) or the whole block; a gated tag keeps
+  its place in the DOM as `hidden`, so nothing below it jumps.
+- **Classes are the whole styling surface.** The library ships no look for content: the
+  `className` you pass is yours, resolved by nothing.
+- **Nothing is interpolated as markup**, and what a config may ask for is bounded
+  three ways - all enforced by the renderer, so a tree that arrived as JSON is bounded
+  too: the tag vocabulary is closed (`CONTENT_TAGS`: structure, text, lists, links,
+  images, a button - an unknown tag draws nothing), attribute names beginning with `on`
+  are refused, and URL-bearing attributes (`href`, `src`, …) are scheme-checked, so
+  `javascript:` and `data:text/html` never reach the DOM. It is not a full sanitizer -
+  `style` is allowed, as it is in Angular's own bindings - so genuinely untrusted text
+  still belongs behind a component you control. Anything interactive beyond a link or a
+  button is `addComponent`'s job.
+
+Content is drawn by `Renderer2`, not a template, for one structural reason: recursing
+through a component would put its host element between a `<ul>` and its `<li>`. The
+tree renders exactly as authored, with no wrapper anywhere.
+
+The same builder works inside a form, as `formLayout(...).content(build, { visibleWhen })`
+- [see the layout overlay](#custom-layout-place-fields-and-components-in-a-responsive-grid).
 
 ## The stepper
 
@@ -897,8 +975,12 @@ export class AppChrome {
 provideFormadSuite({ stepper: AppChrome });
 ```
 
-`StepperController` exposes signals — `step`, `loading`, `index`, `total`,
-`heading`, `subheading`, `canBack`, `canNext`, `nextBlocked` + `blockers` (why a
+`StepperController` exposes signals - `step`, `loading`, `index`, `total`, `label`
+and `labels` (the current step's short name, and every visible step's, in sequence
+order - the progress rail; both derive from the same condition-filtered sequence as
+`index`/`total`, so a gated step leaves the rail and the count together), `heading`,
+`subheading`, `validating` (a validator on this step is still running - the gate is
+closed and no field has an error to show), `canBack`, `canNext`, `nextBlocked` + `blockers` (why a
 refused Next refused: every visible invalid field's labeled errors, plus the step's
 `incompleteMessage` when `completeWhen` is what holds — see [the blocked-Next
 explainer](#a-blocked-next-explains-itself)), `isLast`, `optional`, `deferTrigger`,
@@ -1246,6 +1328,7 @@ bring-your-own-UI path. The inner callbacks have small, fixed shapes:
 
 ```ts
 createStep((step) => …, {                     // step: StepBuilder<TForms, TShared>
+  label?: string | (() => string),            // short name for a chrome's rail (controller.labels())
   when?: (ctx) => boolean,                    // ctx: StepContextFor<Stepper<TForms, TShared>>
   optional?: boolean,                         //   ctx.shared : TShared, ctx.value('x') : that model
   defer?: 'idle' | 'viewport' | 'interaction',
@@ -1280,7 +1363,14 @@ page.addControl((c) => c.name, {              // c: FieldRefs<TForms> — declar
   bind?: 'sharedKey',                         // key must hold exactly the control's value type
   layout?: string,
 })
-page.addContent({ layout? })                  // a bare layout slot
+page.addContent((c) => …, { layout?, visibleWhen? })  // prose as data; c: ContentBuilder
+//   (the options-first order works too: addContent({ layout }, (c) => …))
+//  c.p('Text', { className?, attrs?, on?, visibleWhen? }, (p) => …)   // text, options, children
+//  c.div({ className }, (d) => …)   c.ul((list) => …)        // containers: options and/or children
+//  c.a('Terms', { href })  c.button('Retry', { on: { click } })  c.img({ src, alt })
+//  c.text(() => live())                                     // a bare run at this level
+//  c.insert((p) => p.strong('2'), at?).continue(' left')     // into the tag before; cursor stays
+page.addContent({ layout? })                  // no build callback ⇒ the bare layout slot
 page.insertRow('grid-cols-2', (row) => …)     // a nested PageBuilder
 ```
 

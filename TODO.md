@@ -48,6 +48,22 @@ A `FormConfig` has three parts. JSON gets you two for free; the third is the rea
 - [ ] Consider whether to re-export formodel's helpers from `ngx-formad` so adopters
   see one import surface (you own both packages — the seam is a packaging choice).
 
+## 3b. SSR & hydration (opened by content blocks, 0.7.0)
+
+Content blocks paint through `Renderer2` from an effect, so they take part in change
+detection and *do* appear in server-rendered output - but nothing verifies what
+hydration makes of imperatively created children under an empty-template component.
+Dynamic components (`ComponentOutlet`, `ControlOutlet`) still mount in
+`afterNextRender`, i.e. client-only, so this is the first path where the question is
+even askable.
+
+- [ ] An SSR + hydration smoke test (prerender a wizard step with `addContent`, then
+  hydrate) - decide whether content adopts the server DOM or has to be reclaimed.
+- [ ] Document the outcome; until then the README calls SSR + hydration untested.
+- [ ] Revisit the `Renderer2` choice if hydration needs template-owned nodes: the
+  reason for it is `ul > li` nesting, and a recursive `ng-template` + `ngTemplateOutlet`
+  would keep the DOM flat at the cost of one `@switch` case per tag.
+
 ## 4. Trust & release hygiene
 
 - [ ] Stated **Angular compatibility policy** (build against the floor, support up to
