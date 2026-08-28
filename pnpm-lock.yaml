@@ -27,8 +27,8 @@ importers:
         specifier: ^21.2.0
         version: 21.2.17(@angular/common@21.2.17(@angular/core@21.2.17(@angular/compiler@21.2.17)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.17(@angular/compiler@21.2.17)(rxjs@7.8.2))(@angular/platform-browser@21.2.17(@angular/common@21.2.17(@angular/core@21.2.17(@angular/compiler@21.2.17)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.17(@angular/compiler@21.2.17)(rxjs@7.8.2)))(rxjs@7.8.2)
       formodel:
-        specifier: ^0.1.0
-        version: 0.1.0
+        specifier: ^0.2.0
+        version: 0.2.0
       rxjs:
         specifier: ~7.8.0
         version: 7.8.2
@@ -1957,8 +1957,8 @@ packages:
     resolution: {integrity: sha512-afd4O7zpqHeRyg4PfDQsXmlDe2PfdHtJt6Akt8jOWaApLOZk5JXs6VMR29lz03pRe9mpykrRCYIYxaJYcfpncQ==}
     engines: {node: '>=18'}
 
-  formodel@0.1.0:
-    resolution: {integrity: sha512-pEr+pzpt6O59RZOa8oncMnzJcFxyxE1P7r1gt01dCZQVI5l9ZVOw+CQ1ImU5PHL0aZ1MWX6Xa/UdWI5oykjQig==}
+  formodel@0.2.0:
+    resolution: {integrity: sha512-DM0DuM0a84ptuJkIUfjgXkWx2GqbJmvEqDTW3mT1qCpJfpqlzfY9u99MuiEt1EkT+qQJ6ZwMV+xx3UC9mMVfGw==}
 
   forwarded@0.2.0:
     resolution: {integrity: sha512-buRG0fpBtRHSTCOASe6hD258tEubFoRLb4ZNA6NxMVHNw2gOcwHo9wyablzMzOA5z9xA9L1KNjk/Nt6MT9aYow==}
@@ -4726,7 +4726,7 @@ snapshots:
 
   find-up-simple@1.0.1: {}
 
-  formodel@0.1.0: {}
+  formodel@0.2.0: {}
 
   forwarded@0.2.0: {}
 

@@ -14,7 +14,10 @@ async function pump(fixture: ComponentFixture<unknown>): Promise<void> {
   }
 }
 
-type Account = { email: string; name: string; type: '' };
+// `type` is a plain string, not the `''` literal: formodel 0.2 pins a custom
+// control node to its declared value type, so a literal here would demand a
+// `CustomControlNode<''>` the builder never produces.
+type Account = { email: string; name: string; type: string };
 
 const accountConfig: FormConfig<Account> = {
   model: () => ({ email: '', name: '', type: '' }),
