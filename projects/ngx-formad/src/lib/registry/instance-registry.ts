@@ -41,4 +41,12 @@ export class InstanceRegistry {
    * complete — the intended "nothing here to fill in" case, not a bug.
    */
   readonly completed = computed(() => this.live().every((i) => i.rootForm().valid()));
+
+  /**
+   * True while any live form has a validator still running. `valid()` is false in
+   * that state *and* the field reports no errors, so without this a blocked Next
+   * has nothing to say - which is the one thing the blocked-Next design promised
+   * never to do.
+   */
+  readonly pending = computed(() => this.live().some((i) => i.rootForm().pending()));
 }

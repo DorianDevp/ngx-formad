@@ -55,6 +55,10 @@ export interface StepperController {
   /** True after the user tried Next while the gate was closed, until it opens —
    *  the "show why" flag a chrome renders `blockers` under. */
   readonly nextBlocked: Signal<boolean>;
+  /** True while a validator on this step is still running - the gate is closed and
+   *  no field has an error to show, so a chrome can say "checking…" instead of
+   *  leaving a refused Next unexplained. */
+  readonly validating: Signal<boolean>;
   /** Why Next is blocked, labeled and human-readable: every visible invalid
    *  field/control's errors, plus the step's `incompleteMessage` when its
    *  `completeWhen` guard is what holds. Empty unless `nextBlocked`. */
@@ -133,6 +137,7 @@ export class FormadStepperController implements StepperController {
     return formsComplete && (guard ? guard(this.context()) : true);
   });
   readonly nextBlocked = computed(() => this.attemptedNext() && !this.canNext());
+  readonly validating = computed(() => this.liveStep()?.registry.pending() ?? false);
   // The answer to a blocked Next: every visible form's/control's labeled errors,
   // plus the guard's own message when `completeWhen` is (also) what holds.
   readonly blockers = computed<readonly StepIssue[]>(() => {

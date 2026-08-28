@@ -5,8 +5,11 @@ import { FormInstance, InstanceRegistry } from './instance-registry';
 // A minimal stand-in for a live form: just the `valid()` the fold reads, wrapped
 // so `rootForm()` returns a field-state-shaped object. The registry never
 // touches anything else, so this is enough to exercise the fold.
-function fakeInstance(valid: boolean, visible: boolean): FormInstance {
-  const rootForm = (() => ({ valid: () => valid })) as unknown as FieldTree<unknown>;
+function fakeInstance(valid: boolean, visible: boolean, pending = false): FormInstance {
+  const rootForm = (() => ({
+    valid: () => valid,
+    pending: () => pending,
+  })) as unknown as FieldTree<unknown>;
   return { rootForm, visible: signal(visible) };
 }
 
@@ -27,6 +30,24 @@ describe('InstanceRegistry', () => {
 
     registry.add(fakeInstance(false, true));
     expect(registry.completed()).toBe(false);
+  });
+
+  it('reports a live validator still running', () => {
+    const registry = new InstanceRegistry();
+    // Not valid *and* no errors - the state a blocked Next used to have nothing to
+    // say about.
+    registry.add(fakeInstance(false, true, true));
+    expect(registry.completed()).toBe(false);
+    expect(registry.pending()).toBe(true);
+  });
+
+  it('ignores a hidden form still validating', () => {
+    const registry = new InstanceRegistry();
+    registry.add(fakeInstance(true, true));
+    registry.add(fakeInstance(false, false, true));
+
+    expect(registry.pending()).toBe(false);
+    expect(registry.completed()).toBe(true);
   });
 
   it('excludes a hidden invalid form from completion', () => {
