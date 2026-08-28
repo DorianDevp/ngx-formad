@@ -6,6 +6,7 @@ import {
   UiFormGroupConfig,
   UiFormGroupNode,
 } from 'formodel';
+import { ContentChild } from '../builders/content';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
 import { mapReactive, ReactiveControlNode, ReactiveUiConfig } from './reactive';
@@ -91,6 +92,29 @@ export interface FormComponentSpec<M extends Record<string, unknown> = Record<st
   readonly item?: ItemSpec;
 }
 
+/** Authoring config for prose between the fields (from `formLayout(...).content(...)`):
+ *  the tag tree, an optional gate reading the live form, and its own grid placement.
+ *  Same builder as a page's `addContent` - a group heading or a hint is data whether
+ *  it sits around a form or inside one. */
+export interface FormContentSpec<M extends Record<string, unknown> = Record<string, unknown>> {
+  readonly kind: 'content';
+  readonly children: readonly ContentChild[];
+  readonly visibleWhen?: (ctx: FormComponentContext<M>) => boolean;
+  /** How this block sits in the parent grid (`colSpan`/`colStart`). */
+  readonly item?: ItemSpec;
+}
+
+/** A content block sitting between fields in the render tree - the flat-form
+ *  counterpart of a page's `ContentNode`. */
+export interface FormContentNode {
+  readonly kind: 'content';
+  readonly key: string;
+  readonly path: readonly string[];
+  readonly children: readonly ContentChild[];
+  readonly visibleWhen?: (ctx: FormComponentContext) => boolean;
+  readonly layout?: ItemSpec;
+}
+
 /** A component sitting between fields in the render tree — the flat-form counterpart
  *  of a page's `ComponentNode`, but with context-reactive inputs the renderer binds
  *  against the live form (the page variant pre-normalizes bindings at build time). */
@@ -120,13 +144,20 @@ export interface FormRowNode {
 }
 
 /** Anything the renderer can draw at one level of the tree. */
-export type RenderNode = ControlNode | GroupNode | ArrayNode | FormComponentNode | FormRowNode;
+export type RenderNode =
+  | ControlNode
+  | GroupNode
+  | ArrayNode
+  | FormComponentNode
+  | FormContentNode
+  | FormRowNode;
 
 /** One entry of a form's layout overlay: a field (by model key, with optional grid
- *  placement), a component, or a nested row of further items. */
+ *  placement), a component, a content block, or a nested row of further items. */
 export type FormLayoutItem<M extends Record<string, unknown>> =
   | { readonly kind: 'field'; readonly key: keyof M & string; readonly item?: ItemSpec }
   | FormComponentSpec<M>
+  | FormContentSpec<M>
   | {
       readonly kind: 'row';
       readonly grid?: LayoutSpec;
@@ -283,6 +314,16 @@ export function buildLayoutNodes(
         component: item.component,
         inputs: item.inputs ?? {},
         outputs: item.outputs ?? {},
+        visibleWhen: item.visibleWhen,
+        layout: item.item,
+      });
+    } else if (item.kind === 'content') {
+      const key = `@content:${synthetic++}`;
+      nodes.push({
+        kind: 'content',
+        key,
+        path: [...path, key],
+        children: item.children,
         visibleWhen: item.visibleWhen,
         layout: item.item,
       });

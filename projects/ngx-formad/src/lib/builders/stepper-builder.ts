@@ -3,7 +3,8 @@ import { FormValueControl } from '@angular/forms/signals';
 import { FormConfig } from '../form-config/form-config';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
-import { ComponentCfg, toBindings, toGetter } from './dynamic-component';
+import { ContentBuild, buildContent } from './content';
+import { ComponentCfg, Reactive, toBindings, toGetter } from './dynamic-component';
 import { StandardSchemaOf } from './standard-schema';
 
 /** The control kinds the suite ships out of the box — the starting set a stepper's
@@ -85,13 +86,47 @@ export interface ControlCfg<C, T, TShared> {
   readonly bind?: MatchingSharedKey<TShared, T>;
 }
 
+/** Placement options for a content block: the slot's layout classes and the gate
+ *  that hides the whole block. Per-tag classes and gates live on the tags. */
+export interface ContentCfg {
+  readonly layout?: string;
+  readonly visibleWhen?: () => boolean;
+}
+
 /** Builds the contents of one page. Also used for nested rows (it returns `this`). */
 export class PageBuilder<TForms, TShared extends Record<string, unknown>> {
   private readonly children: LayoutNode[] = [];
 
-  /** A bare layout slot — a spacer, a full-width gap. */
-  addContent(cfg: { layout?: string } = {}): this {
-    this.children.push({ kind: 'content', layout: cfg.layout });
+  /**
+   * A content block - prose, a list, a link, a note - authored with the tag
+   * builder, in its own layout slot. The markup is data like everything else here:
+   * text and attributes may be getters, and `visibleWhen` gates the block, so the
+   * author never writes a template or an `@if`.
+   *
+   * ```ts
+   * page.addContent({ layout: 'notice' }, (c) =>
+   *   c.p('Fragile items ship in their own box.')
+   *    .p((p) => p.text('Pick one on the ').a('next step', { href: '#' }).text('.')),
+   * );
+   * ```
+   *
+   * With no build callback it is the bare slot it has always been - a spacer.
+   *
+   * The build comes first, like the component in `addComponent` and the build in
+   * `formLayout(...).content(...)` - the options-first order is accepted too, so
+   * neither habit is a trap.
+   */
+  addContent(build: ContentBuild, cfg?: ContentCfg): this;
+  addContent(cfg?: ContentCfg, build?: ContentBuild): this;
+  addContent(first?: ContentCfg | ContentBuild, second?: ContentCfg | ContentBuild): this {
+    const cfg = (typeof first === 'function' ? second : first) as ContentCfg | undefined;
+    const build = (typeof first === 'function' ? first : second) as ContentBuild | undefined;
+    this.children.push({
+      kind: 'content',
+      layout: cfg?.layout,
+      visibleWhen: cfg?.visibleWhen,
+      children: build ? buildContent(build) : [],
+    });
     return this;
   }
 

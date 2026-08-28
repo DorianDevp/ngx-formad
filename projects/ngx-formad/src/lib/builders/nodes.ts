@@ -1,4 +1,6 @@
 import { Binding, Type } from '@angular/core';
+import { ContentChild } from './content';
+import { Reactive } from './dynamic-component';
 import { LinkPair, OutputEffect } from './shared-link';
 import { DeferTrigger, RuntimeStepCondition } from './step-context';
 
@@ -7,10 +9,14 @@ import { DeferTrigger, RuntimeStepCondition } from './step-context';
 // the chain — so the same config can drive rendering, completion, and (later) a
 // JSON front-end without the builder being in the loop.
 
-/** A bare layout slot, e.g. a spacer or a full-width gap. */
+/** A content block: the markup authored through `addContent`'s tag builder, in a
+ *  layout slot of its own. `children` empty is the bare slot this node used to be
+ *  - a spacer or a full-width gap. */
 export interface ContentNode {
   readonly kind: 'content';
   readonly layout?: string;
+  readonly visibleWhen?: () => boolean;
+  readonly children: readonly ContentChild[];
 }
 
 /** A dynamic component with its pre-normalized bindings and visibility. */

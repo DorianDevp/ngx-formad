@@ -1,4 +1,5 @@
 import { Component, computed, input } from '@angular/core';
+import { ContentChild } from '../builders/content';
 import {
   ComponentNode,
   ContentNode,
@@ -8,6 +9,7 @@ import {
   ValueControlNode,
 } from '../builders/nodes';
 import { ComponentOutlet } from '../renderer/component-outlet';
+import { ContentView } from '../renderer/content-view';
 import { ControlOutlet } from '../renderer/control-outlet';
 import { FormRenderer } from '../renderer/form-renderer';
 import { LiveControl, LiveForm, LiveStep } from './materialize-step';
@@ -25,7 +27,7 @@ import { LiveControl, LiveForm, LiveStep } from './materialize-step';
  *  pattern, one level up — pages instead of fields). */
 @Component({
   selector: 'ngx-formad-page-nodes',
-  imports: [FormRenderer, ComponentOutlet, ControlOutlet, PageNodesView],
+  imports: [FormRenderer, ComponentOutlet, ContentView, ControlOutlet, PageNodesView],
   host: { style: 'display: contents' },
   template: `
     @for (node of nodes(); track node) {
@@ -55,7 +57,13 @@ import { LiveControl, LiveForm, LiveStep } from './materialize-step';
           </div>
         }
         @case ('content') {
-          <div class="ngx-formad-content" [class]="content(node).layout ?? ''"></div>
+          @if (visible(content(node))) {
+            <div class="ngx-formad-content" [class]="content(node).layout ?? ''">
+              @if (contentChildren(node).length) {
+                <ngx-formad-content [children]="contentChildren(node)" />
+              }
+            </div>
+          }
         }
       }
     }
@@ -100,6 +108,11 @@ export class PageNodesView {
   }
   protected content(node: LayoutNode): ContentNode {
     return node as ContentNode;
+  }
+  // A node built by hand (or deserialized from a 0.6-era config) may carry no
+  // children at all; that is the bare slot, not a crash.
+  protected contentChildren(node: LayoutNode): readonly ContentChild[] {
+    return (node as ContentNode).children ?? [];
   }
 }
 

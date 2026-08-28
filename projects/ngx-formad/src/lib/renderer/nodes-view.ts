@@ -7,13 +7,16 @@ import {
   ControlNode,
   FormComponentContext,
   FormComponentNode,
+  FormContentNode,
   FormRowNode,
   GroupNode,
   RenderNode,
 } from '../form-config/form-config';
+import { ContentChild } from '../builders/content';
 import { ComponentNode } from '../builders/nodes';
 import { FormadWizard } from '../runtime/wizard-context';
 import { ComponentOutlet } from './component-outlet';
+import { ContentView } from './content-view';
 import { FieldOutlet } from './field-outlet';
 import { BoundOutputEffect } from './output-effect';
 
@@ -25,7 +28,7 @@ import { BoundOutputEffect } from './output-effect';
 // `form(model)` already nests the `FieldTree` and folds validity over the whole.
 @Component({
   selector: 'ngx-formad-nodes',
-  imports: [FieldOutlet, ComponentOutlet],
+  imports: [FieldOutlet, ComponentOutlet, ContentView],
   // `display: contents` so this wrapper adds no layout box — the grid `<div>` below
   // is the real container, and nested groups stack without piling up extra nesting.
   host: { style: 'display: contents' },
@@ -37,7 +40,7 @@ import { BoundOutputEffect } from './output-effect';
         @if (!hiddenAt(node.key)) {
         @switch (node.kind) {
           @case ('group') {
-            <fieldset class="ngx-formad-group ngx-formad-col-full">
+            <fieldset [class]="blockClass('ngx-formad-group', group(node).layout)" [style]="itemStyle(group(node).layout)">
               @if (group(node).label) {
                 <legend class="ngx-formad-group-label">{{ group(node).label }}</legend>
               }
@@ -64,15 +67,26 @@ import { BoundOutputEffect } from './output-effect';
           @case ('component') {
             <!-- A layout component: gated by its own visibility, placed in the grid
                  by its item span, bound to the live form context. -->
-            @if (componentVisible(node)) {
-              <div [class]="itemClass(component(node).layout)">
+            @if (nodeVisible(node)) {
+              <div [class]="itemClass(component(node).layout)" [style]="itemStyle(component(node).layout)">
                 <ngx-formad-component-outlet [node]="outlet(node)" />
+              </div>
+            }
+          }
+          @case ('content') {
+            <!-- Prose in the field flow: its own grid slot, gated like a component. -->
+            @if (nodeVisible(node) && contentChildren(node).length) {
+              <div
+                [class]="itemClass(contentNode(node).layout)"
+                [style]="itemStyle(contentNode(node).layout)"
+              >
+                <ngx-formad-content [children]="contentChildren(node)" />
               </div>
             }
           }
           @case ('row') {
             <!-- A nested layout row: its own sub-grid over the same field-tree level. -->
-            <div [class]="itemClass(rowNode(node).layout)">
+            <div [class]="itemClass(rowNode(node).layout)" [style]="itemStyle(rowNode(node).layout)">
               <ngx-formad-nodes
                 [nodes]="rowNode(node).children"
                 [tree]="tree()"
@@ -83,7 +97,7 @@ import { BoundOutputEffect } from './output-effect';
             </div>
           }
           @case ('array') {
-            <fieldset class="ngx-formad-array ngx-formad-col-full">
+            <fieldset [class]="blockClass('ngx-formad-array', array(node).layout)" [style]="itemStyle(array(node).layout)">
 
               @if (array(node).node.label) {
                 <legend class="ngx-formad-group-label">{{ array(node).node.label }}</legend>
@@ -176,6 +190,9 @@ export class NodesView {
   protected component(node: RenderNode): FormComponentNode {
     return node as FormComponentNode;
   }
+  protected contentNode(node: RenderNode): FormContentNode {
+    return node as FormContentNode;
+  }
   protected rowNode(node: RenderNode): FormRowNode {
     return node as FormRowNode;
   }
@@ -192,15 +209,39 @@ export class NodesView {
     };
   }
 
-  // A component is shown unless its `visibleWhen` gate — read reactively — says no.
-  protected componentVisible(node: RenderNode): boolean {
-    const spec = node as FormComponentNode;
-    return spec.visibleWhen ? spec.visibleWhen(this.ctx()) : true;
+  // A component or a content block is shown unless its `visibleWhen` gate - read
+  // reactively, against the live form context - says no. One gate for both, so a
+  // change to how the context is resolved cannot apply to only one of them.
+  protected nodeVisible(node: RenderNode): boolean {
+    const gate = (node as FormComponentNode | FormContentNode).visibleWhen;
+    return gate ? gate(this.ctx()) : true;
   }
 
-  // The layout classes for an item's grid placement (colSpan/colStart).
+  // Hand-built or deserialized content may carry no children; that is an empty
+  // block, not a crash (`children` is `input.required` on the view).
+  protected contentChildren(node: RenderNode): readonly ContentChild[] {
+    return (node as FormContentNode).children ?? [];
+  }
+
+  // An item's grid placement (colSpan/colStart), as the adapter answers it. Both
+  // halves matter: the class adapter returns classes, the zero-dependency CSS-grid
+  // default returns *styles*, and a consumer reading only one silently drops the
+  // placement of every component, content block and row.
   protected itemClass(spec: ItemSpec | undefined): string {
     return this.layoutAdapter.item(spec ?? {}).class ?? '';
+  }
+  protected itemStyle(spec: ItemSpec | undefined): Record<string, string> {
+    return this.layoutAdapter.item(spec ?? {}).style ?? {};
+  }
+
+  // A group or array spans the whole row unless the overlay placed it - the
+  // full-width default is what makes a nested fieldset readable, but it is a
+  // default, not a rule the layout cannot override.
+  protected blockClass(base: string, spec: ItemSpec | undefined): string {
+    const placement = spec ? this.itemClass(spec) : '';
+    const hasStyle = spec ? Object.keys(this.itemStyle(spec)).length > 0 : false;
+    if (!spec || (!placement && !hasStyle)) return `${base} ngx-formad-col-full`;
+    return placement ? `${base} ${placement}` : base;
   }
 
   // One `ComponentNode` per component node, built once — its input bindings are

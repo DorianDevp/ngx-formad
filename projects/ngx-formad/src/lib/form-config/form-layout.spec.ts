@@ -1,5 +1,11 @@
 import { Component, input } from '@angular/core';
-import { FormComponentContext, FormComponentSpec, FormLayoutItem } from './form-config';
+import { ContentTagChild } from '../builders/content';
+import {
+  FormComponentContext,
+  FormComponentSpec,
+  FormContentSpec,
+  FormLayoutItem,
+} from './form-config';
 import { formLayout } from './form-layout';
 
 type Model = { first: string; last: string; password: string };
@@ -41,6 +47,26 @@ describe('formLayout', () => {
     expect(spec.item).toEqual({ colSpan: 2 });
     const ctx = { model: { password: 'secret' } } as FormComponentContext<Model>;
     expect(spec.inputs?.['value']?.(ctx)).toBe('secret');
+  });
+
+  it('lifts a content block, gated on the live form', () => {
+    const { items } = formLayout<Model>()
+      .content((c) => c.h3('Sign-in'), { colSpan: 2 })
+      .field('password')
+      .content((c) => c.p('Pick something long.', { className: 'hint' }), {
+        visibleWhen: (ctx) => ctx.model.password.length > 0,
+      })
+      .build();
+
+    const head = items[0] as FormContentSpec<Model>;
+    expect(head.kind).toBe('content');
+    expect(head.item).toEqual({ colSpan: 2 });
+    expect((head.children[0] as ContentTagChild).tag).toBe('h3');
+
+    const hint = items[2] as FormContentSpec<Model>;
+    const ctx = (password: string) => ({ model: { password } }) as FormComponentContext<Model>;
+    expect(hint.visibleWhen?.(ctx(''))).toBe(false);
+    expect(hint.visibleWhen?.(ctx('long enough'))).toBe(true);
   });
 
   it('nests a row with its own grid and children', () => {

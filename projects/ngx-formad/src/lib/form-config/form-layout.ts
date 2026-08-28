@@ -1,5 +1,6 @@
 import { Type } from '@angular/core';
 import { ItemSpec, LayoutSpec, Responsive } from '../layout/layout-adapter';
+import { ContentBuild, buildContent } from '../builders/content';
 import { InputKeys, InputVal, OutputKeys, OutputVal } from '../builders/dynamic-component';
 import { FormComponentContext, FormComponentSpec, FormLayout, FormLayoutItem } from './form-config';
 
@@ -8,6 +9,11 @@ import { FormComponentContext, FormComponentSpec, FormLayout, FormLayoutItem } f
 // placement, and where components sit. A component's inputs/outputs are functions
 // of the live form context, so they bind reactively without the author wiring
 // anything — `value: ctx => ctx.model.password` tracks the field as it is typed.
+
+/** Placement and visibility for a content block between the fields. */
+export interface FormContentCfg<M extends Record<string, unknown>> extends ItemSpec {
+  readonly visibleWhen?: (ctx: FormComponentContext<M>) => boolean;
+}
 
 /** Typed authoring config for a layout component: its grid placement (`colSpan`/
  *  `colStart`), plus inputs/outputs written as functions of the live form context
@@ -69,6 +75,28 @@ export class FormLayoutBuilder<M extends Record<string, unknown>> {
       component: component as Type<unknown>,
       inputs: cfg.inputs as FormComponentSpec<M>['inputs'],
       outputs: cfg.outputs as FormComponentSpec<M>['outputs'],
+      visibleWhen: cfg.visibleWhen,
+      item: itemOf(cfg),
+    });
+    return this;
+  }
+
+  /**
+   * Prose between the fields - a group heading, a hint, a note - written with the
+   * same tag builder as a page's `addContent`, so text inside a form is data too
+   * instead of a component authored for one paragraph.
+   *
+   * ```ts
+   * formLayout<Contact>()
+   *   .content((c) => c.h3('Contact for this report'))
+   *   .fields('name', 'phone')
+   *   .content((c) => c.p('We only call about this report.', { className: 'hint' }))
+   * ```
+   */
+  content(build: ContentBuild, cfg: FormContentCfg<M> = {}): this {
+    this._items.push({
+      kind: 'content',
+      children: buildContent(build),
       visibleWhen: cfg.visibleWhen,
       item: itemOf(cfg),
     });
