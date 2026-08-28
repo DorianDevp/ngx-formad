@@ -1,4 +1,4 @@
-import { Component, input, model } from '@angular/core';
+import { Component, computed, input, model } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
 
 // The plain-HTML controls. Each implements the native `FormValueControl`
@@ -154,11 +154,19 @@ export interface ControlOption {
       <select
         [disabled]="disabled()"
         ${ariaAttrs}
-        (change)="value.set(optionAt($event))"
+        (change)="value.set(optionFrom($event))"
         (blur)="touched.set(true)"
       >
+        <!-- A single-select element always has something selected, so a value the
+             options do not contain (the usual empty initial one) would show as the
+             first option while the model held something else - a required field
+             blocking Next next to a visibly made choice. The empty option is that
+             state, spelled out. -->
+        @if (!matched()) {
+          <option value="" selected></option>
+        }
         @for (opt of options(); track $index) {
-          <option [selected]="opt.value === value()">{{ opt.label }}</option>
+          <option [value]="$index" [selected]="opt.value === value()">{{ opt.label }}</option>
         }
       </select>
       ${errorLine}
@@ -176,11 +184,19 @@ export class SelectControl implements FormValueControl<unknown> {
   required = input(false);
   errors = input<Errors>([]);
 
-  // The <option> elements carry no value attribute, so map the selected index
-  // back to the original (possibly non-string) option value.
-  protected optionAt(e: Event): unknown {
-    const index = (e.target as HTMLSelectElement).selectedIndex;
-    return this.options()[index]?.value ?? null;
+  /** Whether the current value is one of the options - what decides if the empty
+   *  option is on screen. */
+  protected readonly matched = computed(() =>
+    this.options().some((option) => option.value === this.value()),
+  );
+
+  // Each option carries its index as the DOM value (an option's value is a string,
+  // and these may be objects or numbers), so the read maps back through `options`.
+  // The empty option's '' is the "nothing chosen" case.
+  protected optionFrom(e: Event): unknown {
+    const raw = (e.target as HTMLSelectElement).value;
+    if (raw === '') return null;
+    return this.options()[Number(raw)]?.value ?? null;
   }
 }
 
