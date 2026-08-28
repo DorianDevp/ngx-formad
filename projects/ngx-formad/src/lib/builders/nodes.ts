@@ -65,11 +65,14 @@ export interface RowNode {
 /** Anything that can sit in a page. */
 export type LayoutNode = ContentNode | ComponentNode | FormNode | ValueControlNode | RowNode;
 
-/** Page chrome. */
+/** Page chrome - the text a chrome draws around the page's nodes. Both lines are
+ *  `Reactive`, because a step's own heading is often a function of what the user
+ *  picked ("2 items in your basket"), and re-authoring the tree for that would be
+ *  absurd. A chrome reads them as plain signals off the controller. */
 export interface PageOptions {
-  readonly heading?: string;
+  readonly heading?: Reactive<string>;
   /** A short line under the heading; purely presentational, read by the shell. */
-  readonly subheading?: string;
+  readonly subheading?: Reactive<string>;
   readonly layout?: string;
 }
 
@@ -82,6 +85,12 @@ export interface PageNode {
 /** A step: one or more pages. Completion folds over the forms across them. */
 export interface StepNode {
   readonly pages: readonly PageNode[];
+  /** The step's short name, for a chrome's progress rail. It belongs on the step
+   *  (not on a page's `heading`, which titles one page of possibly several) and it
+   *  belongs *here* so the rail can be derived from the same effective sequence
+   *  `index`/`total` come from - a list kept outside the stepper has to re-evaluate
+   *  every `when` to know who is visible, and silently misaligns when it drifts. */
+  readonly label?: Reactive<string>;
   /** When present and false, the step is dropped from the effective sequence.
    *  Evaluated reactively against the live shared state and committed values. */
   readonly when?: RuntimeStepCondition;

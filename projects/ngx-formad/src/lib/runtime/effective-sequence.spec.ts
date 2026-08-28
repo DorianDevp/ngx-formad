@@ -63,8 +63,8 @@ describe('effectiveSteps', () => {
   it('the two branches rejoin: admin and user paths differ then share Review', () => {
     const admin = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'admin' } }));
     const user = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'user' } }));
-    expect(admin.map((s) => s.pages[0].options.heading)).toEqual(['Basics', 'Advanced', 'Settings', 'Review']);
-    expect(user.map((s) => s.pages[0].options.heading)).toEqual(['Basics', 'Settings', 'Review']);
+    expect(headings(admin)).toEqual(['Basics', 'Advanced', 'Settings', 'Review']);
+    expect(headings(user)).toEqual(['Basics', 'Settings', 'Review']);
     // Advanced uses shared (admin only); Settings uses value() which is undefined
     // here, so it stays — the two condition *sources* are exercised independently.
   });
@@ -73,8 +73,15 @@ describe('effectiveSteps', () => {
 // `.branch()` compiles to `when`-gated steps, so the same pure filter proves it:
 // the chosen branch's steps survive in order, the rest drop, and post-branch steps
 // rejoin. A nested branch ANDs its guard with the outer one.
-const headings = (steps: readonly { pages: readonly { options: { heading?: string } }[] }[]) =>
-  steps.map((s) => s.pages[0].options.heading);
+// A page's heading is `Reactive<string>` - a value or a getter - so the assertion
+// resolves it the way the controller does.
+const headings = (
+  steps: readonly { pages: readonly { options: { heading?: string | (() => string) } }[] }[],
+) =>
+  steps.map((s) => {
+    const heading = s.pages[0].options.heading;
+    return typeof heading === 'function' ? heading() : heading;
+  });
 
 const branched = new StepperBuilder()
   .withState({ plan: 'free' as 'free' | 'pro', addons: false })

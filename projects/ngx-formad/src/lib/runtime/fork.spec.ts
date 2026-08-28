@@ -10,8 +10,15 @@ const form = (label: string): FormConfig<One> => ({
   ui: UiFormConfigBuilder.from({ v: '' }).v(text(label)),
 });
 
-const headings = (steps: readonly { pages: readonly { options: { heading?: string } }[] }[]) =>
-  steps.map((s) => s.pages[0].options.heading);
+// A page's heading is `Reactive<string>` - a value or a getter - so the assertion
+// resolves it the way the controller does.
+const headings = (
+  steps: readonly { pages: readonly { options: { heading?: string | (() => string) } }[] }[],
+) =>
+  steps.map((s) => {
+    const heading = s.pages[0].options.heading;
+    return typeof heading === 'function' ? heading() : heading;
+  });
 
 // Individual vs. business: two arms with their own state/forms/steps and their own
 // typed result. They do not rejoin — there is no step after the fork.

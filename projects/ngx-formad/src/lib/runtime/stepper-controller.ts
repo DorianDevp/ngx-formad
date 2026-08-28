@@ -8,6 +8,7 @@ import {
   untracked,
 } from '@angular/core';
 import { StepNode } from '../builders/nodes';
+import { Reactive, toGetter } from '../builders/dynamic-component';
 import { RuntimeStepper } from '../builders/stepper-builder';
 import { AnyFormProvider, DeferTrigger, RuntimeStepContext } from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
@@ -40,6 +41,12 @@ export interface StepperController {
   readonly index: Signal<number>;
   /** Length of the effective sequence. */
   readonly total: Signal<number>;
+  /** The current step's `label`, or '' when it has none. */
+  readonly label: Signal<string>;
+  /** Every effective step's `label`, in sequence order - a chrome's progress rail.
+   *  Derived from the same filtered sequence as `index`/`total`, so position N in
+   *  this list is always the step at position N of the flow. */
+  readonly labels: Signal<readonly string[]>;
   readonly heading: Signal<string>;
   readonly subheading: Signal<string>;
   readonly canBack: Signal<boolean>;
@@ -69,6 +76,14 @@ export interface StepperController {
    *  resets the shared state to its initial values, and re-enters the first step
    *  with fresh (factory-built) forms. */
   reset(): void;
+}
+
+// Reads a `Reactive<string>` *inside* the computed that wants it, through the one
+// normalization the library already has: whatever signals the getter touches become
+// dependencies of that computed, which is what lets a heading or a label follow
+// state without the tree being re-authored.
+function resolveText(value: Reactive<string> | undefined): string {
+  return toGetter(value ?? '')();
 }
 
 export class FormadStepperController implements StepperController {
@@ -134,12 +149,25 @@ export class FormadStepperController implements StepperController {
         message: node.incompleteMessage ?? 'This step is not complete yet.',
       });
     }
+    // An async validator in flight closes the gate while every field reports no
+    // error, so this is the one case where the list would otherwise come back
+    // empty and the chrome would draw nothing at all.
+    if (!issues.length && step.registry.pending()) {
+      issues.push({
+        label: this.heading() || 'Step',
+        message: 'Still checking some of your answers.',
+      });
+    }
     return issues;
   });
   readonly optional = computed(() => this.currentNode()?.optional ?? false);
   readonly deferTrigger = computed(() => this.currentNode()?.defer ?? null);
-  readonly heading = computed(() => this.options()?.heading ?? '');
-  readonly subheading = computed(() => this.options()?.subheading ?? '');
+  readonly label = computed(() => resolveText(this.currentNode()?.label));
+  readonly labels = computed<readonly string[]>(() =>
+    this.effective().map((step) => resolveText(step.label)),
+  );
+  readonly heading = computed(() => resolveText(this.options()?.heading));
+  readonly subheading = computed(() => resolveText(this.options()?.subheading));
   // The active fork arm's result, derived from the same context conditions read.
   readonly result = computed<unknown>(() => {
     const resolve = this.stepper.resolveResult;

@@ -287,6 +287,7 @@ function appendStep<TForms, TShared extends Record<string, unknown>>(
   build(step);
   target.push({
     ...step.drain(),
+    label: opts.label,
     when: combineConditions(guard, opts.when as unknown as RuntimeStepCondition | undefined),
     optional: opts.optional,
     defer: opts.defer,
@@ -439,6 +440,11 @@ export type StepConditionFor<S extends Stepper<any, any, any>> = StepCondition<
 
 /** Per-step options, typed against the stepper the step belongs to. */
 export interface StepOptions<S extends Stepper<any, any, any>> {
+  /** The step's short name for a chrome's progress rail - reactive, so it can
+   *  follow state. A chrome reads the whole visible list off the controller
+   *  (`labels`), which is derived from the same effective sequence as
+   *  `index`/`total`, so the rail cannot drift out of step with the flow. */
+  readonly label?: Reactive<string>;
   /** Drops the step from the sequence when it returns false; reactive. */
   readonly when?: StepConditionFor<S>;
   /** Marks the step skippable — the shell shows a Skip that bypasses the gate. */
