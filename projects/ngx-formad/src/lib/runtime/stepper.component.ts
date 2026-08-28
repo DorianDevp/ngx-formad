@@ -2,7 +2,7 @@ import { NgComponentOutlet } from '@angular/common';
 import {
   Component,
   computed,
-  EnvironmentInjector,
+  Injector,
   inject,
   Injectable,
   input,
@@ -73,7 +73,12 @@ export class StepperComponent implements OnInit {
    *  wizard finishes; the same data is on `controller.committed()`. */
   readonly stepCommitted = output<Record<string, unknown>>();
 
-  private readonly injector = inject(EnvironmentInjector);
+  // The component's own injector, not the environment one: every step's field tree
+  // is created through `runInInjectionContext(injector, …)` and the controller
+  // schedules `afterNextRender` against it, so an application-level injector kept
+  // all of that alive after the wizard was destroyed - a route away and back grew
+  // the reactive graph each time.
+  private readonly injector = inject(Injector);
   private readonly wizard = inject(FormadWizard);
   private readonly controlScope = inject(StepperControlScope);
   // The chrome component to render: the configured adapter, or the bundled default.
