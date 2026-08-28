@@ -1,0 +1,170 @@
+import { Component, signal } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { UiFormConfigBuilder, checkbox, text } from 'formodel';
+import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { FormConfig } from '../form-config/form-config';
+import { StepperComponent } from './stepper.component';
+
+// Two things the controller has to get right when a step's own commit changes the
+// shape of the flow: a step that gates *itself* off is not "the last step", and a
+// form nobody could see does not get to write its defaults into the wizard.
+
+async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
+}
+
+function buttonByText(fixture: ComponentFixture<unknown>, label: string): HTMLButtonElement {
+  return Array.from(
+    fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
+  ).find((b) => b.textContent?.trim() === label)!;
+}
+
+type Skip = { skip: boolean };
+const gateForm: FormConfig<Skip> = {
+  model: () => ({ skip: false }),
+  ui: UiFormConfigBuilder.from({ skip: false }).skip(checkbox('Skip the rest')),
+};
+
+type Only = { v: string };
+const only = (label: string): FormConfig<Only> => ({
+  model: () => ({ v: '' }),
+  ui: UiFormConfigBuilder.from({ v: '' }).v(text(label)),
+});
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" (completed)="finished = true" />`,
+})
+class SelfGatingHost {
+  finished = false;
+
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({ skip: false })
+      .createForm('first', only('First'))
+      .createForm('gate', gateForm)
+      .createForm('last', only('Last'))
+      .createStep((s) =>
+        s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.first)),
+      )
+      .createStep(
+        (s) =>
+          s.createPage({ options: { heading: '2' } }, (p) =>
+            p.addForm((f) => f.gate, {
+              bind: (l) =>
+                l.link(
+                  (m) => m.skip,
+                  (sh) => sh.skip,
+                ),
+            }),
+          ),
+        // The step is dropped by the very value its own form writes.
+        { when: (ctx) => !ctx.shared.skip },
+      )
+      .createStep((s) =>
+        s.createPage({ options: { heading: '3' } }, (p) => p.addForm((f) => f.last)),
+      )
+      .build(),
+  );
+}
+
+describe('A step that gates itself off', () => {
+  let fixture: ComponentFixture<SelfGatingHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(SelfGatingHost);
+    await settle(fixture);
+    buttonByText(fixture, 'Next').click();
+    await settle(fixture);
+  });
+
+  it('advances to the next step instead of finishing the wizard', async () => {
+    // On the gating step: tick the box, so committing it removes this step.
+    const box = fixture.nativeElement.querySelector('input[type=checkbox]') as HTMLInputElement;
+    expect(box).toBeTruthy();
+    box.checked = true;
+    box.dispatchEvent(new Event('change'));
+    await settle(fixture);
+
+    buttonByText(fixture, 'Next').click();
+    await settle(fixture);
+
+    expect(fixture.componentInstance.finished).toBe(false);
+    expect(fixture.nativeElement.textContent).toContain('Last');
+  });
+});
+
+// ── A hidden form's defaults must not overwrite the visible one's answer ────
+const isCompany = signal(false);
+
+type City = { city: string };
+const cityForm = (label: string): FormConfig<City> => ({
+  model: () => ({ city: '' }),
+  ui: UiFormConfigBuilder.from({ city: '' }).city(text(label)),
+});
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" (stepCommitted)="committed = $event" />`,
+})
+class BranchOnOneStepHost {
+  committed: Record<string, unknown> = {};
+
+  readonly stepper: RuntimeStepper = asStepper(
+    new StepperBuilder()
+      .withState({ city: '' })
+      .createForm('personal', cityForm('Personal city'))
+      .createForm('company', cityForm('Company city'))
+      .createStep((s) =>
+        s.createPage({ options: { heading: 'Where' } }, (p) =>
+          p
+            .addForm((f) => f.personal, {
+              visibleWhen: () => !isCompany(),
+              bind: (l) =>
+                l.link(
+                  (m) => m.city,
+                  (sh) => sh.city,
+                ),
+            })
+            .addForm((f) => f.company, {
+              visibleWhen: () => isCompany(),
+              bind: (l) =>
+                l.link(
+                  (m) => m.city,
+                  (sh) => sh.city,
+                ),
+            }),
+        ),
+      )
+      .createStep((s) =>
+        s.createPage({ options: { heading: 'Done' } }, (p) => p.addContent((c) => c.p('ok'))),
+      )
+      .build(),
+  );
+}
+
+describe('A hidden form on a step', () => {
+  it('neither commits its defaults nor clobbers the visible form', async () => {
+    isCompany.set(false);
+    const fixture = TestBed.createComponent(BranchOnOneStepHost);
+    await settle(fixture);
+
+    const input = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    input.value = 'Warsaw';
+    input.dispatchEvent(new Event('input'));
+    await settle(fixture);
+
+    buttonByText(fixture, 'Next').click();
+    await settle(fixture);
+
+    const committed = fixture.componentInstance.committed;
+    expect(committed['personal']).toEqual({ city: 'Warsaw' });
+    // The company form was never on screen: no phantom blank model, and the
+    // shared key it also binds is still what the visible form wrote.
+    expect(committed['company']).toBeUndefined();
+    expect(fixture.componentInstance.stepper.shared.snapshot()['city']).toBe('Warsaw');
+  });
+});

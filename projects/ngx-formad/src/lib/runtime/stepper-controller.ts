@@ -245,7 +245,34 @@ export class FormadStepperController implements StepperController {
     const eff = this.effective();
     const node = this.currentNode();
     const i = node ? eff.indexOf(node) : -1;
-    if (i > 0) this.enter(eff[i - 1]);
+    if (i > 0) {
+      this.enter(eff[i - 1]);
+      return;
+    }
+    // The commit just now may have gated this very step off, which leaves it out
+    // of `eff` entirely - Back then means "the last visible step authored before
+    // it", not "nowhere to go".
+    if (i === -1 && node) {
+      const previous = this.neighbour(node, -1);
+      if (previous) this.enter(previous);
+    }
+  }
+
+  // Where to go from a step that is no longer in the effective sequence: its
+  // position in the *authored* order is all that is left of it, so the destination
+  // is the nearest visible step after it (or before it, going back).
+  private neighbour(node: StepNode, direction: 1 | -1): StepNode | undefined {
+    const steps = this.stepper.steps;
+    const origin = steps.indexOf(node);
+    const eff = this.effective();
+    if (direction === 1) return eff.find((candidate) => steps.indexOf(candidate) > origin);
+
+    let previous: StepNode | undefined;
+    for (const candidate of eff) {
+      if (steps.indexOf(candidate) < origin) previous = candidate;
+      else break;
+    }
+    return previous;
   }
 
   // Commit FIRST, so a fork/branch decision made on this step lands in shared
@@ -256,8 +283,22 @@ export class FormadStepperController implements StepperController {
     const eff = this.effective();
     const node = this.currentNode();
     const i = node ? eff.indexOf(node) : -1;
-    if (i >= 0 && i < eff.length - 1) this.enter(eff[i + 1]);
-    else this.onComplete?.(this.result());
+    if (i >= 0 && i < eff.length - 1) {
+      this.enter(eff[i + 1]);
+      return;
+    }
+    // A step whose own commit gated it off drops out of the sequence, so `indexOf`
+    // is -1 - which is not the same as being last. Finishing the wizard there would
+    // swallow every step after it (a checkbox that says "skip the rest" ending the
+    // flow instead of skipping to the end of what it hid).
+    if (i === -1 && node) {
+      const next = this.neighbour(node, 1);
+      if (next) {
+        this.enter(next);
+        return;
+      }
+    }
+    this.onComplete?.(this.result());
   }
 
   // field -> shared for the step being left, and snapshot each form's model and
@@ -267,11 +308,18 @@ export class FormadStepperController implements StepperController {
     const step = this.liveStep();
     if (!step) return;
     const snapshot = { ...this.committedModels() };
+    // Only what is actually on screen commits. A hidden form is out of the
+    // completion fold and out of the blocker list already; committing it too would
+    // push its factory defaults into shared state and into `committed`, so the
+    // arm of a two-way branch the user never saw could overwrite the one they
+    // filled in. Whatever a form committed while it *was* visible stays.
     for (const form of step.forms) {
+      if (!form.visible()) continue;
       form.commit();
       snapshot[form.name] = { ...form.state.model() };
     }
     for (const control of step.controls) {
+      if (!control.visible()) continue;
       control.commit();
       snapshot[control.name] = control.value();
     }
