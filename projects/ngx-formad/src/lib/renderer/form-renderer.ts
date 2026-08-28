@@ -33,8 +33,13 @@ export class FormRenderer {
   readonly effects = input<readonly BoundOutputEffect[]>([]);
 
   protected readonly nodes = computed(() => this.state().nodes);
-  // The overlay's grid wins over the input; without either it's the empty default.
-  protected readonly grid = computed(() => this.state().grid ?? this.layout());
+  // The overlay's grid wins over the input - but `formLayout().build()` always
+  // emits a `grid` object, so "declared" has to mean "has something in it";
+  // otherwise an overlay with no `cols()` would shadow the input with `{}`.
+  protected readonly grid = computed(() => {
+    const declared = this.state().grid;
+    return declared && Object.keys(declared).length > 0 ? declared : this.layout();
+  });
   // The live model value, fed to component input getters via `NodesView` so their
   // bindings stay reactive as fields change.
   protected readonly model = computed(() => this.state().model());

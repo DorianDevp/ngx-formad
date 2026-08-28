@@ -351,3 +351,103 @@ describe('FormRenderer — layout overlay with a component', () => {
     );
   });
 });
+
+// Content in the field flow: the same tag builder a page uses, so a group heading
+// or a hint between fields is data rather than a component written for one line.
+type FC = { first: string; last: string };
+const contentConfig: FormConfig<FC> = {
+  model: () => ({ first: '', last: '' }),
+  ui: UiFormConfigBuilder.from({ first: '', last: '' }).first(text('First')).last(text('Last')),
+  layout: formLayout<FC>()
+    .content((c) => c.h3('Your name'))
+    .field('first')
+    .field('last')
+    .content((c) => c.p('As it appears on the invoice.', { className: 'hint' }), {
+      visibleWhen: (ctx) => ctx.model.first.length > 0,
+    })
+    .build(),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class ContentLayoutHost {
+  readonly state = asRenderable(instantiateForm(contentConfig));
+}
+
+describe('FormRenderer - layout overlay with content', () => {
+  let fixture: ComponentFixture<ContentLayoutHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(ContentLayoutHost);
+    await pump(fixture);
+  });
+
+  it('draws the block in overlay order', () => {
+    const order = Array.from(
+      fixture.nativeElement.querySelectorAll('h3, input') as NodeListOf<HTMLElement>,
+    ).map((el) => el.tagName.toLowerCase());
+    expect(order).toEqual(['h3', 'input', 'input']);
+    expect((fixture.nativeElement.querySelector('h3') as HTMLElement).textContent).toBe('Your name');
+  });
+
+  it('gates a block on the live form', async () => {
+    expect(fixture.nativeElement.querySelector('.hint')).toBeNull();
+
+    const first = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    first.value = 'Ada';
+    first.dispatchEvent(new Event('input'));
+    await pump(fixture);
+
+    expect((fixture.nativeElement.querySelector('.hint') as HTMLElement).textContent).toBe(
+      'As it appears on the invoice.',
+    );
+  });
+});
+
+// ── Placement from the zero-dependency adapter lands as inline style ────────
+// `cssLayout` (the DI default) answers with styles, not classes, and its property
+// names are camel-case - so every consumer has to convert before touching CSSOM.
+type Placed = { first: string; second: string };
+const placedConfig: FormConfig<Placed> = {
+  model: () => ({ first: '', second: '' }),
+  ui: UiFormConfigBuilder.from({ first: '', second: '' }).first(text('First')).second(text('Second')),
+  layout: formLayout<Placed>()
+    .cols(2)
+    .field('first', { colSpan: 2 })
+    .component(Echo, { colSpan: 2, inputs: { value: (ctx) => ctx.model.first } })
+    .field('second')
+    .build(),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class PlacedHost {
+  readonly state = asRenderable(instantiateForm(placedConfig));
+}
+
+describe('FormRenderer - placement under the default layout adapter', () => {
+  let fixture: ComponentFixture<PlacedHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(PlacedHost);
+    await pump(fixture);
+  });
+
+  it("puts a field's colSpan on the control host", () => {
+    // The control component's own host element *is* the grid item - no wrapper.
+    const host = fixture.nativeElement.querySelector('ngx-formad-text') as HTMLElement;
+    expect(host).toBeTruthy();
+    expect(host.style.gridColumn).toBe('span 2 / span 2');
+  });
+
+  it("puts a component's colSpan on its slot", () => {
+    // test-echo › component-outlet › the grid slot div
+    const slot = (fixture.nativeElement.querySelector('test-echo') as HTMLElement).closest('div')!;
+    expect(slot.tagName.toLowerCase()).toBe('div');
+    expect(slot.style.gridColumn).toBe('span 2 / span 2');
+  });
+});

@@ -1,14 +1,17 @@
 import {
-  afterNextRender,
+  ComponentRef,
   Directive,
+  effect,
   inject,
   input,
   inputBinding,
   outputBinding,
+  untracked,
   ViewContainerRef,
 } from '@angular/core';
 import { FieldTree, FormField } from '@angular/forms/signals';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
+import { applyLayoutClasses } from '../layout/layout-adapter';
 import { FieldConfig, extraInputsFor } from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
 import { BoundOutputEffect, samePath } from './output-effect';
@@ -37,18 +40,28 @@ export class FieldOutlet {
   private readonly controls = inject(CONTROL_ADAPTER);
   private readonly layoutAdapter = inject(LAYOUT_ADAPTER);
 
+  private ref: ComponentRef<unknown> | null = null;
+
   constructor() {
-    // After the anchor exists, instantiate once. The control is long-lived, so
-    // there is nothing reactive to redo here — only the bindings stay live.
-    afterNextRender(() => this.render());
+    // Re-rendered when the *config* changes, not once: the grid iterates nodes with
+    // `track node.key`, so a form swapped for another whose field sits at the same
+    // key reuses this directive with a new config - and a frozen mount would keep
+    // the old label, options, and even the old control kind. Values stay live on
+    // their own: `node` is read through a getter binding.
+    effect(() => {
+      const config = this.config();
+      untracked(() => {
+        this.ref?.destroy();
+        this.ref = this.render(config);
+      });
+    });
   }
 
-  private render(): void {
-    const config = this.config();
+  private render(config: FieldConfig): ComponentRef<unknown> | null {
     // Unknown kinds fall back to text so a typo or a richer-adapter-only kind
     // degrades to an input instead of throwing.
     const control = this.controls.controlFor(config.node.type) ?? this.controls.controlFor('text');
-    if (!control) return;
+    if (!control) return null;
 
     // Presentational inputs (label, options, input type) come from the node;
     // the field-state inputs are handled by FormField, so they are not repeated.
@@ -73,12 +86,12 @@ export class FieldOutlet {
     });
 
     // The control's host element is the grid item, so the per-field layout lands
-    // directly on it — no wrapper div.
+    // directly on it - no wrapper div. Both halves of the adapter's answer have to
+    // be applied: the CSS-grid default returns styles only, and writing those with
+    // their camel-case names straight into CSSOM does nothing at all.
     const item = this.layoutAdapter.item(config.layout ?? {});
-    const el = ref.location.nativeElement as HTMLElement;
-    if (item.class) el.className += (el.className ? ' ' : '') + item.class;
-    if (item.style) {
-      for (const [prop, value] of Object.entries(item.style)) el.style.setProperty(prop, value);
-    }
+    applyLayoutClasses(ref.location.nativeElement as HTMLElement, item);
+
+    return ref;
   }
 }

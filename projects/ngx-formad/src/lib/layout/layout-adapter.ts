@@ -55,3 +55,25 @@ export interface LayoutAdapter {
   container(spec: LayoutSpec): LayoutClasses;
   item(spec: ItemSpec): LayoutClasses;
 }
+
+// CSSOM's `setProperty` takes hyphenated property names only - handed `gridColumn`
+// it looks up `gridcolumn`, finds nothing, and returns without throwing. Adapters
+// author their style maps the way Angular's `[style]` binding accepts them (camel
+// case), so anything applying one by hand has to convert first. Custom properties
+// (`--x`) are passed through untouched.
+export function cssPropertyName(property: string): string {
+  return property.startsWith('--')
+    ? property
+    : property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
+}
+
+/** Puts one resolved `LayoutClasses` on an element: its classes appended to what
+ *  is already there, its styles set inline. The single place a layout lands on a
+ *  host element outside a template binding. */
+export function applyLayoutClasses(el: HTMLElement, classes: LayoutClasses): void {
+  if (classes.class) el.className += (el.className ? ' ' : '') + classes.class;
+  if (!classes.style) return;
+  for (const [property, value] of Object.entries(classes.style)) {
+    el.style.setProperty(cssPropertyName(property), value);
+  }
+}
