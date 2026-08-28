@@ -53,8 +53,13 @@ export interface FormadSuiteOptions {
 // everything else falls through to the base (and its text fallback).
 function withControlTypes(base: ControlAdapter, types: ControlTypeMap): ControlAdapter {
   return {
+    // Own properties only: a plain object inherits from `Object.prototype`, so a
+    // kind called 'constructor' would otherwise resolve to a function that is not
+    // a component at all.
     controlFor: (kind) =>
-      (types[kind] as Type<FormValueControl<unknown>> | undefined) ?? base.controlFor(kind),
+      Object.hasOwn(types, kind)
+        ? (types[kind] as Type<FormValueControl<unknown>>)
+        : base.controlFor(kind),
   };
 }
 

@@ -12,10 +12,10 @@ export class SharedState<S extends Record<string, unknown>> {
   private readonly initial: S;
 
   constructor(initial: S) {
-    this.initial = structuredClone(initial);
+    this.initial = copy(initial);
     const cells = {} as { [K in keyof S]: WritableSignal<S[K]> };
     for (const key of Object.keys(initial) as (keyof S)[]) {
-      cells[key] = signal(structuredClone(initial[key]));
+      cells[key] = signal(copy(initial[key]));
     }
     this.cells = cells;
   }
@@ -23,7 +23,7 @@ export class SharedState<S extends Record<string, unknown>> {
   /** Restores every key to the value the store was constructed with — the
    *  cross-step half of a wizard restart (`StepperController.reset()`). */
   reset(): void {
-    const fresh = structuredClone(this.initial);
+    const fresh = copy(this.initial);
     for (const key of Object.keys(this.cells) as (keyof S)[]) {
       this.cells[key].set(fresh[key]);
     }
@@ -60,5 +60,21 @@ export class SharedState<S extends Record<string, unknown>> {
   slot<K extends keyof S>(key: K): SharedSlot<S[K]> {
     const cell = this.cells[key];
     return { read: () => cell(), write: (value) => cell.set(value) };
+  }
+}
+
+// `structuredClone` is the right deep copy for the plain data shared state is meant
+// to hold - but a consumer's `withState` may carry a function, a signal or a class
+// instance, and then it throws `DataCloneError` from inside the constructor, which
+// reads as "the wizard is broken" rather than "this value cannot be deep-copied".
+// A shallow copy is the honest fallback: mutation of a nested object survives a
+// `reset()`, which is a documented limit, not a crash.
+function copy<V>(value: V): V {
+  try {
+    return structuredClone(value);
+  } catch {
+    if (Array.isArray(value)) return [...value] as V;
+    if (value && typeof value === 'object') return { ...value } as V;
+    return value;
   }
 }

@@ -295,13 +295,23 @@ export class NodesView {
 
 // A fresh array item, built from the item's render nodes: controls get a kind-
 // appropriate empty value, groups recurse, nested arrays start empty.
+// The empty value a control kind starts from. A date, a select and a file are all
+// "nothing chosen", which is `null` - seeding them with `''` types a new array item
+// differently from the model factory that made the first one.
+function blankValue(type: string): unknown {
+  if (type === 'number' || type === 'date' || type === 'select' || type === 'radio') return null;
+  if (type === 'file') return null;
+  if (type === 'checkbox') return false;
+  return '';
+}
+
 function blankItem(nodes: readonly RenderNode[]): Record<string, unknown> {
   const item: Record<string, unknown> = {};
   for (const node of nodes) {
-    if (node.kind === 'component' || node.kind === 'row') continue;
+    if (node.kind === 'component' || node.kind === 'content' || node.kind === 'row') continue;
     if (node.kind === 'group') item[node.key] = blankItem(node.children);
     else if (node.kind === 'array') item[node.key] = [];
-    else item[node.key] = node.node.type === 'number' ? null : node.node.type === 'checkbox' ? false : '';
+    else item[node.key] = blankValue(node.node.type);
   }
   return item;
 }

@@ -532,7 +532,10 @@ export class StepperBuilder<
 
   /** Declares the cross-step shared state; narrows `TShared`. */
   withState<S extends Record<string, unknown>>(initial: S): StepperBuilder<TForms, S, TKinds> {
-    this.sharedInit = initial;
+    // A copy: `fork` merges each arm's state into this object, and a caller who
+    // passed a shared constant would otherwise find their own literal carrying
+    // keys from a wizard built somewhere else.
+    this.sharedInit = { ...initial };
     return this as unknown as StepperBuilder<TForms, S, TKinds>;
   }
 

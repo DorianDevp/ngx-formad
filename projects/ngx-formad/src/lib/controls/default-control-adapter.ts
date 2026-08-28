@@ -31,7 +31,9 @@ const registry: Record<string, Type<FormValueControl<unknown>>> = {
 } as Record<string, Type<FormValueControl<unknown>>>;
 
 // The zero-dependency control registry. Unknown kinds return null so the
-// renderer can fall back to text rather than blow up on a typo.
+// renderer can fall back to text rather than blow up on a typo - and the lookup is
+// own-property only, or a kind named after something on `Object.prototype`
+// ('constructor', 'toString') would resolve to that instead of returning null.
 export const defaultControls: ControlAdapter = {
-  controlFor: (kind) => registry[kind] ?? null,
+  controlFor: (kind) => (Object.hasOwn(registry, kind) ? registry[kind] : null),
 };

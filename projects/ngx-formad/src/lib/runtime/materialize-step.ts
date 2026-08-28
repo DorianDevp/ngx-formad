@@ -279,15 +279,25 @@ export async function resolveStepForms(
   step: StepNode,
   pool: Record<string, AnyFormProvider>,
 ): Promise<Record<string, FormConfig<Record<string, unknown>>>> {
+  // Loaded together: the forms on one step do not depend on each other, and
+  // awaiting them in a row makes the step cost the *sum* of its imports on the one
+  // path the placeholder exists to keep short.
+  const entries = await Promise.all(
+    formNodes(step).map(async (node) => {
+      const entry = pool[node.name];
+      if (!entry) return null;
+      // A config is an object; a loader is a function - that is the discriminator.
+      const config =
+        typeof entry === 'function'
+          ? await entry()
+          : (entry as FormConfig<Record<string, unknown>>);
+      return [node.name, config] as const;
+    }),
+  );
+
   const resolved: Record<string, FormConfig<Record<string, unknown>>> = {};
-  for (const node of formNodes(step)) {
-    const entry = pool[node.name];
-    if (!entry) continue;
-    // A config is an object; a loader is a function — that is the discriminator.
-    resolved[node.name] =
-      typeof entry === 'function'
-        ? await entry()
-        : (entry as FormConfig<Record<string, unknown>>);
+  for (const entry of entries) {
+    if (entry) resolved[entry[0]] = entry[1];
   }
   return resolved;
 }
