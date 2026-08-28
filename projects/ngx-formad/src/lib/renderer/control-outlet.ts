@@ -1,8 +1,10 @@
 import {
-  afterNextRender,
   Component,
+  ComponentRef,
+  effect,
   input,
   inputBinding,
+  untracked,
   viewChild,
   ViewContainerRef,
 } from '@angular/core';
@@ -26,19 +28,31 @@ export class ControlOutlet {
 
   private readonly anchor = viewChild.required('anchor', { read: ViewContainerRef });
 
+  private ref: ComponentRef<unknown> | null = null;
+
   constructor() {
-    afterNextRender(() => {
+    // Mounted from an effect, not once: a chrome that swaps steps or forms reuses
+    // this view with a different live control, and a frozen mount would leave the
+    // previous control's field bound to the component on screen.
+    effect(() => {
       const live = this.control();
-      const ref = this.anchor().createComponent(live.component, {
-        directives: [{ type: FormField, bindings: [inputBinding('formField', () => live.field)] }],
-        bindings: [...live.bindings],
+      const anchor = this.anchor();
+      untracked(() => {
+        this.ref?.destroy();
+        const ref = anchor.createComponent(live.component, {
+          directives: [
+            { type: FormField, bindings: [inputBinding('formField', () => live.field)] },
+          ],
+          bindings: [...live.bindings],
+        });
+        // The component's host element is the layout slot, as with form fields -
+        // the classes land directly on it, no wrapper div.
+        if (live.layout) {
+          const el = ref.location.nativeElement as HTMLElement;
+          el.className += (el.className ? ' ' : '') + live.layout;
+        }
+        this.ref = ref;
       });
-      // The component's host element is the layout slot, as with form fields —
-      // the classes land directly on it, no wrapper div.
-      if (live.layout) {
-        const el = ref.location.nativeElement as HTMLElement;
-        el.className += (el.className ? ' ' : '') + live.layout;
-      }
     });
   }
 }

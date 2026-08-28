@@ -1,11 +1,24 @@
-import { afterNextRender, Component, input, viewChild, ViewContainerRef } from '@angular/core';
+import {
+  Component,
+  ComponentRef,
+  effect,
+  input,
+  untracked,
+  viewChild,
+  ViewContainerRef,
+} from '@angular/core';
 import { ComponentNode } from '../builders/nodes';
 
 // Renders one dynamic component from its node. The bindings were normalized at
-// build time (static values wrapped as getters, outputs as listeners), so here
-// it is a single `createComponent` call. Visibility is the caller's `@if` — a
-// hidden component is never instantiated, which keeps it out of completion and
-// out of the way, matching how hidden forms are handled.
+// build time (static values wrapped as getters, outputs as listeners), so mounting
+// is a single `createComponent` call. Visibility is the caller's `@if` - a hidden
+// component is never instantiated, which keeps it out of completion and out of the
+// way, matching how hidden forms are handled.
+//
+// The mount follows the input rather than happening once: the renderers iterate
+// nodes with `track node.key`, and a page or form swapped for another whose node
+// carries the same key reuses this view with a *different* node. Freezing the first
+// one left the old config's bindings driving the new component.
 @Component({
   selector: 'ngx-formad-component-outlet',
   host: { style: 'display: contents' },
@@ -15,11 +28,16 @@ export class ComponentOutlet {
   readonly node = input.required<ComponentNode>();
 
   private readonly anchor = viewChild.required('anchor', { read: ViewContainerRef });
+  private ref: ComponentRef<unknown> | null = null;
 
   constructor() {
-    afterNextRender(() => {
+    effect(() => {
       const node = this.node();
-      this.anchor().createComponent(node.component, { bindings: [...node.bindings] });
+      const anchor = this.anchor();
+      untracked(() => {
+        this.ref?.destroy();
+        this.ref = anchor.createComponent(node.component, { bindings: [...node.bindings] });
+      });
     });
   }
 }

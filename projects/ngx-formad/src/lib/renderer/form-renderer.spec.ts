@@ -63,7 +63,23 @@ describe('FormRenderer', () => {
   it('renders a select control with its options', () => {
     const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
     expect(select).toBeTruthy();
-    expect(select.querySelectorAll('option').length).toBe(2);
+    // Two options plus the empty one that stands for "nothing chosen yet" - the
+    // model holds '', which is not among the options. (This fixture's options have
+    // no descriptions, so they are compared by their DOM value: the option index.)
+    const options = Array.from(select.querySelectorAll('option'));
+    expect(options.map((o) => o.value)).toEqual(['', '0', '1']);
+    expect(select.selectedIndex).toBe(0);
+  });
+
+  it('drops the empty option once the value is one of the options', async () => {
+    const select = fixture.nativeElement.querySelector('select') as HTMLSelectElement;
+    select.value = '1'; // the option's index is its DOM value
+    select.dispatchEvent(new Event('change'));
+    await pump(fixture);
+
+    expect(fixture.componentInstance.state.model()['type']).toBe('User');
+    expect(Array.from(select.querySelectorAll('option')).map((o) => o.value)).toEqual(['0', '1']);
+    expect(select.selectedIndex).toBe(1);
   });
 
   it('feeds the native input type through from the node', () => {
@@ -281,10 +297,12 @@ describe('FormRenderer — reactive select options', () => {
     await pump(fixture);
   });
 
+  // The empty option is present while the model's value matches none of them, so
+  // the assertions below are about the real options after it.
   const optionTexts = () =>
-    Array.from(fixture.nativeElement.querySelectorAll('option') as NodeListOf<HTMLElement>).map(
-      (o) => o.textContent?.trim(),
-    );
+    Array.from(fixture.nativeElement.querySelectorAll('option') as NodeListOf<HTMLElement>)
+      .map((o) => o.textContent?.trim())
+      .filter((text) => text !== '');
 
   it('renders the options the signal held at instantiation', () => {
     expect(optionTexts()).toEqual(['Poland']);
@@ -449,5 +467,43 @@ describe('FormRenderer - placement under the default layout adapter', () => {
     const slot = (fixture.nativeElement.querySelector('test-echo') as HTMLElement).closest('div')!;
     expect(slot.tagName.toLowerCase()).toBe('div');
     expect(slot.style.gridColumn).toBe('span 2 / span 2');
+  });
+});
+
+// ── An outlet follows its node instead of freezing the first one ────────────
+type Swapped = { v: string };
+const labelled = (label: string): FormConfig<Swapped> => ({
+  model: () => ({ v: '' }),
+  ui: UiFormConfigBuilder.from({ v: '' }).v(text(label)),
+});
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state()" />`,
+})
+class SwapHost {
+  private readonly first = asRenderable(instantiateForm(labelled('First form')));
+  private readonly second = asRenderable(instantiateForm(labelled('Second form')));
+  readonly state = signal(this.first);
+
+  swap(): void {
+    this.state.set(this.second);
+  }
+}
+
+describe('FieldOutlet - a swapped config', () => {
+  it('re-renders the field when the config at the same key changes', async () => {
+    const fixture = TestBed.createComponent(SwapHost);
+    await pump(fixture);
+    expect(fixture.nativeElement.textContent).toContain('First form');
+
+    // The node key is the same ('v'), so the grid reuses the outlet - the control
+    // has to be rebuilt from the new config rather than kept with the old label.
+    fixture.componentInstance.swap();
+    await pump(fixture);
+
+    expect(fixture.nativeElement.textContent).toContain('Second form');
+    expect(fixture.nativeElement.textContent).not.toContain('First form');
+    expect(fixture.nativeElement.querySelectorAll('input')).toHaveLength(1);
   });
 });
