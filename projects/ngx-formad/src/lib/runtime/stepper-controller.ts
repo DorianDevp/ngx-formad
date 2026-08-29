@@ -32,6 +32,10 @@ import { LiveStep, materializeStep, resolveStepForms, StepIssue, stepFormNames }
 //    forms are all eager materializes synchronously in `enter`, so it appears at once;
 //    a step with a lazy form shows the one-frame placeholder and builds in the following
 //    `afterNextRender`, off the event's critical path. Cached steps are instant.
+export interface GoToOptions {
+  readonly fresh?: boolean;
+}
+
 export interface StepperController {
   /** The current step's live forms, or null while it is (re)building. */
   readonly step: Signal<LiveStep | null>;
@@ -76,6 +80,7 @@ export interface StepperController {
   next(): void;
   back(): void;
   skip(): void;
+  goTo(target: number | string, options?: GoToOptions): void;
   /** Restarts the wizard: clears committed values and cached step instances,
    *  resets the shared state to its initial values, and re-enters the first step
    *  with fresh (factory-built) forms. */
@@ -260,6 +265,27 @@ export class FormadStepperController implements StepperController {
     if (i === -1 && node) {
       const previous = this.neighbour(node, -1);
       if (previous) this.enter(previous);
+    }
+  }
+
+  goTo(target: number | string, options?: GoToOptions): void {
+    this.commitCurrent();
+    const eff = this.effective();
+    const node =
+      typeof target === 'number'
+        ? eff[target]
+        : eff.find((candidate) => resolveText(candidate.label) === target);
+    if (!node) return;
+    if (options?.fresh) this.discardFrom(node);
+    this.enter(node);
+  }
+
+  private discardFrom(node: StepNode): void {
+    const steps = this.stepper.steps;
+    const origin = steps.indexOf(node);
+    if (origin < 0) return;
+    for (const cached of [...this.cache.keys()]) {
+      if (steps.indexOf(cached) >= origin) this.cache.delete(cached);
     }
   }
 
