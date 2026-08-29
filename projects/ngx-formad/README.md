@@ -986,10 +986,29 @@ refused Next refused: every visible invalid field's labeled errors, plus the ste
 explainer](#a-blocked-next-explains-itself)), `isLast`, `optional`, `deferTrigger`,
 `result`, and `committed` (every last-committed value — a form's model, a standalone
 control's raw value — the data-egress for persisting as you go) — and the actions
-`next()`, `back()`, `skip()`, and `reset()` (restart: clears committed values,
-resets shared state, re-enters the first step). Calling `next()` while the gate is
-closed does not navigate: it marks everything touched and raises `nextBlocked`, so
-keep the button clickable (`aria-disabled`, not `disabled`) and let it answer.
+`next()`, `back()`, `skip()`, `goTo(target, options?)` (jump to a step by position
+or by label) and `reset()` (restart: clears committed values, resets shared state,
+re-enters the first step). Calling `next()` while the gate is closed does not
+navigate: it marks everything touched and raises `nextBlocked`, so keep the button
+clickable (`aria-disabled`, not `disabled`) and let it answer.
+
+#### A flow that loops
+
+A step list is a sequence, and some flows are not: "add another device" sends the
+user back through the same three steps, and an "Edit" link on a summary sends them
+back to the step that owns the answer. That is `goTo`:
+
+```ts
+wizard.shared.patch({ draftManufacturer: '', draftSerialNumber: '' });
+wizard.controller()?.goTo('Device', { fresh: true });
+```
+
+It commits the current step first, exactly as Next and Back do, and a target no step
+answers to leaves the wizard where it stands. `fresh` is what makes a second pass a
+second pass: without it the destination is revisited, and a revisit re-seeds only the
+fields the user never edited, so the previous device is still in the form. With it,
+the destination and every step authored after it drop their instances and are built
+again from their form factories, seeded from whatever shared state now holds.
 `StepPageView` (`ngx-formad-step-page`) renders a step's **whole page** — forms,
 dynamic components, rows, and content slots; wrap it in your own `@defer` to honour
 `deferTrigger()`. (`StepFormsView` / `ngx-formad-step-forms` is the forms-only

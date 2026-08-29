@@ -4,6 +4,22 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.8.0
+
+### Added
+
+- **Jumping between steps - `controller.goTo(target, { fresh })`.** The sequence was
+  strictly linear: `next` and `back` moved one step, so a flow with a loop ("add
+  another device", and then the same three steps again) or a summary whose "Edit"
+  link points at the step that owns a value had nowhere to express itself, and ended
+  up as a second stepper nested inside a step. `goTo` takes a position or a step
+  `label`, commits the step it leaves the way every other move does, and does nothing
+  when no step answers to the target. `fresh` discards the destination's cached
+  instances and those of every step authored after it, so the sub-flow is built again
+  from its form factories and seeded from current shared state - without it a revisit
+  keeps whatever the user typed the first time, since seeding only touches fields
+  they never edited.
+
 ## 0.7.0
 
 ### Added
