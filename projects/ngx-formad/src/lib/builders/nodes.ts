@@ -82,8 +82,16 @@ export interface PageNode {
   readonly children: readonly LayoutNode[];
 }
 
+/** Discriminates the members of a flow's sequence: a leaf step, or a nested
+ *  flow occupying one slot — see `builders/flow.ts` for the union. */
+export enum SequenceNodeKind {
+  Step = 'step',
+  Flow = 'flow',
+}
+
 /** A step: one or more pages. Completion folds over the forms across them. */
 export interface StepNode {
+  readonly kind: SequenceNodeKind.Step;
   readonly pages: readonly PageNode[];
   /** The step's short name, for a chrome's progress rail. It belongs on the step
    *  (not on a page's `heading`, which titles one page of possibly several) and it

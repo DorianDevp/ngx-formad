@@ -301,3 +301,9 @@ export async function resolveStepForms(
   }
   return resolved;
 }
+
+/** Every pool name a step commits under — its forms and its standalone controls.
+ *  What a recurrent flow clears from its committed map when a new pass opens. */
+export function stepValueNames(step: StepNode): readonly string[] {
+  return [...formNodes(step).map((node) => node.name), ...controlNodes(step).map((node) => node.name)];
+}

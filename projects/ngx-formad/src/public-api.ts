@@ -33,6 +33,8 @@ export * from './lib/builders/shared-link';
 export * from './lib/builders/standard-schema';
 export * from './lib/builders/step-context';
 export * from './lib/builders/nodes';
+export * from './lib/builders/flow';
+export * from './lib/builders/flow-port';
 export * from './lib/builders/stepper-builder';
 
 // Runtime: registry, completion fold, step materialization, the headless
@@ -41,6 +43,7 @@ export * from './lib/registry/instance-registry';
 export * from './lib/runtime/materialize-step';
 export * from './lib/runtime/effective-sequence';
 export * from './lib/runtime/stepper-controller';
+export * from './lib/runtime/flow-dock';
 export * from './lib/runtime/wizard-context';
 export * from './lib/runtime/step-forms-view';
 export * from './lib/runtime/step-page-view';

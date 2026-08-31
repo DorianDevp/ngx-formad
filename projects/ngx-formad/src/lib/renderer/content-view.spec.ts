@@ -2,6 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { ContentChild, buildContent } from '../builders/content';
+import { StepNode } from '../builders/nodes';
 import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from '../runtime/stepper.component';
@@ -219,7 +220,7 @@ class LegacyNodeHost {
       )
       .build();
 
-    const node = built.steps[0].pages[0].children[0] as { children?: unknown };
+    const node = (built.steps[0] as StepNode).pages[0].children[0] as { children?: unknown };
     delete node.children;
     this.stepper = asStepper(built);
   }

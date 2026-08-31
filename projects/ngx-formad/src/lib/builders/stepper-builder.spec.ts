@@ -1,7 +1,8 @@
 import { Component, input, output } from '@angular/core';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
-import { ComponentNode, FormNode } from './nodes';
+import { ComponentNode, FormNode, StepNode } from './nodes';
+import { isStepNode, SequenceNode } from './flow';
 import { StepperBuilder } from './stepper-builder';
 
 type Account = { email: string; password: string };
@@ -69,12 +70,12 @@ describe('StepperBuilder', () => {
   it('emits one step node per createStep, with a page each', () => {
     const stepper = buildStepper();
     expect(stepper.steps.length).toBe(2);
-    expect(stepper.steps[0].pages[0].options.heading).toBe('Account');
+    expect(leafAt(stepper.steps, 0).pages[0].options.heading).toBe('Account');
   });
 
   it('records a form node selected by callback, with its shared links', () => {
     const stepper = buildStepper();
-    const children = stepper.steps[0].pages[0].children;
+    const children = leafAt(stepper.steps, 0).pages[0].children;
     const formNode = children.find((c) => c.kind === 'form') as FormNode;
 
     expect(formNode.name).toBe('account');
@@ -104,7 +105,7 @@ describe('StepperBuilder', () => {
       )
       .build();
 
-    const formNode = stepper.steps[0].pages[0].children.find(
+    const formNode = leafAt(stepper.steps, 0).pages[0].children.find(
       (c) => c.kind === 'form',
     ) as FormNode;
     expect(formNode.links).toEqual([{ modelPath: ['vat'], sharedKey: 'vat' }]);
@@ -112,7 +113,7 @@ describe('StepperBuilder', () => {
 
   it('normalizes a dynamic component into bindings', () => {
     const stepper = buildStepper();
-    const children = stepper.steps[0].pages[0].children;
+    const children = leafAt(stepper.steps, 0).pages[0].children;
     const componentNode = children.find((c) => c.kind === 'component') as ComponentNode;
 
     expect(componentNode.component).toBe(Banner);
@@ -136,7 +137,7 @@ describe('StepperBuilder', () => {
       })
       .build();
 
-    const node = stepper.steps[0];
+    const node = leafAt(stepper.steps, 0);
     expect(node.optional).toBe(true);
     expect(node.defer).toBe('idle');
     // The condition is stored erased but stays callable with a runtime context.
@@ -144,3 +145,10 @@ describe('StepperBuilder', () => {
     expect(node.when?.({ shared: { email: 'no' }, value: () => undefined })).toBe(false);
   });
 });
+
+// The fixtures above author leaf steps only, so indexing is narrowing, not hope.
+function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
+  const node = steps[index];
+  if (!isStepNode(node)) throw new Error(`step ${index} is not a leaf`);
+  return node;
+}

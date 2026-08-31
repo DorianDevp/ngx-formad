@@ -1,4 +1,4 @@
-import { StepNode } from '../builders/nodes';
+import { SequenceNode } from '../builders/flow';
 import { RuntimeStepContext } from '../builders/step-context';
 
 // The conditional-navigation primitive, kept pure so it is trivially testable and
@@ -7,8 +7,8 @@ import { RuntimeStepContext } from '../builders/step-context';
 // is the ordered sequence navigation walks — hidden steps simply are not in it,
 // and steps after them rejoin automatically.
 export function effectiveSteps(
-  steps: readonly StepNode[],
+  steps: readonly SequenceNode[],
   ctx: RuntimeStepContext,
-): readonly StepNode[] {
+): readonly SequenceNode[] {
   return steps.filter((step) => !step.when || step.when(ctx));
 }

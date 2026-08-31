@@ -1,4 +1,5 @@
 import { UiFormConfigBuilder, text } from 'formodel';
+import { isStepNode, SequenceNode } from '../builders/flow';
 import { RuntimeStepContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
@@ -12,10 +13,8 @@ const form = (label: string): FormConfig<One> => ({
 
 // A page's heading is `Reactive<string>` - a value or a getter - so the assertion
 // resolves it the way the controller does.
-const headings = (
-  steps: readonly { pages: readonly { options: { heading?: string | (() => string) } }[] }[],
-) =>
-  steps.map((s) => {
+const headings = (steps: readonly SequenceNode[]) =>
+  steps.filter(isStepNode).map((s) => {
     const heading = s.pages[0].options.heading;
     return typeof heading === 'function' ? heading() : heading;
   });

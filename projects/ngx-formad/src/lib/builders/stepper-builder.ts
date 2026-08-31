@@ -22,7 +22,16 @@ export type BuiltInControlKind =
   | 'checkbox'
   | 'date'
   | 'file';
-import { LayoutNode, PageNode, PageOptions, StepNode } from './nodes';
+import {
+  FlowDefinition,
+  FlowStepNode,
+  isRecurrent,
+  RecurrentFlowDefinition,
+  RuntimeFlow,
+  SequenceNode,
+} from './flow';
+import { FlowPort, FlowView } from './flow-port';
+import { LayoutNode, PageNode, PageOptions, SequenceNodeKind, StepNode } from './nodes';
 import {
   FieldRef,
   FieldRefs,
@@ -39,6 +48,7 @@ import {
   ControlEntry,
   ControlKeys,
   DeferTrigger,
+  FlowEntry,
   FormKeys,
   FormModel,
   FormProvider,
@@ -223,7 +233,7 @@ export class StepBuilder<TForms, TShared extends Record<string, unknown>> {
   }
 
   drain(): StepNode {
-    return { pages: this.pages };
+    return { kind: SequenceNodeKind.Step, pages: this.pages };
   }
 }
 
@@ -278,7 +288,7 @@ function combineConditions(
 // own `when`. The single place a step is created — used by createStep, branch, and
 // fork arms, so the condition/erasure logic lives once.
 function appendStep<TForms, TShared extends Record<string, unknown>>(
-  target: StepNode[],
+  target: SequenceNode[],
   build: (step: StepBuilder<TForms, TShared>) => unknown,
   opts: StepOptions<Stepper<TForms, TShared>>,
   guard?: RuntimeStepCondition,
@@ -307,7 +317,7 @@ function appendStep<TForms, TShared extends Record<string, unknown>>(
 interface ForkArmDef {
   readonly forms: Record<string, AnyFormProvider>;
   readonly sharedInit: Record<string, unknown>;
-  readonly steps: readonly StepNode[];
+  readonly steps: readonly SequenceNode[];
   readonly resolve: RuntimeResultResolver;
 }
 
@@ -325,7 +335,7 @@ export interface ForkArm<R> {
 export class ForkArmBuilder<TForms, TShared extends Record<string, unknown>> {
   private readonly forms: Record<string, AnyFormProvider> = {};
   private readonly sharedInit: Record<string, unknown> = {};
-  private readonly steps: StepNode[] = [];
+  private readonly steps: SequenceNode[] = [];
 
   /** Arm-local shared state, merged into the wizard's store. */
   withState<S extends Record<string, unknown>>(initial: S): ForkArmBuilder<TForms, TShared & S> {
@@ -402,7 +412,7 @@ type ArmResult<A> = {
 export class Stepper<TForms, TShared extends Record<string, unknown>, TResult = never> {
   constructor(
     readonly forms: TForms,
-    readonly steps: readonly StepNode[],
+    readonly steps: readonly SequenceNode[],
     readonly shared: SharedState<TShared>,
     /** Set by `fork`: maps the runtime context to the active arm's result. */
     readonly resolveResult?: RuntimeResultResolver,
@@ -503,7 +513,7 @@ export class StepperBuilder<
   // a different path), but share the `TForms` type map with the forms.
   private readonly controls: Record<string, AnyControlEntry> = {};
   private sharedInit: Record<string, unknown> = {};
-  private readonly steps: StepNode[] = [];
+  private readonly steps: SequenceNode[] = [];
   private resultResolver?: RuntimeResultResolver;
   private readonly controlTypes: ControlTypeMap = {};
 
@@ -530,13 +540,16 @@ export class StepperBuilder<
     return this;
   }
 
-  /** Declares the cross-step shared state; narrows `TShared`. */
-  withState<S extends Record<string, unknown>>(initial: S): StepperBuilder<TForms, S, TKinds> {
+  /** Declares the cross-step shared state; narrows `TShared` by intersection, so
+   *  a nested flow's own state layers over the parent shape it already sees. */
+  withState<S extends Record<string, unknown>>(
+    initial: S,
+  ): StepperBuilder<TForms, TShared & S, TKinds> {
     // A copy: `fork` merges each arm's state into this object, and a caller who
     // passed a shared constant would otherwise find their own literal carrying
     // keys from a wizard built somewhere else.
-    this.sharedInit = { ...initial };
-    return this as unknown as StepperBuilder<TForms, S, TKinds>;
+    this.sharedInit = { ...this.sharedInit, ...initial };
+    return this as unknown as StepperBuilder<TForms, TShared & S, TKinds>;
   }
 
   /** Registers a form in the pool under `name`; narrows `TForms`. The provider may
@@ -643,6 +656,49 @@ export class StepperBuilder<
     return this as unknown as TerminalForkBuilder<TForms, TShared, ArmResult<A>>;
   }
 
+  /**
+   * A nested linear flow occupying ONE slot of this sequence. It owns its form
+   * pool and its shared state (layered over this wizard's for reads), renders
+   * through the same root chrome via a child controller, and commits its record
+   * of values under `name` — readable by later conditions as `value(name)`.
+   */
+  createStepper<K extends string, F2, S2 extends Record<string, unknown>, TK2 extends string>(
+    name: K extends keyof TForms & string ? never : K,
+    opts: FlowStepOptions<Stepper<TForms, TShared>>,
+    build: (sub: StepperBuilder<{}, TShared, TKinds>) => StepperBuilder<F2, S2, TK2>,
+  ): StepperBuilder<TForms & Record<K, FlowEntry<Committed<F2>>>, TShared, TKinds> {
+    const sub = new StepperBuilder() as StepperBuilder<{}, TShared, TKinds>;
+    const chained = build(sub);
+    this.steps.push(flowStepNode(name as string, opts, erasedFlow(chained.build())));
+    return this as unknown as StepperBuilder<
+      TForms & Record<K, FlowEntry<Committed<F2>>>,
+      TShared,
+      TKinds
+    >;
+  }
+
+  /**
+   * A nested recurrent flow — a ring of pass steps around a dock — occupying ONE
+   * slot of this sequence. Its collection accumulates by the flow's own pure
+   * `fold` and commits under `name`; `view` hands components authored inside the
+   * flow a read on that collection (`all()` / `others()`).
+   */
+  createRecurrentStepper<K extends string, C>(
+    name: K extends keyof TForms & string ? never : K,
+    cfg: RecurrentCfg<C, Stepper<TForms, TShared>>,
+    build: (
+      loop: RecurrentStepperBuilder<{}, TShared, C, TKinds>,
+      view: FlowView<C>,
+    ) => unknown,
+  ): StepperBuilder<TForms & Record<K, FlowEntry<C>>, TShared, TKinds> {
+    const loop = new RecurrentStepperBuilder<{}, TShared, C, TKinds>(cfg.collection, cfg.hasAny);
+    build(loop, loop.view);
+    // The single place this flow's collection type is erased for the node tree.
+    const flow = loop._drain() as RecurrentFlowDefinition;
+    this.steps.push(flowStepNode(name as string, cfg, flow));
+    return this as unknown as StepperBuilder<TForms & Record<K, FlowEntry<C>>, TShared, TKinds>;
+  }
+
   // Builds one step node, combining an optional branch guard with the step's own
   // `when` — delegates to the shared `appendStep`, used by createStep and branch.
   private pushStep(
@@ -663,4 +719,332 @@ export class StepperBuilder<
       this.controls,
     );
   }
+}
+
+// ── Recurrent flows ──
+// A recurrent stepper is the second flow abstraction, equal in rank to `Stepper`:
+// it can be the root handed to `<ngx-formad-stepper>`, and it can occupy one slot
+// of another flow — in either direction, since a linear flow nests inside a
+// recurrent one the same way. Topologically it is a ring: pass steps (authored
+// first, gated on "a pass is open") around a dock (authored last, gated on the
+// opposite). Finishing a pass folds its values into the flow's own collection and
+// lands on the dock; the dock can only restart the ring or complete the flow.
+
+/** Options for a nested flow step — the parent-side slot, not the flow itself. */
+export interface FlowStepOptions<S extends Stepper<any, any, any>> {
+  readonly label?: Reactive<string>;
+  readonly when?: StepConditionFor<S>;
+  readonly defer?: DeferTrigger;
+}
+
+/** Declaration of a nested recurrent flow: its collection seed and, optionally,
+ *  a non-default "the dock is reachable" predicate. */
+export interface RecurrentCfg<C, S extends Stepper<any, any, any>> extends FlowStepOptions<S> {
+  /** A fresh collection — the accumulator's starting value; its return type fixes
+   *  the flow's collection type. */
+  readonly collection: () => C;
+  /** Defaults to `length > 0` for arrays, `!= null` otherwise. */
+  readonly hasAny?: (collection: C) => boolean;
+}
+
+/** What a nested linear flow commits under its name: its forms' and controls'
+ *  last-committed values, keyed by pool name. */
+export type Committed<F> = { readonly [K in keyof F]?: FormModel<F[K]> };
+
+// The one place a flow step node is assembled. The parent-side `completeWhen`
+// mirrors the flow's own completeness against the absorbed collection, so a host
+// that inspects the parent gate sees the truth without hand-wiring.
+function flowStepNode(
+  name: string,
+  opts: FlowStepOptions<Stepper<unknown, Record<string, unknown>>>,
+  flow: RuntimeFlow,
+): FlowStepNode {
+  const complete = isRecurrent(flow) ? flow.complete : undefined;
+  const seed = isRecurrent(flow) ? flow.seed : undefined;
+  return {
+    kind: SequenceNodeKind.Flow,
+    name,
+    flow,
+    label: opts.label,
+    when: opts.when as unknown as RuntimeStepCondition | undefined,
+    defer: opts.defer,
+    completeWhen: complete && seed ? (ctx) => complete(ctx.value(name) ?? seed()) : undefined,
+    incompleteMessage: isRecurrent(flow) ? flow.incompleteMessage : undefined,
+  };
+}
+
+// Erases a built nested stepper to the runtime flow shape the controller drives.
+function erasedFlow(stepper: Stepper<unknown, Record<string, unknown>>): FlowDefinition {
+  return stepper as unknown as FlowDefinition;
+}
+
+/** After `dock()` nothing may follow — the dock is the ring's only exit. */
+export interface RecurrentTerminal<TForms, TShared extends Record<string, unknown>, C> {
+  build(): RecurrentStepper<TForms, TShared, C>;
+}
+
+/** A built recurrent wizard — hand it to `<ngx-formad-stepper>` via
+ *  {@link asRecurrentStepper}, or nest it through `createRecurrentStepper`. */
+export class RecurrentStepper<TForms, TShared extends Record<string, unknown>, C> {
+  /** Phantom carriers so a typed host can extract the declared shapes. */
+  readonly __types?: { forms: TForms; shared: TShared; collection: C };
+
+  /** @internal */
+  constructor(readonly _def: RecurrentFlowDefinition) {}
+}
+
+/** The single, named place a recurrent stepper's types are erased for the runtime. */
+export function asRecurrentStepper<TForms, TShared extends Record<string, unknown>, C>(
+  stepper: RecurrentStepper<TForms, TShared, C>,
+): RuntimeFlow {
+  return stepper._def;
+}
+
+/** The root of a recurrent chain. Pass steps are authored with the same
+ *  `createStep`/`branch`/`createStepper`/`createRecurrentStepper` vocabulary as a
+ *  linear chain — every one of them is implicitly gated on "a pass is open" — and
+ *  the chain ends with `dock(...)`, the ring's hub. `fold` and `completeWhen`
+ *  describe the collection and belong before the dock. */
+export class RecurrentStepperBuilder<
+  TForms = {},
+  TShared extends Record<string, unknown> = {},
+  C = unknown,
+  TKinds extends string = BuiltInControlKind,
+> {
+  private readonly forms: Record<string, AnyFormProvider> = {};
+  private readonly controls: Record<string, AnyControlEntry> = {};
+  private sharedInit: Record<string, unknown> = {};
+  private readonly steps: SequenceNode[] = [];
+  private readonly controlTypes: ControlTypeMap = {};
+  private dockIndex = -1;
+  private foldFn?: (collection: C, pass: StepContext<TForms, TShared>) => C;
+  private completePredicate?: (collection: C) => boolean;
+  private completeMessage?: string;
+  private readonly port: FlowPort<C>;
+  private readonly hasAnyFn: (collection: C) => boolean;
+
+  constructor(
+    private readonly seedFn: () => C,
+    hasAny?: (collection: C) => boolean,
+  ) {
+    this.port = new FlowPort(seedFn);
+    this.hasAnyFn = hasAny ?? defaultHasAny;
+  }
+
+  /** The live read on the collection, for authoring component inputs. */
+  get view(): FlowView<C> {
+    return this.port;
+  }
+
+  /** The flow's own per-pass state; reset between passes. Intersects over the
+   *  parent shape the flow already reads. */
+  withState<S extends Record<string, unknown>>(
+    initial: S,
+  ): RecurrentStepperBuilder<TForms, TShared & S, C, TKinds> {
+    this.sharedInit = { ...this.sharedInit, ...initial };
+    return this as unknown as RecurrentStepperBuilder<TForms, TShared & S, C, TKinds>;
+  }
+
+  createForm<K extends string, M extends Record<string, unknown>>(
+    name: K,
+    provider: FormProvider<M>,
+  ): RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, C, TKinds> {
+    this.forms[name] = provider as unknown as AnyFormProvider;
+    return this as unknown as RecurrentStepperBuilder<
+      TForms & Record<K, FormConfig<M>>,
+      TShared,
+      C,
+      TKinds
+    >;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  createControl<K extends string, Cmp extends FormValueControl<any>>(
+    name: K,
+    component: Type<Cmp>,
+    opts: ControlOptions<ControlValueOf<Cmp>>,
+  ): RecurrentStepperBuilder<
+    TForms & Record<K, ControlEntry<ControlValueOf<Cmp>, Cmp>>,
+    TShared,
+    C,
+    TKinds
+  > {
+    const entry: ControlEntry<ControlValueOf<Cmp>, Cmp> = {
+      control: true,
+      component,
+      initial: toGetter(opts.initial),
+      schema: opts.schema,
+      label: opts.label,
+    };
+    this.controls[name] = entry;
+    return this as unknown as RecurrentStepperBuilder<
+      TForms & Record<K, ControlEntry<ControlValueOf<Cmp>, Cmp>>,
+      TShared,
+      C,
+      TKinds
+    >;
+  }
+
+  addControlType<K extends string>(
+    kind: K extends TKinds ? never : K,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    component: Type<FormValueControl<any>>,
+  ): RecurrentStepperBuilder<TForms, TShared, C, TKinds | K> {
+    this.controlTypes[kind as string] = component;
+    return this as unknown as RecurrentStepperBuilder<TForms, TShared, C, TKinds | K>;
+  }
+
+  overrideControlType<K extends TKinds>(
+    kind: K,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    component: Type<FormValueControl<any>>,
+  ): RecurrentStepperBuilder<TForms, TShared, C, TKinds> {
+    this.controlTypes[kind] = component;
+    return this;
+  }
+
+  /** A pass step — gated on "a pass is open", so the whole pass leaves the
+   *  sequence the moment the pass closes. */
+  createStep(
+    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    opts: StepOptions<Stepper<TForms, TShared>> = {},
+  ): this {
+    appendStep(this.steps, build, opts, passGate);
+    return this;
+  }
+
+  /** A branch of pass steps: [pass open] AND [branch key] AND each step's own `when`. */
+  branch<K extends string>(
+    select: (ctx: StepContext<TForms, TShared>) => K,
+    branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
+  ): this {
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    for (const key of Object.keys(branches) as K[]) {
+      const guard: RuntimeStepCondition = (ctx) => passGate(ctx) && erased(ctx) === key;
+      branches[key](
+        new BranchBuilder<TForms, TShared>((b, o, g) => appendStep(this.steps, b, o, g), guard),
+      );
+    }
+    return this;
+  }
+
+  /** A nested linear flow as a pass step — the symmetric direction. */
+  createStepper<K extends string, F2, S2 extends Record<string, unknown>, TK2 extends string>(
+    name: K extends keyof TForms & string ? never : K,
+    opts: FlowStepOptions<Stepper<TForms, TShared>>,
+    build: (sub: StepperBuilder<{}, TShared, TKinds>) => StepperBuilder<F2, S2, TK2>,
+  ): RecurrentStepperBuilder<TForms & Record<K, FlowEntry<Committed<F2>>>, TShared, C, TKinds> {
+    const sub = new StepperBuilder() as StepperBuilder<{}, TShared, TKinds>;
+    const chained = build(sub);
+    const node = flowStepNode(name as string, opts, erasedFlow(chained.build()));
+    this.steps.push({ ...node, when: combineConditions(passGate, node.when) });
+    return this as unknown as RecurrentStepperBuilder<
+      TForms & Record<K, FlowEntry<Committed<F2>>>,
+      TShared,
+      C,
+      TKinds
+    >;
+  }
+
+  /** A nested recurrent flow as a pass step — a ring within a ring. */
+  createRecurrentStepper<K extends string, C2>(
+    name: K extends keyof TForms & string ? never : K,
+    cfg: RecurrentCfg<C2, Stepper<TForms, TShared>>,
+    build: (
+      loop: RecurrentStepperBuilder<{}, TShared, C2, TKinds>,
+      view: FlowView<C2>,
+    ) => unknown,
+  ): RecurrentStepperBuilder<TForms & Record<K, FlowEntry<C2>>, TShared, C, TKinds> {
+    const loop = new RecurrentStepperBuilder<{}, TShared, C2, TKinds>(cfg.collection, cfg.hasAny);
+    build(loop, loop.view);
+    const node = flowStepNode(name as string, cfg, loop._drain() as RecurrentFlowDefinition);
+    this.steps.push({ ...node, when: combineConditions(passGate, node.when) });
+    return this as unknown as RecurrentStepperBuilder<
+      TForms & Record<K, FlowEntry<C2>>,
+      TShared,
+      C,
+      TKinds
+    >;
+  }
+
+  /** How a finished pass enters the collection. Pure: return a NEW collection —
+   *  the runtime is the collection's only writer. The pass context carries the
+   *  pass's committed `value(...)` reads and its shared snapshot. */
+  fold(fold: (collection: C, pass: StepContext<TForms, TShared>) => C): this {
+    this.foldFn = fold;
+    return this;
+  }
+
+  /** The flow's validity — a property of the collection, never of the path taken
+   *  to it. Gates Next on the dock, and mirrors onto the parent slot's gate. */
+  completeWhen(complete: (collection: C) => boolean, message?: string): this {
+    this.completePredicate = complete;
+    this.completeMessage = message;
+    return this;
+  }
+
+  /** The ring's hub and only exit — authored LAST. Visible exactly when no pass is
+   *  open; entry lands here whenever the collection already satisfies `hasAny`. */
+  dock(
+    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    opts: StepOptions<Stepper<TForms, TShared>> = {},
+  ): RecurrentTerminal<TForms, TShared, C> {
+    if (this.dockIndex >= 0) throw new Error('A recurrent flow has exactly one dock.');
+    this.dockIndex = this.steps.length;
+    const own = opts.completeWhen as unknown as RuntimeStepCondition | undefined;
+    const gate: RuntimeStepCondition = (ctx) => {
+      if (own && !own(ctx)) return false;
+      if (!this.completePredicate) return true;
+      return this.completePredicate((ctx.flow ? ctx.flow.collection : this.seedFn()) as C);
+    };
+    appendStep(
+      this.steps,
+      build,
+      {
+        ...opts,
+        completeWhen: gate as unknown as StepOptions<Stepper<TForms, TShared>>['completeWhen'],
+        incompleteMessage: opts.incompleteMessage ?? this.completeMessage,
+      },
+      dockGate,
+    );
+    return this as unknown as RecurrentTerminal<TForms, TShared, C>;
+  }
+
+  build(): RecurrentStepper<TForms, TShared, C> {
+    return new RecurrentStepper(this._drain() as RecurrentFlowDefinition);
+  }
+
+  /** @internal the typed runtime flow — erased once, by the callers that hand it
+   *  to the erased node tree. */
+  _drain(): RecurrentFlowDefinition<C> {
+    if (this.dockIndex < 0) {
+      throw new Error('A recurrent flow needs a dock - author it last with dock().');
+    }
+
+    return {
+      recurrent: true,
+      steps: this.steps,
+      forms: this.forms,
+      controls: this.controls,
+      shared: new SharedState(this.sharedInit),
+      controlTypes: this.controlTypes,
+      dockAt: this.dockIndex,
+      seed: this.seedFn,
+      fold: this.foldFn as ((collection: C, pass: RuntimeStepContext) => C) | undefined,
+      hasAny: this.hasAnyFn,
+      complete: this.completePredicate,
+      incompleteMessage: this.completeMessage,
+      port: this.port,
+    };
+  }
+}
+
+// The two halves of the ring's visibility: pass steps exist while a pass is open,
+// the dock exactly otherwise. Both read the flow context the controller supplies.
+const passGate: RuntimeStepCondition = (ctx) => ctx.flow?.passOpen === true;
+const dockGate: RuntimeStepCondition = (ctx) => ctx.flow?.passOpen !== true;
+
+function defaultHasAny<C>(collection: C): boolean {
+  if (Array.isArray(collection)) return collection.length > 0;
+  return collection != null;
 }

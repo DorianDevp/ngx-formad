@@ -25,19 +25,41 @@ export interface ControlEntry<T, C = unknown> {
   readonly label?: string;
 }
 
-/** Extracts a pooled entry's value type: a form's model, or a control's value.
- *  A lazily-loaded form still records `FormConfig<M>`, so one case covers both
- *  eager and lazy forms. */
+/** A pooled nested flow (`createStepper` / `createRecurrentStepper`): the value it
+ *  commits under its name — a recurrent flow's folded collection, or a linear
+ *  sub-flow's committed record. Phantom-typed like `ForkArm`, so `value(...)` and
+ *  later conditions read the exact collection type the flow declared. */
+export interface FlowEntry<C> {
+  readonly flow: true;
+  /** Phantom — present only so `FormModel` can extract the flow's value type. */
+  readonly __value?: C;
+}
+
+/** Extracts a pooled entry's value type: a form's model, a control's value, or a
+ *  nested flow's committed value. A lazily-loaded form still records
+ *  `FormConfig<M>`, so one case covers both eager and lazy forms. */
 export type FormModel<F> =
-  F extends ControlEntry<infer T, infer _C> ? T : F extends FormConfig<infer M> ? M : never;
+  F extends FlowEntry<infer C>
+    ? C
+    : F extends ControlEntry<infer T, infer _C>
+      ? T
+      : F extends FormConfig<infer M>
+        ? M
+        : never;
 
 /** The pool keys that are standalone controls — what `addControl` may select. */
 export type ControlKeys<TForms> = {
   [K in keyof TForms]: TForms[K] extends ControlEntry<infer _T, infer _C> ? K : never;
 }[keyof TForms];
 
+/** The pool keys that are nested flows — addressable by `value(...)`, never by
+ *  `addForm`/`addControl` (a flow renders through its own controller). */
+export type FlowKeys<TForms> = {
+  [K in keyof TForms]: TForms[K] extends FlowEntry<infer _C> ? K : never;
+}[keyof TForms];
+
 /** The pool keys that are forms — what `addForm` may select. */
-export type FormKeys<TForms> = Exclude<keyof TForms, ControlKeys<TForms>>;
+export type FormKeys<TForms> = Exclude<keyof TForms, ControlKeys<TForms> | FlowKeys<TForms>>;
 
 /** The component class of a pooled control entry. */
 export type ControlComponent<F> = F extends ControlEntry<infer _T, infer C> ? C : never;
@@ -46,16 +68,30 @@ export type ControlComponent<F> = F extends ControlEntry<infer _T, infer C> ? C 
  *  deferred rendering. Bring-your-own-UI hosts can read the hint and pick freely. */
 export type DeferTrigger = 'idle' | 'viewport' | 'interaction';
 
+/** What a step inside a recurrent flow knows about the ring it runs in: the
+ *  collection folded so far, and whether a pass is currently open (the gate the
+ *  pass steps and the dock are authored against). Erased here — the recurrent
+ *  builder's own `fold`/`completeWhen` signatures carry the typed collection. */
+export interface FlowContext {
+  readonly collection: unknown;
+  readonly passOpen: boolean;
+}
+
 /** The typed context a step condition reads. Both type params come from the built
  *  stepper (its form pool and shared-state shape), so `shared` and `value(...)`
  *  are checked against the exact wizard you declared. */
 export interface StepContext<TForms, TShared> {
-  /** The cross-step shared state, typed as declared by `withState`; reactive at runtime. */
+  /** The cross-step shared state, typed as declared by `withState`; reactive at
+   *  runtime. Inside a nested flow this is the parent's shared layered under the
+   *  flow's own — the flow reads outward, never the other way around. */
   readonly shared: TShared;
-  /** The last-committed value of an earlier step's form (its model) or standalone
-   *  control (its raw value), keyed by pool name. `undefined` until that step has
-   *  been left (committed) at least once. */
+  /** The last-committed value of an earlier step's form (its model), standalone
+   *  control (its raw value), or nested flow (its collection / committed record),
+   *  keyed by pool name. `undefined` until that step has been left (committed) at
+   *  least once. */
   value<K extends keyof TForms>(form: K): FormModel<TForms[K]> | undefined;
+  /** Present only for a step evaluated inside a recurrent flow. */
+  readonly flow?: FlowContext;
 }
 
 /** A step condition, typed against the forms pool and shared state. */

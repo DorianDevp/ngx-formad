@@ -14,10 +14,11 @@ import {
 } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { SharedState } from '../sync/shared-state';
-import { RuntimeStepper } from '../builders/stepper-builder';
+import { RuntimeFlow } from '../builders/flow';
 import { ControlAdapter } from '../controls/control-adapter';
 import { CONTROL_ADAPTER, ControlTypeMap, STEPPER_ADAPTER } from '../provide';
 import { DefaultStepperChrome } from './default-stepper-chrome';
+import { FlowDock, StepperFlowDock } from './flow-dock';
 import { FormadStepperController, StepperController } from './stepper-controller';
 import { FormadWizard } from './wizard-context';
 
@@ -45,6 +46,8 @@ class StepperControlScope {
   providers: [
     FormadWizard,
     StepperControlScope,
+    StepperFlowDock,
+    { provide: FlowDock, useExisting: StepperFlowDock },
     {
       provide: CONTROL_ADAPTER,
       useFactory: (scope: StepperControlScope, parent: ControlAdapter): ControlAdapter => ({
@@ -61,8 +64,9 @@ class StepperControlScope {
   `,
 })
 export class StepperComponent implements OnInit {
-  /** The built wizard, widened with `asStepper(...)`. */
-  readonly stepper = input.required<RuntimeStepper>();
+  /** The built wizard — a linear `Stepper` widened with `asStepper(...)`, or a
+   *  `RecurrentStepper` widened with `asRecurrentStepper(...)`. */
+  readonly stepper = input.required<RuntimeFlow>();
   /** Emitted when the user finishes the last step, carrying a forked result (if
    *  any). Erased to `unknown` here — cast to the wizard's result union, or read
    *  the typed `controller.result()` from a custom chrome. */
@@ -81,6 +85,7 @@ export class StepperComponent implements OnInit {
   private readonly injector = inject(Injector);
   private readonly wizard = inject(FormadWizard);
   private readonly controlScope = inject(StepperControlScope);
+  private readonly flowDock = inject(StepperFlowDock);
   // The chrome component to render: the configured adapter, or the bundled default.
   protected readonly chrome: Type<unknown> = inject(STEPPER_ADAPTER, { optional: true }) ?? DefaultStepperChrome;
   private readonly controller = signal<StepperController | null>(null);
@@ -93,8 +98,8 @@ export class StepperComponent implements OnInit {
     // Publish this wizard's control kinds before the chrome/forms render and pull
     // the merged adapter.
     this.controlScope.map = this.stepper().controlTypes;
-    // The input is available by ngOnInit; the controller defers its first build to
-    // afterNextRender, so constructing it here does no heavy work.
+    // The input is available by ngOnInit; the controller is pure derivation —
+    // constructing it does no heavy work, the first step materializes on read.
     const controller = new FormadStepperController(
       this.stepper(),
       this.injector,
@@ -102,6 +107,7 @@ export class StepperComponent implements OnInit {
       (values) => this.stepCommitted.emit(values),
     );
     this.wizard._init(controller, this.stepper().shared as SharedState<Record<string, unknown>>);
+    this.flowDock._init(controller);
     this.controller.set(controller);
   }
 }
