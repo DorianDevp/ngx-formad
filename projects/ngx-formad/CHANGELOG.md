@@ -4,6 +4,57 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.9.0
+
+### Added
+
+- **Recurrent steppers - `createRecurrentStepper` / `RecurrentStepperBuilder`.** The
+  0.8.0 note admitted that a loop ("add another device, then the same three steps
+  again") "ended up as a second stepper nested inside a step". It no longer does: a
+  recurrent stepper is a flow abstraction equal in rank to the linear one - a ring
+  of *pass steps* around a *dock*. Finishing a pass folds its values into the flow's
+  own collection through the author's pure `fold` and lands on the dock; the dock can
+  only reopen the ring or complete the flow. State is the flow's own: the collection
+  lives inside the ring, components read it through a `FlowView` (`all()`/`others()`),
+  and nothing outside mutates it. Entry is conditional - a collection already
+  satisfying `hasAny` lands on the dock, an empty one on the pass's first step - and
+  validity derives from the collection (`completeWhen`), never from the path taken.
+- **Nesting, both ways - `createStepper` on either builder.** A linear flow can hold
+  a recurrent one as ONE step of its sequence and vice versa, driven by a child
+  controller per flow slot behind the same root chrome: exactly one
+  `<ngx-formad-stepper>` and one chrome in the DOM, whatever the depth. The facade
+  delegates leaf-describing members (`step`, `heading`, `canNext`, `blockers`, ...)
+  down the active chain and keeps wizard-scoped ones (`index`, `total`, `labels`,
+  `committed`, `goTo`, `reset`) at the root, so an existing chrome renders nested
+  flows unchanged and the rail never jumps: a nested flow is one slot.
+- **The dock contract - `FlowDock` + `ngxFormadDockRestart` / `ngxFormadDockNext`.**
+  A dock component stays dumb: it either injects the two-method `FlowDock` or marks
+  its buttons with the attribute directives, MatDialog-style. No controller, no
+  `goTo`, no shared-state reach-ins from a layout leaf.
+- **The progress model - `controller.progress()`.** A machine-readable
+  `StepperProgress`: one level per controller along the active chain, a linear level
+  as a rail, a recurrent one as a pass bar with the dock as a distinct, separately
+  reachable point plus the collected count. The bundled chrome renders the deeper
+  levels behind an `aria-expanded` disclosure, announces the collected count through
+  a polite live region, and keeps the root rail untouched.
+
+### Changed
+
+- **The controller derives instead of repairing.** `FormadStepperController` holds
+  two intents (the cursor and the blocked-Next flag) plus commits; the current step
+  clamps to the effective sequence in a `computed` (the self-gating repair `effect`
+  is gone), step instances are a memoized derivation of the current node (the
+  bootstrap `afterNextRender` is gone - an eager first step renders on first read),
+  and lazy form configs resolve through a `resource` keyed on the current node. A
+  nested flow's committed value is PULLED live from its child controller, so
+  `committed()` always carries the collection under the flow's name.
+- **`StepNode` carries `kind: SequenceNodeKind.Step`** and `Stepper.steps` is
+  `readonly SequenceNode[]` (`StepNode | FlowStepNode`). Hosts that walk the steps
+  themselves must narrow with `isStepNode` / `isFlowStep` - `materializeStep` accepts
+  only leaves, at compile time.
+- **`withState` intersects** (`TShared & S`) instead of replacing, so a nested
+  flow's own state layers over the parent shape it already reads.
+
 ## 0.8.0
 
 ### Added

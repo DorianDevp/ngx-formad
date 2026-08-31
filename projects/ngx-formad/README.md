@@ -992,23 +992,57 @@ re-enters the first step). Calling `next()` while the gate is closed does not
 navigate: it marks everything touched and raises `nextBlocked`, so keep the button
 clickable (`aria-disabled`, not `disabled`) and let it answer.
 
-#### A flow that loops
+#### A flow that repeats — recurrent steppers
 
-A step list is a sequence, and some flows are not: "add another device" sends the
-user back through the same three steps, and an "Edit" link on a summary sends them
-back to the step that owns the answer. That is `goTo`:
+A step list is a sequence, and some flows are rings: "add another device" runs the
+same steps again and lands back on a list. Before 0.9 that loop had to be spelled as
+a jump; now it is its own abstraction, equal in rank to the linear stepper. A
+recurrent stepper is *pass steps* around a *dock*: finishing a pass folds its values
+into the flow's own collection (a pure `(collection, pass) => collection`), the dock
+can only reopen the ring or complete the flow, and entry is conditional — a
+collection already satisfying `hasAny` lands on the dock, an empty one on the pass's
+first step. Validity derives from the collection (`completeWhen`), never from the
+path taken to it.
 
 ```ts
-wizard.shared.patch({ draftManufacturer: '', draftSerialNumber: '' });
-wizard.controller()?.goTo('Device', { fresh: true });
+new StepperBuilder()
+  .withState({ source: '' })
+  .createRecurrentStepper(
+    'devices',
+    { collection: (): Device[] => [], label: 'Devices' },
+    (loop, view) =>
+      loop
+        .withState({ draftName: '' })          // per-pass state, reset between passes
+        .createForm('details', detailsForm)
+        .createStep((s) => /* ...a pass step... */)
+        .fold((collected, pass) => [...collected, toDevice(pass)])
+        .completeWhen((devices) => devices.length > 0, 'Add at least one device')
+        .dock((s) =>
+          s.createPage({ options: { heading: 'Your devices' } }, (p) =>
+            p.addComponent(DeviceList, { inputs: { devices: () => view.all() } }),
+          ),
+        ),
+  )
 ```
 
-It commits the current step first, exactly as Next and Back do, and a target no step
-answers to leaves the wizard where it stands. `fresh` is what makes a second pass a
-second pass: without it the destination is revisited, and a revisit re-seeds only the
-fields the user never edited, so the previous device is still in the form. With it,
-the destination and every step authored after it drop their instances and are built
-again from their form factories, seeded from whatever shared state now holds.
+The flow occupies ONE slot of the parent sequence — one entry in the rail, one
+`index()` position — and renders through the same single chrome, however deep. Later
+steps read the collection as `value('devices')`, typed to what `collection` declared.
+A dock component stays dumb: it injects the two-method `FlowDock`, or marks its
+buttons with `ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller. The
+nesting also runs the other way (`createStepper` puts a linear sub-flow inside a
+pass), and a `RecurrentStepper` built at the root goes straight into
+`<ngx-formad-stepper>` via `asRecurrentStepper`; its `completed` carries the
+collection. A chrome that wants to draw the nesting reads `controller.progress()` —
+one level per controller along the active chain; a chrome that ignores it keeps the
+classic root rail.
+
+`goTo(target, { fresh })` remains the right tool for an "Edit" link on a summary —
+not for repetition. It commits the current step first, exactly as Next and Back do,
+and a target no step answers to leaves the wizard where it stands. `fresh` discards
+the destination's cached instances and those of every step authored after it, so
+they are built again from their form factories, seeded from whatever shared state
+now holds.
 `StepPageView` (`ngx-formad-step-page`) renders a step's **whole page** — forms,
 dynamic components, rows, and content slots; wrap it in your own `@defer` to honour
 `deferTrigger()`. (`StepFormsView` / `ngx-formad-step-forms` is the forms-only
