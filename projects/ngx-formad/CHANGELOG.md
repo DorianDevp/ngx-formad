@@ -40,6 +40,17 @@ versions may carry breaking changes.
   stays plain data built once, exactly as before. Values still travel through
   `bind`; in-form conditionality stays `hidden()`/`visibleWhen` — the dynamic
   step covers only what those cannot: the page's structure.
+- **Flow providers - `provide(...)` on both builders.** A wizard is its own
+  injection environment: the providers declared at the flow's definition become an
+  `EnvironmentInjector` (a nested flow's inherits its parent's, the root inherits
+  the application's), torn down with the wizard. Step components resolve them
+  directly — a page component stays clean, injecting what the flow declared
+  instead of taking wired inputs — and author callbacks (`when`, `completeWhen`,
+  dynamic steps, `fold`, branch selectors, result resolvers) run inside the flow
+  context, so `inject(...)` works in them the way it does in a router guard.
+  Providing a class token creates a NEW flow-scoped instance; hand an existing
+  one over with `{ provide: Token, useValue: instance }`. `StepperController`
+  gains `destroy()`, called by the shell on `ngOnDestroy`.
 - **The progress model - `controller.progress()`.** A machine-readable
   `StepperProgress`: one level per controller along the active chain, a linear level
   as a rail, a recurrent one as a pass bar with the dock as a distinct, separately

@@ -2,12 +2,14 @@ import {
   Component,
   ComponentRef,
   effect,
+  inject,
   input,
   untracked,
   viewChild,
   ViewContainerRef,
 } from '@angular/core';
 import { ComponentNode } from '../builders/nodes';
+import { FLOW_ENVIRONMENT } from './flow-environment';
 
 // Renders one dynamic component from its node. The bindings were normalized at
 // build time (static values wrapped as getters, outputs as listeners), so mounting
@@ -28,6 +30,9 @@ export class ComponentOutlet {
   readonly node = input.required<ComponentNode>();
 
   private readonly anchor = viewChild.required('anchor', { read: ViewContainerRef });
+  // The owning flow's environment, so the component resolves what the flow
+  // declared with `provide(...)`; null outside a stepper (a standalone form).
+  private readonly flowEnvironment = inject(FLOW_ENVIRONMENT, { optional: true });
   private ref: ComponentRef<unknown> | null = null;
 
   constructor() {
@@ -36,7 +41,10 @@ export class ComponentOutlet {
       const anchor = this.anchor();
       untracked(() => {
         this.ref?.destroy();
-        this.ref = anchor.createComponent(node.component, { bindings: [...node.bindings] });
+        this.ref = anchor.createComponent(node.component, {
+          bindings: [...node.bindings],
+          environmentInjector: this.flowEnvironment?.() ?? undefined,
+        });
       });
     });
   }

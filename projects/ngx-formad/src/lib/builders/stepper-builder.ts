@@ -1,4 +1,4 @@
-import { Type } from '@angular/core';
+import { Provider, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { FormConfig } from '../form-config/form-config';
 import { ControlTypeMap } from '../provide';
@@ -482,6 +482,8 @@ export class Stepper<TForms, TShared extends Record<string, unknown>, TResult = 
     /** Standalone value controls (`createControl`), keyed by pool name. Typed on
      *  `TForms` alongside the forms; this is the erased runtime pool. */
     readonly controls: Record<string, AnyControlEntry> = {},
+    /** The flow's declared dependencies — see `StepperBuilder.provide`. */
+    readonly providers: readonly Provider[] = [],
   ) {}
 }
 
@@ -576,6 +578,7 @@ export class StepperBuilder<
   private readonly steps: SequenceNode[] = [];
   private resultResolver?: RuntimeResultResolver;
   private readonly controlTypes: ControlTypeMap = {};
+  private readonly providers: Provider[] = [];
   // Names of nested flows, tracked beside the form/control pools for uniqueness.
   private readonly flowNames: Record<string, true> = {};
 
@@ -599,6 +602,17 @@ export class StepperBuilder<
     component: Type<FormValueControl<any>>,
   ): StepperBuilder<TForms, TShared, TKinds> {
     this.controlTypes[kind] = component;
+    return this;
+  }
+
+  /** Declares the flow's dependencies. They become its own injection environment
+   *  (inheriting the parent flow's, up to the application's), so step components
+   *  and author callbacks (`when`, `completeWhen`, dynamic steps, `fold`)
+   *  `inject(...)` them directly — the router-guard idiom. Note: providing a
+   *  class token creates a NEW instance scoped to the flow; to hand the flow an
+   *  existing instance, use `{ provide: Token, useValue: instance }`. */
+  provide(...providers: Provider[]): this {
+    this.providers.push(...providers);
     return this;
   }
 
@@ -785,6 +799,7 @@ export class StepperBuilder<
       this.resultResolver,
       this.controlTypes,
       this.controls,
+      this.providers,
     );
   }
 }
@@ -884,6 +899,7 @@ export class RecurrentStepperBuilder<
   private sharedInit: Record<string, unknown> = {};
   private readonly steps: SequenceNode[] = [];
   private readonly controlTypes: ControlTypeMap = {};
+  private readonly providers: Provider[] = [];
   private readonly flowNames: Record<string, true> = {};
   private dockIndex = -1;
   private foldFn?: (collection: C, pass: StepContext<TForms, TShared>) => C;
@@ -903,6 +919,12 @@ export class RecurrentStepperBuilder<
   /** The live read on the collection, for authoring component inputs. */
   get view(): FlowView<C> {
     return this.port;
+  }
+
+  /** Declares the flow's dependencies — see `StepperBuilder.provide`. */
+  provide(...providers: Provider[]): this {
+    this.providers.push(...providers);
+    return this;
   }
 
   /** The flow's own per-pass state; reset between passes. Intersects over the
@@ -1103,6 +1125,7 @@ export class RecurrentStepperBuilder<
       controls: this.controls,
       shared: new SharedState(this.sharedInit),
       controlTypes: this.controlTypes,
+      providers: this.providers,
       dockAt: this.dockIndex,
       seed: this.seedFn,
       fold: this.foldFn as ((collection: C, pass: RuntimeStepContext) => C) | undefined,

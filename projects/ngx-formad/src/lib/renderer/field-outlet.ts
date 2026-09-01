@@ -14,6 +14,7 @@ import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { applyLayoutClasses } from '../layout/layout-adapter';
 import { FieldConfig, extraInputsFor } from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
+import { FLOW_ENVIRONMENT } from './flow-environment';
 import { BoundOutputEffect, samePath } from './output-effect';
 
 // Renders a single field — as a *directive*, not a component, so it adds no host
@@ -39,6 +40,8 @@ export class FieldOutlet {
   private readonly vcr = inject(ViewContainerRef);
   private readonly controls = inject(CONTROL_ADAPTER);
   private readonly layoutAdapter = inject(LAYOUT_ADAPTER);
+  // The owning flow's environment — see `FLOW_ENVIRONMENT`; null outside a stepper.
+  private readonly flowEnvironment = inject(FLOW_ENVIRONMENT, { optional: true });
 
   private ref: ComponentRef<unknown> | null = null;
 
@@ -83,6 +86,7 @@ export class FieldOutlet {
     const ref = this.vcr.createComponent(control, {
       directives: [{ type: FormField, bindings: [inputBinding('formField', () => this.node())] }],
       bindings,
+      environmentInjector: this.flowEnvironment?.() ?? undefined,
     });
 
     // The control's host element is the grid item, so the per-field layout lands

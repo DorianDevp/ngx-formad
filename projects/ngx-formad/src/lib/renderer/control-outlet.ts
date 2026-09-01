@@ -1,4 +1,5 @@
 import {
+  inject,
   Component,
   ComponentRef,
   effect,
@@ -9,6 +10,7 @@ import {
   ViewContainerRef,
 } from '@angular/core';
 import { FormField } from '@angular/forms/signals';
+import { FLOW_ENVIRONMENT } from './flow-environment';
 import { LiveControl } from '../runtime/materialize-step';
 
 // Renders one standalone value control from its live instance. Same shape as
@@ -28,6 +30,8 @@ export class ControlOutlet {
 
   private readonly anchor = viewChild.required('anchor', { read: ViewContainerRef });
 
+  // The owning flow's environment — see `FLOW_ENVIRONMENT`; null outside a stepper.
+  private readonly flowEnvironment = inject(FLOW_ENVIRONMENT, { optional: true });
   private ref: ComponentRef<unknown> | null = null;
 
   constructor() {
@@ -44,6 +48,7 @@ export class ControlOutlet {
             { type: FormField, bindings: [inputBinding('formField', () => live.field)] },
           ],
           bindings: [...live.bindings],
+          environmentInjector: this.flowEnvironment?.() ?? undefined,
         });
         // The component's host element is the layout slot, as with form fields -
         // the classes land directly on it, no wrapper div.

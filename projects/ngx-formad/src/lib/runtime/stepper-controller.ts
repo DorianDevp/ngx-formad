@@ -1,4 +1,14 @@
-import { computed, Injector, resource, ResourceRef, signal, Signal, untracked } from '@angular/core';
+import {
+  computed,
+  createEnvironmentInjector,
+  EnvironmentInjector,
+  resource,
+  ResourceRef,
+  runInInjectionContext,
+  signal,
+  Signal,
+  untracked,
+} from '@angular/core';
 import { SequenceNodeKind, StepNode } from '../builders/nodes';
 import {
   FlowStepNode,
@@ -197,6 +207,10 @@ export interface StepperController {
 
   goTo(target: number | string, options?: GoToOptions): void;
 
+  /** Tears the wizard's injection environments down (the root flow's and every
+   *  nested flow's) — called once by the host when the wizard leaves the page. */
+  destroy(): void;
+
   /** Restarts the wizard: clears committed values and cached step instances,
    *  resets the shared state (and a recurrent flow's ring) to its initial
    *  values, and re-enters the first step with fresh (factory-built) forms. */
@@ -256,9 +270,15 @@ export class FormadStepperController implements StepperController {
     | undefined
   >;
 
+  // The flow's own injection environment: its `provide(...)` declarations over
+  // the parent flow's environment (the application's, at the root). Forms
+  // materialize in it, author callbacks run in it, and the step's dynamically
+  // created components resolve against it. Destroyed with the wizard.
+  readonly environment: EnvironmentInjector;
+
   constructor(
     private readonly flow: RuntimeFlow,
-    private readonly injector: Injector,
+    parentEnvironment: EnvironmentInjector,
     // Invoked when the user finishes the last step, with the (forked) result —
     // for a recurrent root, the collection.
     private readonly onComplete?: (result: unknown) => void,
@@ -268,6 +288,11 @@ export class FormadStepperController implements StepperController {
     // Present on a child controller: its way out of the flow. @internal
     private readonly outlet?: FlowOutlet,
   ) {
+    this.environment = createEnvironmentInjector(
+      [...flow.providers],
+      parentEnvironment,
+      'formad-flow',
+    );
     this.recurrentFlow = isRecurrent(flow) ? flow : null;
     this.ring = this.recurrentFlow ? new FlowRing(this.recurrentFlow) : null;
     this.children = this.spawnChildren();
@@ -278,8 +303,15 @@ export class FormadStepperController implements StepperController {
 
         return { node: params, pages, configs: await resolveStepForms(pages, this.flow.forms) };
       },
-      injector,
+      injector: this.environment,
     });
+  }
+
+  // Author callbacks — `when`, `completeWhen`, dynamic steps, `fold`, branch
+  // selectors, result resolvers — run inside the flow's injection context, so
+  // `inject(...)` works in them the way it does in a router guard.
+  private inContext<T>(compute: () => T): T {
+    return runInInjectionContext(this.environment, compute);
   }
 
   // ── The condition context: live shared snapshot + committed values, layered
@@ -301,7 +333,9 @@ export class FormadStepperController implements StepperController {
     };
   }
 
-  private readonly effective = computed(() => effectiveSteps(this.flow.steps, this.context()));
+  private readonly effective = computed(() =>
+    this.inContext(() => effectiveSteps(this.flow.steps, this.context())),
+  );
 
   // The truth about "where am I": the last chosen node, clamped to what is
   // currently visible. A step that gates itself off falls back to the nearest
@@ -442,7 +476,7 @@ export class FormadStepperController implements StepperController {
 
     const formsComplete = this.ownStep()?.registry.completed() ?? false;
     const guard = node.completeWhen;
-    return formsComplete && (guard ? guard(this.context()) : true);
+    return formsComplete && (guard ? this.inContext(() => guard(this.context())) : true);
   });
 
   readonly canNext: Signal<boolean> = computed(() => {
@@ -475,7 +509,7 @@ export class FormadStepperController implements StepperController {
     for (const form of step.forms) if (form.visible()) issues.push(...form.issues());
     for (const control of step.controls) if (control.visible()) issues.push(...control.issues());
 
-    if (node.completeWhen && !node.completeWhen(this.context())) {
+    if (node.completeWhen && !this.inContext(() => node.completeWhen!(this.context()))) {
       issues.push({
         label: this.heading() || 'Step',
         message: node.incompleteMessage ?? 'This step is not complete yet.',
@@ -526,7 +560,7 @@ export class FormadStepperController implements StepperController {
     if (this.ring) return this.ring.collection();
 
     const resolve = this.flow.resolveResult;
-    return resolve ? (resolve(this.context()) ?? null) : null;
+    return resolve ? (this.inContext(() => resolve(this.context())) ?? null) : null;
   });
 
   readonly progress: Signal<StepperProgress> = computed(() => {
@@ -596,6 +630,11 @@ export class FormadStepperController implements StepperController {
     this.dockController()?.restartPass();
   }
 
+  destroy(): void {
+    for (const child of this.children.values()) child.destroy();
+    this.environment.destroy();
+  }
+
   // A blocked Next is the user asking "why not?" — so answer instead of silently
   // refusing: mark everything touched (each control then shows its own errors)
   // and raise `nextBlocked`, under which the chrome renders the `blockers` list.
@@ -620,7 +659,7 @@ export class FormadStepperController implements StepperController {
   private advanceSelf(): void {
     const from = this.current();
     this.commitCurrent();
-    if (from && this.foldsAfter(from)) this.ring?.fold(this.context());
+    if (from && this.foldsAfter(from)) this.inContext(() => this.ring?.fold(this.context()));
 
     const eff = this.effective();
     const i = from ? eff.indexOf(from) : -1;
@@ -910,11 +949,11 @@ export class FormadStepperController implements StepperController {
       committedBelow: () => this.notifyCommitted(),
     };
 
-    return new FormadStepperController(node.flow, this.injector, undefined, undefined, outlet);
+    return new FormadStepperController(node.flow, this.environment, undefined, undefined, outlet);
   }
 
   private pagesFor(node: StepNode): readonly PageNode[] {
-    return resolvePages(node, this.context());
+    return this.inContext(() => resolvePages(node, this.context()));
   }
 
   private hasLazyForms(pages: readonly PageNode[]): boolean {
@@ -949,7 +988,13 @@ export class FormadStepperController implements StepperController {
   }
 
   private materialize(node: StepNode, pages: readonly PageNode[], resolved: ResolvedForms): LiveStep {
-    const live = materializeStep(pages, resolved, this.flow.controls, this.flow.shared, this.injector);
+    const live = materializeStep(
+      pages,
+      resolved,
+      this.flow.controls,
+      this.flow.shared,
+      this.environment,
+    );
     this.cache.set(node, live);
     this.lastShown = node;
     return live;

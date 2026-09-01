@@ -1,3 +1,4 @@
+import { Provider } from '@angular/core';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
 import { Reactive } from './dynamic-component';
@@ -31,6 +32,11 @@ export interface FlowDefinition {
   readonly shared: SharedState<Record<string, unknown>>;
 
   readonly controlTypes: ControlTypeMap;
+
+  /** The flow's declared dependencies: its own injection environment is created
+   *  from these (inheriting the parent flow's, up to the application's), so the
+   *  flow's components and author callbacks `inject(...)` them directly. */
+  readonly providers: readonly Provider[];
 
   /** Set by `fork` on a root stepper; nested flows have no fork. */
   readonly resolveResult?: RuntimeResultResolver;

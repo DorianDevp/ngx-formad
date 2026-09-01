@@ -1,4 +1,5 @@
-import { Component, computed, input } from '@angular/core';
+import { FLOW_ENVIRONMENT } from '../renderer/flow-environment';
+import { Component, computed, input, inject } from '@angular/core';
 import { ContentChild } from '../builders/content';
 import {
   ComponentNode,
@@ -120,6 +121,19 @@ export class PageNodesView {
  *  contents to the recursive `PageNodesView`. Drop it into a chrome's step body —
  *  eagerly, or inside an `@defer` to honour the step's `deferTrigger()`. */
 @Component({
+  // Publishes the active step's flow environment for every dynamically created
+  // component below (page components, standalone controls, form controls) — a
+  // getter, since the step under one static provider changes.
+  providers: [
+    {
+      provide: FLOW_ENVIRONMENT,
+      useFactory: () => {
+        const view = inject(StepPageView);
+
+        return () => view.step().environment;
+      },
+    },
+  ],
   selector: 'ngx-formad-step-page',
   imports: [PageNodesView],
   host: { style: 'display: contents' },

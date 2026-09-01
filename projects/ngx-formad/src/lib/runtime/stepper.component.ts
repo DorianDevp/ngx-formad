@@ -2,10 +2,11 @@ import { NgComponentOutlet } from '@angular/common';
 import {
   Component,
   computed,
-  Injector,
+  EnvironmentInjector,
   inject,
   Injectable,
   input,
+  OnDestroy,
   OnInit,
   output,
   signal,
@@ -63,7 +64,7 @@ class StepperControlScope {
     }
   `,
 })
-export class StepperComponent implements OnInit {
+export class StepperComponent implements OnInit, OnDestroy {
   /** The built wizard — a linear `Stepper` widened with `asStepper(...)`, or a
    *  `RecurrentStepper` widened with `asRecurrentStepper(...)`. */
   readonly stepper = input.required<RuntimeFlow>();
@@ -77,12 +78,12 @@ export class StepperComponent implements OnInit {
    *  wizard finishes; the same data is on `controller.committed()`. */
   readonly stepCommitted = output<Record<string, unknown>>();
 
-  // The component's own injector, not the environment one: every step's field tree
-  // is created through `runInInjectionContext(injector, …)` and the controller
-  // schedules `afterNextRender` against it, so an application-level injector kept
-  // all of that alive after the wizard was destroyed - a route away and back grew
-  // the reactive graph each time.
-  private readonly injector = inject(Injector);
+  // The parent of the wizard's OWN injection environment. The controller creates
+  // one per flow (the flow's `provide(...)` over this), and `ngOnDestroy` tears
+  // them down — so nothing the wizard created outlives it, however the route
+  // leaves. (The old approach — the component's element injector — kept the graph
+  // alive when an application-level injector leaked into a step's forms.)
+  private readonly parentEnvironment = inject(EnvironmentInjector);
   private readonly wizard = inject(FormadWizard);
   private readonly controlScope = inject(StepperControlScope);
   private readonly flowDock = inject(StepperFlowDock);
@@ -102,12 +103,16 @@ export class StepperComponent implements OnInit {
     // constructing it does no heavy work, the first step materializes on read.
     const controller = new FormadStepperController(
       this.stepper(),
-      this.injector,
+      this.parentEnvironment,
       (result) => this.completed.emit(result),
       (values) => this.stepCommitted.emit(values),
     );
     this.wizard._init(controller, this.stepper().shared as SharedState<Record<string, unknown>>);
     this.flowDock._init(controller);
     this.controller.set(controller);
+  }
+
+  ngOnDestroy(): void {
+    this.controller()?.destroy();
   }
 }

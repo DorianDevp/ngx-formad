@@ -21,6 +21,7 @@ export * from './lib/renderer/instantiate-form';
 export * from './lib/renderer/output-effect';
 export * from './lib/renderer/field-outlet';
 export * from './lib/renderer/component-outlet';
+export * from './lib/renderer/flow-environment';
 export * from './lib/renderer/content-view';
 export * from './lib/renderer/control-outlet';
 export * from './lib/renderer/nodes-view';

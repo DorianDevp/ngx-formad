@@ -1,4 +1,12 @@
-import { Binding, computed, Injector, runInInjectionContext, signal, Signal, Type } from '@angular/core';
+import {
+  Binding,
+  computed,
+  EnvironmentInjector,
+  runInInjectionContext,
+  signal,
+  Signal,
+  Type,
+} from '@angular/core';
 import {
   FieldState,
   FieldTree,
@@ -80,6 +88,9 @@ export interface LiveStep {
   readonly registry: InstanceRegistry;
   readonly forms: readonly LiveForm[];
   readonly controls: readonly LiveControl[];
+  /** The owning flow's injection environment — what the step's dynamically
+   *  created components resolve their dependencies against. */
+  readonly environment: EnvironmentInjector;
   /** The step's page tree, retained so a chrome can render the full layout —
    *  forms *and* dynamic components, rows, and content slots — in place, not just
    *  the flat form list. Forms are resolved back to their live state by name. */
@@ -168,7 +179,7 @@ export function materializeStep(
   pool: Record<string, FormConfig<Record<string, unknown>>>,
   controlPool: Record<string, AnyControlEntry>,
   shared: SharedState<Record<string, unknown>>,
-  injector: Injector,
+  environment: EnvironmentInjector,
 ): LiveStep {
   const registry = new InstanceRegistry();
   const forms: LiveForm[] = [];
@@ -178,7 +189,7 @@ export function materializeStep(
     const config = pool[node.name];
     if (!config) continue;
 
-    const state = runInInjectionContext(injector, () => instantiateForm(config));
+    const state = runInInjectionContext(environment, () => instantiateForm(config));
     const rootTree = state.rootForm as unknown as FieldTree<unknown>;
     const root = state.rootForm as unknown as Record<string, FieldTree<unknown>>;
 
@@ -234,7 +245,7 @@ export function materializeStep(
     const def = controlPool[node.name];
     if (!def) continue;
 
-    const field = runInInjectionContext(injector, () => controlField(def));
+    const field = runInInjectionContext(environment, () => controlField(def));
     const visible: Signal<boolean> = node.visibleWhen
       ? computed(node.visibleWhen)
       : computed(() => true);
@@ -272,7 +283,7 @@ export function materializeStep(
     });
   }
 
-  return { registry, forms, controls, pages };
+  return { registry, forms, controls, environment, pages };
 }
 
 /**

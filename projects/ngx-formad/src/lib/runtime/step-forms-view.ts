@@ -1,11 +1,25 @@
-import { Component, input } from '@angular/core';
+import { Component, input, inject } from '@angular/core';
 import { FormRenderer } from '../renderer/form-renderer';
+import { FLOW_ENVIRONMENT } from '../renderer/flow-environment';
 import { LiveStep } from './materialize-step';
 
 // Renders one live step's forms. Split out so any chrome can drop it into an
 // `@defer` block (or render it eagerly) in a single line, without re-deriving the
 // form loop.
 @Component({
+  // Publishes the active step's flow environment for every dynamically created
+  // component below (page components, standalone controls, form controls) — a
+  // getter, since the step under one static provider changes.
+  providers: [
+    {
+      provide: FLOW_ENVIRONMENT,
+      useFactory: () => {
+        const view = inject(StepFormsView);
+
+        return () => view.step().environment;
+      },
+    },
+  ],
   selector: 'ngx-formad-step-forms',
   imports: [FormRenderer],
   template: `
