@@ -141,10 +141,7 @@ describe('materializeStep', () => {
       .build();
 
     const pool = lazyStepper.forms as unknown as Record<string, AnyFormProvider>;
-    const resolved = await resolveStepForms(leafAt(lazyStepper.steps, 0), pool, {
-      shared: {},
-      value: () => undefined,
-    });
+    const resolved = await resolveStepForms(leafAt(lazyStepper.steps, 0), pool);
 
     expect(resolved['account']).toBe(account); // eager: passed through
     expect(resolved['billing']).toBe(billing); // lazy: awaited from the loader
