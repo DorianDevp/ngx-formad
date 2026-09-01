@@ -2,7 +2,7 @@ import { Binding, Type } from '@angular/core';
 import { ContentChild } from './content';
 import { Reactive } from './dynamic-component';
 import { LinkPair, OutputEffect } from './shared-link';
-import { DeferTrigger, RuntimeStepCondition } from './step-context';
+import { DeferTrigger, RuntimeStepCondition, RuntimeStepContext } from './step-context';
 
 // The builder runs once and emits this plain tree; the renderer walks it. Every
 // node is data — a "show this when" is a `visibleWhen` getter, never an `if` in
@@ -89,10 +89,20 @@ export enum SequenceNodeKind {
   Flow = 'flow',
 }
 
-/** A step: one or more pages. Completion folds over the forms across them. */
+/** A dynamic step's page factory: it runs when the step is reached, with the
+ *  live condition context (a snapshot taken after the previous step committed),
+ *  so the step's structure — which pooled forms it places, what prose and
+ *  components it shows — can follow the user's earlier answers. It MUST be pure:
+ *  the same context yields the same pages, since a re-entry may run it again.
+ *  Authored by declaring the SECOND parameter on the step callback:
+ *  `createStep((step, ctx) => ...)`. */
+export type DynamicPages = (ctx: RuntimeStepContext) => readonly PageNode[];
+
+/** A step: one or more pages — plain data built once, or a pure factory built on
+ *  entry (see {@link DynamicPages}). Completion folds over the forms across them. */
 export interface StepNode {
   readonly kind: SequenceNodeKind.Step;
-  readonly pages: readonly PageNode[];
+  readonly pages: readonly PageNode[] | DynamicPages;
   /** The step's short name, for a chrome's progress rail. It belongs on the step
    *  (not on a page's `heading`, which titles one page of possibly several) and it
    *  belongs *here* so the rail can be derived from the same effective sequence

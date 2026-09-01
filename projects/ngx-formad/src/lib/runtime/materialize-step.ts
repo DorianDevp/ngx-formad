@@ -6,7 +6,7 @@ import {
   validateStandardSchema,
   ValidationError,
 } from '@angular/forms/signals';
-import { AnyControlEntry, AnyFormProvider } from '../builders/step-context';
+import { AnyControlEntry, AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
 import { FormState, instantiateForm } from '../renderer/instantiate-form';
@@ -86,10 +86,16 @@ export interface LiveStep {
   readonly pages: readonly PageNode[];
 }
 
-/** The names of every form a step references, depth-first. Lets a host check for
- *  lazy forms (and take a synchronous path when there are none). */
-export function stepFormNames(step: StepNode): readonly string[] {
-  return formNodes(step).map((node) => node.name);
+/** A step's pages, whichever way they were authored: plain data as-is, a dynamic
+ *  step's pure factory run with the given context. */
+export function resolvePages(step: StepNode, ctx: RuntimeStepContext): readonly PageNode[] {
+  return typeof step.pages === 'function' ? step.pages(ctx) : step.pages;
+}
+
+/** The names of every form the given pages reference, depth-first. Lets a host
+ *  check for lazy forms (and take a synchronous path when there are none). */
+export function stepFormNames(pages: readonly PageNode[]): readonly string[] {
+  return formNodes(pages).map((node) => node.name);
 }
 
 // Walks a field tree to the node at `path` — `['taxId']` for a top-level field,
@@ -106,7 +112,7 @@ function fieldAt(
 }
 
 // Forms and controls can be nested in rows, so gather them depth-first.
-function nodesOfKind<N extends LayoutNode>(step: StepNode, kind: N['kind']): N[] {
+function nodesOfKind<N extends LayoutNode>(pages: readonly PageNode[], kind: N['kind']): N[] {
   const found: N[] = [];
   const walk = (nodes: readonly LayoutNode[]) => {
     for (const node of nodes) {
@@ -114,13 +120,13 @@ function nodesOfKind<N extends LayoutNode>(step: StepNode, kind: N['kind']): N[]
       else if (node.kind === 'row') walk(node.children);
     }
   };
-  for (const page of step.pages) walk(page.children);
+  for (const page of pages) walk(page.children);
   return found;
 }
 
-const formNodes = (step: StepNode): FormNode[] => nodesOfKind<FormNode>(step, 'form');
-const controlNodes = (step: StepNode): ValueControlNode[] =>
-  nodesOfKind<ValueControlNode>(step, 'control');
+const formNodes = (pages: readonly PageNode[]): FormNode[] => nodesOfKind<FormNode>(pages, 'form');
+const controlNodes = (pages: readonly PageNode[]): ValueControlNode[] =>
+  nodesOfKind<ValueControlNode>(pages, 'control');
 
 // An error's display text: its own message when it has one, otherwise the two
 // kinds worth special-casing get plain English and the rest a generic fallback.
@@ -158,7 +164,7 @@ function controlField(def: AnyControlEntry): FieldTree<unknown> {
 /** Instantiates a step's forms and standalone controls, registers them for the
  *  completion fold, and wires their shared links. */
 export function materializeStep(
-  step: StepNode,
+  pages: readonly PageNode[],
   pool: Record<string, FormConfig<Record<string, unknown>>>,
   controlPool: Record<string, AnyControlEntry>,
   shared: SharedState<Record<string, unknown>>,
@@ -168,7 +174,7 @@ export function materializeStep(
   const forms: LiveForm[] = [];
   const controls: LiveControl[] = [];
 
-  for (const node of formNodes(step)) {
+  for (const node of formNodes(pages)) {
     const config = pool[node.name];
     if (!config) continue;
 
@@ -224,7 +230,7 @@ export function materializeStep(
     });
   }
 
-  for (const node of controlNodes(step)) {
+  for (const node of controlNodes(pages)) {
     const def = controlPool[node.name];
     if (!def) continue;
 
@@ -266,7 +272,7 @@ export function materializeStep(
     });
   }
 
-  return { registry, forms, controls, pages: step.pages };
+  return { registry, forms, controls, pages };
 }
 
 /**
@@ -276,14 +282,14 @@ export function materializeStep(
  * (Standalone controls are always eager — their component is already bundled.)
  */
 export async function resolveStepForms(
-  step: StepNode,
+  pages: readonly PageNode[],
   pool: Record<string, AnyFormProvider>,
 ): Promise<Record<string, FormConfig<Record<string, unknown>>>> {
   // Loaded together: the forms on one step do not depend on each other, and
   // awaiting them in a row makes the step cost the *sum* of its imports on the one
   // path the placeholder exists to keep short.
   const entries = await Promise.all(
-    formNodes(step).map(async (node) => {
+    formNodes(pages).map(async (node) => {
       const entry = pool[node.name];
       if (!entry) return null;
       // A config is an object; a loader is a function - that is the discriminator.
@@ -302,8 +308,11 @@ export async function resolveStepForms(
   return resolved;
 }
 
-/** Every pool name a step commits under — its forms and its standalone controls.
+/** Every pool name the given pages commit under — forms and standalone controls.
  *  What a recurrent flow clears from its committed map when a new pass opens. */
-export function stepValueNames(step: StepNode): readonly string[] {
-  return [...formNodes(step).map((node) => node.name), ...controlNodes(step).map((node) => node.name)];
+export function stepValueNames(pages: readonly PageNode[]): readonly string[] {
+  return [
+    ...formNodes(pages).map((node) => node.name),
+    ...controlNodes(pages).map((node) => node.name),
+  ];
 }

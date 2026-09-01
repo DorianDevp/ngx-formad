@@ -220,7 +220,8 @@ class LegacyNodeHost {
       )
       .build();
 
-    const node = (built.steps[0] as StepNode).pages[0].children[0] as { children?: unknown };
+    const pages = (built.steps[0] as StepNode).pages as readonly { children: readonly unknown[] }[];
+    const node = pages[0].children[0] as { children?: unknown };
     delete node.children;
     this.stepper = asStepper(built);
   }

@@ -1,5 +1,6 @@
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
+import { resolvePages } from './materialize-step';
 import { RuntimeStepContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
@@ -78,7 +79,7 @@ describe('effectiveSteps', () => {
 // resolves it the way the controller does.
 const headings = (steps: readonly SequenceNode[]) =>
   steps.filter(isStepNode).map((s) => {
-    const heading = s.pages[0].options.heading;
+    const heading = resolvePages(s, { shared: {}, value: () => undefined })[0].options.heading;
     return typeof heading === 'function' ? heading() : heading;
   });
 

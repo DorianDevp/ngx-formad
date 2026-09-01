@@ -13,9 +13,11 @@ import { DeferTrigger, FlowContext, RuntimeStepContext } from '../builders/step-
 import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
+import { PageNode } from '../builders/nodes';
 import {
   LiveStep,
   materializeStep,
+  resolvePages,
   resolveStepForms,
   StepIssue,
   stepFormNames,
@@ -249,7 +251,10 @@ export class FormadStepperController implements StepperController {
   // Lazy form configs resolve through a resource keyed on the current node, so
   // every way of arriving at a lazy step (navigation, clamp, reset) starts the
   // fetch without an effect anywhere.
-  private readonly lazyForms: ResourceRef<{ node: StepNode; configs: ResolvedForms } | undefined>;
+  private readonly lazyForms: ResourceRef<
+    | { node: StepNode; pages: readonly PageNode[]; configs: ResolvedForms }
+    | undefined
+  >;
 
   constructor(
     private readonly flow: RuntimeFlow,
@@ -268,10 +273,11 @@ export class FormadStepperController implements StepperController {
     this.children = this.spawnChildren();
     this.lazyForms = resource({
       params: () => this.lazyTarget(),
-      loader: async ({ params }) => ({
-        node: params,
-        configs: await resolveStepForms(params, this.flow.forms),
-      }),
+      loader: async ({ params }) => {
+        const pages = untracked(() => this.pagesFor(params));
+
+        return { node: params, pages, configs: await resolveStepForms(pages, this.flow.forms) };
+      },
       injector,
     });
   }
@@ -340,7 +346,7 @@ export class FormadStepperController implements StepperController {
   private readonly lazyTarget = computed<StepNode | undefined>(() => {
     const node = this.currentStep();
     if (!node || this.cache.has(node)) return undefined;
-    return this.hasLazyForms(node) ? node : undefined;
+    return untracked(() => this.hasLazyForms(this.pagesFor(node))) ? node : undefined;
   });
 
   private readonly ownStep = computed<LiveStep | null>(() => {
@@ -348,13 +354,19 @@ export class FormadStepperController implements StepperController {
     if (!node) return null;
     if (this.cache.has(node)) return untracked(() => this.showCached(node));
 
-    if (this.hasLazyForms(node)) {
+    // A dynamic step's pages resolve here, from a SNAPSHOT of the context (the
+    // read is untracked, so a live step never restructures under the user — a
+    // discard plus re-entry rebuilds from fresh reads). The factory is pure, so
+    // the extra run on the lazy path costs nothing observable.
+    const pages = untracked(() => this.pagesFor(node));
+
+    if (this.hasLazyForms(pages)) {
       const resolved = this.lazyForms.hasValue() ? this.lazyForms.value() : undefined;
       if (!resolved || resolved.node !== node) return null;
-      return untracked(() => this.materialize(node, resolved.configs));
+      return untracked(() => this.materialize(node, resolved.pages, resolved.configs));
     }
 
-    return untracked(() => this.materialize(node, this.eagerConfigs(node)));
+    return untracked(() => this.materialize(node, pages, this.eagerConfigs(pages)));
   });
 
   // ── The facade: leaf-describing members delegate down the active chain,
@@ -397,7 +409,9 @@ export class FormadStepperController implements StepperController {
     return child ? child.label() : resolveText(this.current()?.label);
   });
 
-  private readonly options = computed(() => this.currentStep()?.pages[0]?.options);
+  // Page chrome reads off the MATERIALIZED pages — the only place a dynamic
+  // step's pages exist. For a static step they are the same object.
+  private readonly options = computed(() => this.ownStep()?.pages[0]?.options);
 
   readonly heading: Signal<string> = computed(() => {
     const child = this.child();
@@ -713,9 +727,22 @@ export class FormadStepperController implements StepperController {
       return;
     }
 
+    const dropped = this.committedNamesOf(node);
     this.cache.delete(node);
-    this.leafCommits.update((committed) => omitKeys(committed, [...stepValueNames(node)]));
+    this.leafCommits.update((committed) => omitKeys(committed, dropped));
     if (this.lastShown === node) this.lastShown = null;
+  }
+
+  // What a step may have committed: read off its materialized instance, since a
+  // dynamic step's pages exist only there — and a step never reached committed
+  // nothing, so static pages are only a fallback for the pathological case of
+  // discarding an unvisited step.
+  private committedNamesOf(node: StepNode): readonly string[] {
+    const live = this.cache.get(node);
+    if (live) return stepValueNames(live.pages);
+    if (typeof node.pages === 'function') return [];
+
+    return stepValueNames(node.pages);
   }
 
   // Back on the pass's first step returns to the dock exactly when the dock is
@@ -746,8 +773,8 @@ export class FormadStepperController implements StepperController {
         continue;
       }
 
+      dropped.push(...this.committedNamesOf(node));
       this.cache.delete(node);
-      dropped.push(...stepValueNames(node));
     }
 
     if (this.lastShown && steps.indexOf(this.lastShown) < flow.dockAt) this.lastShown = null;
@@ -886,15 +913,19 @@ export class FormadStepperController implements StepperController {
     return new FormadStepperController(node.flow, this.injector, undefined, undefined, outlet);
   }
 
-  private hasLazyForms(node: StepNode): boolean {
-    const pool = this.flow.forms;
-    return stepFormNames(node).some((name) => typeof pool[name] === 'function');
+  private pagesFor(node: StepNode): readonly PageNode[] {
+    return resolvePages(node, this.context());
   }
 
-  private eagerConfigs(node: StepNode): ResolvedForms {
+  private hasLazyForms(pages: readonly PageNode[]): boolean {
+    const pool = this.flow.forms;
+    return stepFormNames(pages).some((name) => typeof pool[name] === 'function');
+  }
+
+  private eagerConfigs(pages: readonly PageNode[]): ResolvedForms {
     const pool = this.flow.forms;
     const resolved: ResolvedForms = {};
-    for (const name of stepFormNames(node)) {
+    for (const name of stepFormNames(pages)) {
       const entry = pool[name];
       if (entry && typeof entry !== 'function') {
         resolved[name] = entry as FormConfig<Record<string, unknown>>;
@@ -917,8 +948,8 @@ export class FormadStepperController implements StepperController {
     return cached;
   }
 
-  private materialize(node: StepNode, resolved: ResolvedForms): LiveStep {
-    const live = materializeStep(node, resolved, this.flow.controls, this.flow.shared, this.injector);
+  private materialize(node: StepNode, pages: readonly PageNode[], resolved: ResolvedForms): LiveStep {
+    const live = materializeStep(pages, resolved, this.flow.controls, this.flow.shared, this.injector);
     this.cache.set(node, live);
     this.lastShown = node;
     return live;

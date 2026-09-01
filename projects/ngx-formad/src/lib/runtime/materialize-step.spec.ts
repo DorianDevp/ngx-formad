@@ -8,7 +8,12 @@ import { isStepNode, SequenceNode } from '../builders/flow';
 import { StepNode } from '../builders/nodes';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { SharedState } from '../sync/shared-state';
-import { materializeStep, resolveStepForms, stepFormNames } from './materialize-step';
+import {
+  materializeStep,
+  resolvePages,
+  resolveStepForms,
+  stepFormNames,
+} from './materialize-step';
 
 type Account = { email: string };
 type Billing = { email: string };
@@ -60,7 +65,7 @@ describe('materializeStep', () => {
     const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
     // Enter step 1, type into the account email, commit on the way out.
-    const step1 = materializeStep(leafAt(stepper.steps, 0), pool, {}, shared, injector);
+    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector);
     const root1 = step1.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
     const accountEmail = root1['email'];
     accountEmail().value.set('alice@example.com');
@@ -68,7 +73,7 @@ describe('materializeStep', () => {
     step1.forms[0].commit();
 
     // Enter step 2: its email is pristine, so it picks up the shared value.
-    const step2 = materializeStep(leafAt(stepper.steps, 1), pool, {}, shared, injector);
+    const step2 = materializeStep(pagesAt(stepper.steps, 1), pool, {}, shared, injector);
     const root2 = step2.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
     const billingEmail = root2['email'];
     expect(billingEmail().value()).toBe('alice@example.com');
@@ -80,7 +85,7 @@ describe('materializeStep', () => {
     const pool = stepper.forms as unknown as Record<string, FormConfig<Record<string, unknown>>>;
     const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
-    const step1 = materializeStep(leafAt(stepper.steps, 0), pool, {}, shared, injector);
+    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector);
     expect(step1.registry.live().length).toBe(1);
     // No schema on these forms, so they are valid and the step is complete.
     expect(step1.registry.completed()).toBe(true);
@@ -112,7 +117,7 @@ describe('materializeStep', () => {
     const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
     shared.patch({ city: 'Oslo' });
-    const live = materializeStep(leafAt(stepper.steps, 0), pool, {}, shared, injector); // seeds on entry
+    const live = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector); // seeds on entry
     const root = live.forms[0].state.rootForm as unknown as {
       address: Record<string, FieldTree<unknown>>;
     };
@@ -126,8 +131,8 @@ describe('materializeStep', () => {
 
   it('lists a step’s form names depth-first', () => {
     const stepper = buildStepper();
-    expect(stepFormNames(leafAt(stepper.steps, 0))).toEqual(['account']);
-    expect(stepFormNames(leafAt(stepper.steps, 1))).toEqual(['billing']);
+    expect(stepFormNames(pagesAt(stepper.steps, 0))).toEqual(['account']);
+    expect(stepFormNames(pagesAt(stepper.steps, 1))).toEqual(['billing']);
   });
 
   it('resolveStepForms awaits a lazily-loaded form and passes eager ones through', async () => {
@@ -141,7 +146,7 @@ describe('materializeStep', () => {
       .build();
 
     const pool = lazyStepper.forms as unknown as Record<string, AnyFormProvider>;
-    const resolved = await resolveStepForms(leafAt(lazyStepper.steps, 0), pool);
+    const resolved = await resolveStepForms(pagesAt(lazyStepper.steps, 0), pool);
 
     expect(resolved['account']).toBe(account); // eager: passed through
     expect(resolved['billing']).toBe(billing); // lazy: awaited from the loader
@@ -153,4 +158,8 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
   const node = steps[index];
   if (!isStepNode(node)) throw new Error(`step ${index} is not a leaf`);
   return node;
+}
+
+function pagesAt(steps: readonly SequenceNode[], index: number) {
+  return resolvePages(leafAt(steps, index), { shared: {}, value: () => undefined });
 }

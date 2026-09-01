@@ -31,7 +31,13 @@ import {
   SequenceNode,
 } from './flow';
 import { FlowPort, FlowView } from './flow-port';
-import { LayoutNode, PageNode, PageOptions, SequenceNodeKind, StepNode } from './nodes';
+import {
+  DynamicPages,
+  LayoutNode,
+  PageNode,
+  PageOptions,
+  SequenceNodeKind,
+} from './nodes';
 import {
   FieldRef,
   FieldRefs,
@@ -232,14 +238,27 @@ export class StepBuilder<TForms, TShared extends Record<string, unknown>> {
     return this;
   }
 
-  drain(): StepNode {
-    return { kind: SequenceNodeKind.Step, pages: this.pages };
+  /** Hands the accumulated pages to the parent; internal to the builders. */
+  drainPages(): readonly PageNode[] {
+    return this.pages;
   }
 }
 
+/** One step's build callback. Declaring the SECOND parameter makes the step
+ *  DYNAMIC: the callback then runs when the step is reached, with the live
+ *  condition context (a snapshot taken after the previous step committed), so the
+ *  step's structure — which pooled forms it places, what prose it shows — can
+ *  follow the user's earlier answers. It must be pure: a re-entry after a discard
+ *  runs it again with fresh reads. A one-parameter callback builds plain data,
+ *  once, exactly as before. */
+export type StepBuild<TForms, TShared extends Record<string, unknown>> = (
+  step: StepBuilder<TForms, TShared>,
+  ctx: StepContext<TForms, TShared>,
+) => unknown;
+
 // How a branch hands a step back to the parent builder, carrying the branch guard.
 type PushStep<TForms, TShared extends Record<string, unknown>> = (
-  build: (step: StepBuilder<TForms, TShared>) => unknown,
+  build: StepBuild<TForms, TShared>,
   opts: StepOptions<Stepper<TForms, TShared>>,
   guard: RuntimeStepCondition,
 ) => void;
@@ -254,7 +273,7 @@ export class BranchBuilder<TForms, TShared extends Record<string, unknown>> {
 
   /** A step in this branch — same shape as `createStep`, guarded by the branch. */
   step(
-    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    build: StepBuild<TForms, TShared>,
     opts: StepOptions<Stepper<TForms, TShared>> = {},
   ): this {
     this.push(build, opts, this.guard);
@@ -289,14 +308,13 @@ function combineConditions(
 // fork arms, so the condition/erasure logic lives once.
 function appendStep<TForms, TShared extends Record<string, unknown>>(
   target: SequenceNode[],
-  build: (step: StepBuilder<TForms, TShared>) => unknown,
+  build: StepBuild<TForms, TShared>,
   opts: StepOptions<Stepper<TForms, TShared>>,
   guard?: RuntimeStepCondition,
 ): void {
-  const step = new StepBuilder<TForms, TShared>();
-  build(step);
   target.push({
-    ...step.drain(),
+    kind: SequenceNodeKind.Step,
+    pages: pagesOf(build),
     label: opts.label,
     when: combineConditions(guard, opts.when as unknown as RuntimeStepCondition | undefined),
     optional: opts.optional,
@@ -304,6 +322,27 @@ function appendStep<TForms, TShared extends Record<string, unknown>>(
     completeWhen: opts.completeWhen as unknown as RuntimeStepCondition | undefined,
     incompleteMessage: opts.incompleteMessage,
   });
+}
+
+// The arity of the callback decides when it runs: a second declared parameter is
+// the author asking for the live context, so the pages become a pure factory run
+// on entry; without it the pages are plain data, built right here, once. (A
+// default or rest parameter does not count towards `length` — the context must be
+// a plainly declared second parameter.)
+function pagesOf<TForms, TShared extends Record<string, unknown>>(
+  build: StepBuild<TForms, TShared>,
+): readonly PageNode[] | DynamicPages {
+  if (build.length >= 2) {
+    return (ctx) => {
+      const step = new StepBuilder<TForms, TShared>();
+      build(step, ctx as unknown as StepContext<TForms, TShared>);
+      return step.drainPages();
+    };
+  }
+
+  const step = new StepBuilder<TForms, TShared>();
+  build(step, undefined as unknown as StepContext<TForms, TShared>);
+  return step.drainPages();
 }
 
 // ── Forking ──
@@ -354,7 +393,7 @@ export class ForkArmBuilder<TForms, TShared extends Record<string, unknown>> {
 
   /** A step in this arm — same shape as `createStep`. */
   createStep(
-    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    build: StepBuild<TForms, TShared>,
     opts: StepOptions<Stepper<TForms, TShared>> = {},
   ): this {
     appendStep(this.steps, build, opts);
@@ -596,7 +635,7 @@ export class StepperBuilder<
    *  `optional`, and `defer` ride on the step node; `when` is typed against the
    *  stepper this chain builds, then erased once here, where the node is stored. */
   createStep(
-    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    build: StepBuild<TForms, TShared>,
     opts: StepOptions<Stepper<TForms, TShared>> = {},
   ): this {
     this.pushStep(build, opts);
@@ -702,7 +741,7 @@ export class StepperBuilder<
   // Builds one step node, combining an optional branch guard with the step's own
   // `when` — delegates to the shared `appendStep`, used by createStep and branch.
   private pushStep(
-    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    build: StepBuild<TForms, TShared>,
     opts: StepOptions<Stepper<TForms, TShared>>,
     guard?: RuntimeStepCondition,
   ): void {
@@ -906,7 +945,7 @@ export class RecurrentStepperBuilder<
   /** A pass step — gated on "a pass is open", so the whole pass leaves the
    *  sequence the moment the pass closes. */
   createStep(
-    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    build: StepBuild<TForms, TShared>,
     opts: StepOptions<Stepper<TForms, TShared>> = {},
   ): this {
     appendStep(this.steps, build, opts, passGate);
@@ -986,7 +1025,7 @@ export class RecurrentStepperBuilder<
   /** The ring's hub and only exit — authored LAST. Visible exactly when no pass is
    *  open; entry lands here whenever the collection already satisfies `hasAny`. */
   dock(
-    build: (step: StepBuilder<TForms, TShared>) => unknown,
+    build: StepBuild<TForms, TShared>,
     opts: StepOptions<Stepper<TForms, TShared>> = {},
   ): RecurrentTerminal<TForms, TShared, C> {
     if (this.dockIndex >= 0) throw new Error('A recurrent flow has exactly one dock.');

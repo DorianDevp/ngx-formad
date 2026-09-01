@@ -31,6 +31,15 @@ versions may carry breaking changes.
   A dock component stays dumb: it either injects the two-method `FlowDock` or marks
   its buttons with the attribute directives, MatDialog-style. No controller, no
   `goTo`, no shared-state reach-ins from a layout leaf.
+- **Dynamic steps - the step callback's second parameter.** Declaring it —
+  `createStep((step, ctx) => ...)` — makes the step's STRUCTURE follow the live
+  context: the callback runs when the step is reached (a pure factory over a
+  snapshot taken after the previous step committed), so which pooled forms it
+  places and what prose it shows can depend on the user's earlier answers. One
+  place for the context, no new callbacks anywhere: a one-parameter callback
+  stays plain data built once, exactly as before. Values still travel through
+  `bind`; in-form conditionality stays `hidden()`/`visibleWhen` — the dynamic
+  step covers only what those cannot: the page's structure.
 - **The progress model - `controller.progress()`.** A machine-readable
   `StepperProgress`: one level per controller along the active chain, a linear level
   as a rail, a recurrent one as a pass bar with the dock as a distinct, separately

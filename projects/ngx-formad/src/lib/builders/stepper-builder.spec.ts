@@ -3,6 +3,8 @@ import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { ComponentNode, FormNode, StepNode } from './nodes';
 import { isStepNode, SequenceNode } from './flow';
+import { RuntimeStepContext } from './step-context';
+import { resolvePages } from '../runtime/materialize-step';
 import { StepperBuilder } from './stepper-builder';
 
 type Account = { email: string; password: string };
@@ -70,12 +72,12 @@ describe('StepperBuilder', () => {
   it('emits one step node per createStep, with a page each', () => {
     const stepper = buildStepper();
     expect(stepper.steps.length).toBe(2);
-    expect(leafAt(stepper.steps, 0).pages[0].options.heading).toBe('Account');
+    expect(pagesAt(stepper.steps, 0)[0].options.heading).toBe('Account');
   });
 
   it('records a form node selected by callback, with its shared links', () => {
     const stepper = buildStepper();
-    const children = leafAt(stepper.steps, 0).pages[0].children;
+    const children = pagesAt(stepper.steps, 0)[0].children;
     const formNode = children.find((c) => c.kind === 'form') as FormNode;
 
     expect(formNode.name).toBe('account');
@@ -105,7 +107,7 @@ describe('StepperBuilder', () => {
       )
       .build();
 
-    const formNode = leafAt(stepper.steps, 0).pages[0].children.find(
+    const formNode = pagesAt(stepper.steps, 0)[0].children.find(
       (c) => c.kind === 'form',
     ) as FormNode;
     expect(formNode.links).toEqual([{ modelPath: ['vat'], sharedKey: 'vat' }]);
@@ -113,7 +115,7 @@ describe('StepperBuilder', () => {
 
   it('normalizes a dynamic component into bindings', () => {
     const stepper = buildStepper();
-    const children = leafAt(stepper.steps, 0).pages[0].children;
+    const children = pagesAt(stepper.steps, 0)[0].children;
     const componentNode = children.find((c) => c.kind === 'component') as ComponentNode;
 
     expect(componentNode.component).toBe(Banner);
@@ -151,4 +153,10 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
   const node = steps[index];
   if (!isStepNode(node)) throw new Error(`step ${index} is not a leaf`);
   return node;
+}
+
+const EMPTY_CONTEXT: RuntimeStepContext = { shared: {}, value: () => undefined };
+
+function pagesAt(steps: readonly SequenceNode[], index: number) {
+  return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);
 }
