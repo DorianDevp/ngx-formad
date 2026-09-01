@@ -285,6 +285,20 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(shown()).toBe('alpha');
   });
 
+  it('Back rejects the step it leaves: the revisit is factory-fresh, nothing committed', async () => {
+    await throughIntro();
+    await type('alpha');
+    await click('.next');
+    await type('scribbles');
+    await click('.back');
+    expect(heading()).toBe('Name');
+    expect(shown()).toBe('alpha');
+
+    await click('.next');
+    expect(heading()).toBe('Details');
+    expect(shown()).toBe('');
+  });
+
   it('Back on the pass first step leaves the flow while nothing is collected', async () => {
     await throughIntro();
     await click('.back');

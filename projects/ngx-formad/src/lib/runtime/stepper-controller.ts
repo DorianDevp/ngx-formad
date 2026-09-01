@@ -631,7 +631,14 @@ export class FormadStepperController implements StepperController {
 
   private backSelf(): void {
     const from = this.current();
-    this.commitCurrent();
+    // Inside an open pass Back is a rejection, not a move through answers: the
+    // step being left is a draft, so its instance and its commits are discarded
+    // (a revisit gets a factory-fresh form) and nothing lands in shared state. A
+    // condition the discarded commit was holding open collapses right here — the
+    // step it gated leaves the sequence with the move. Outside a pass Back keeps
+    // its classic meaning and commits, like every other move.
+    if (from && this.insideOpenPass(from)) this.discardStep(from);
+    else this.commitCurrent();
 
     const eff = this.effective();
     const i = from ? eff.indexOf(from) : -1;
@@ -688,6 +695,27 @@ export class FormadStepperController implements StepperController {
       const position = steps.indexOf(candidate);
       return position > at && position < flow.dockAt;
     });
+  }
+
+  // A pass step of an open pass — where Back rejects instead of committing.
+  private insideOpenPass(node: SequenceNode): boolean {
+    const flow = this.recurrentFlow;
+    if (!flow || !this.ring?.passOpen()) return false;
+
+    const at = this.flow.steps.indexOf(node);
+    return at >= 0 && at < flow.dockAt;
+  }
+
+  // Drop one step's instance and its committed values — the "never happened" move.
+  private discardStep(node: SequenceNode): void {
+    if (isFlowStep(node)) {
+      this.children.get(node)?.reset();
+      return;
+    }
+
+    this.cache.delete(node);
+    this.leafCommits.update((committed) => omitKeys(committed, [...stepValueNames(node)]));
+    if (this.lastShown === node) this.lastShown = null;
   }
 
   // Back on the pass's first step returns to the dock exactly when the dock is
