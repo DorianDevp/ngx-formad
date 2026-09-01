@@ -15,9 +15,12 @@ export interface FieldRef<K, V> {
 }
 
 /** Every field of `T` as a selectable ref. Object-valued keys are *also* navigable
- *  (`m.address.city`), so nested fields can be linked, not just top-level ones. */
+ *  (`m.address.city`), so nested fields can be linked, not just top-level ones.
+ *  The conditional is NON-distributive (the tuple wrap): a union-typed field —
+ *  `DeviceSource | null`, `Enum | ''` — must stay ONE ref carrying the whole
+ *  union, or `link`'s value-type unification falls apart on it. */
 export type FieldRefs<T> = { [K in keyof T]: FieldRefOf<T[K], K> };
-type FieldRefOf<V, K> = V extends Record<string, unknown>
+type FieldRefOf<V, K> = [V] extends [Record<string, unknown>]
   ? FieldRef<K, V> & FieldRefs<V>
   : FieldRef<K, V>;
 

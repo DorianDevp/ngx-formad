@@ -256,6 +256,15 @@ export type StepBuild<TForms, TShared extends Record<string, unknown>> = (
   ctx: StepContext<TForms, TShared>,
 ) => unknown;
 
+/** A branch selector: the key of the branch to take, or null/undefined while the
+ *  answer it derives from has not been given yet — then NO branch's steps are in
+ *  the sequence, instead of some made-up default. The keys come from the type: a
+ *  selector over an enum-typed shared field pins `K` to that enum, so the
+ *  branches record cannot invent or misspell a key. */
+export type BranchSelect<TForms, TShared, K extends string> = (
+  ctx: StepContext<TForms, TShared>,
+) => K | null | undefined;
+
 // How a branch hands a step back to the parent builder, carrying the branch guard.
 type PushStep<TForms, TShared extends Record<string, unknown>> = (
   build: StepBuild<TForms, TShared>,
@@ -282,15 +291,26 @@ export class BranchBuilder<TForms, TShared extends Record<string, unknown>> {
 
   /** A nested split: each inner step is guarded by *this* branch AND the inner key. */
   branch<K extends string>(
-    select: (ctx: StepContext<TForms, TShared>) => K,
+    select: BranchSelect<TForms, TShared, K>,
     branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
   ): this {
-    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string | null | undefined;
     for (const key of Object.keys(branches) as K[]) {
       const nested: RuntimeStepCondition = (ctx) => this.guard(ctx) && erased(ctx) === key;
       branches[key](new BranchBuilder<TForms, TShared>(this.push, nested));
     }
     return this;
+  }
+}
+
+// Every pool name — form, control, nested flow — must be unique within its flow:
+// commits, `value(...)` reads and the completion fold are all keyed by it. A
+// duplicate is an authoring bug, refused loudly at build time. (A runtime check,
+// not a conditional type on the name: the type trick cannot be proven over a
+// generic pool, which is exactly what a composed wizard fragment works with.)
+function claimName(name: string, pools: readonly Record<string, unknown>[]): void {
+  for (const pool of pools) {
+    if (name in pool) throw new Error(`The pool name '${name}' is already taken.`);
   }
 }
 
@@ -387,6 +407,7 @@ export class ForkArmBuilder<TForms, TShared extends Record<string, unknown>> {
     name: K,
     provider: FormProvider<M>,
   ): ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TShared> {
+    claimName(name, [this.forms]);
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TShared>;
   }
@@ -402,10 +423,10 @@ export class ForkArmBuilder<TForms, TShared extends Record<string, unknown>> {
 
   /** A branch within this arm — sugar over guarded steps, as elsewhere. */
   branch<K extends string>(
-    select: (ctx: StepContext<TForms, TShared>) => K,
+    select: BranchSelect<TForms, TShared, K>,
     branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
   ): this {
-    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string | null | undefined;
     for (const key of Object.keys(branches) as K[]) {
       const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
       branches[key](
@@ -555,6 +576,8 @@ export class StepperBuilder<
   private readonly steps: SequenceNode[] = [];
   private resultResolver?: RuntimeResultResolver;
   private readonly controlTypes: ControlTypeMap = {};
+  // Names of nested flows, tracked beside the form/control pools for uniqueness.
+  private readonly flowNames: Record<string, true> = {};
 
   /** Registers a NEW control kind for this wizard (resolved before the global
    *  adapter and the built-ins). Re-adding an existing kind is a compile error —
@@ -599,6 +622,7 @@ export class StepperBuilder<
     name: K,
     provider: FormProvider<M>,
   ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds>;
   }
@@ -616,6 +640,7 @@ export class StepperBuilder<
     component: Type<C>,
     opts: ControlOptions<ControlValueOf<C>>,
   ): StepperBuilder<TForms & Record<K, ControlEntry<ControlValueOf<C>, C>>, TShared, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
     const entry: ControlEntry<ControlValueOf<C>, C> = {
       control: true,
       component,
@@ -652,10 +677,10 @@ export class StepperBuilder<
    * `shared` or on a previous step's `value(...)`.
    */
   branch<K extends string>(
-    select: (ctx: StepContext<TForms, TShared>) => K,
+    select: BranchSelect<TForms, TShared, K>,
     branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
   ): this {
-    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string | null | undefined;
     for (const key of Object.keys(branches) as K[]) {
       const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
       branches[key](
@@ -702,13 +727,15 @@ export class StepperBuilder<
    * of values under `name` — readable by later conditions as `value(name)`.
    */
   createStepper<K extends string, F2, S2 extends Record<string, unknown>, TK2 extends string>(
-    name: K extends keyof TForms & string ? never : K,
+    name: K,
     opts: FlowStepOptions<Stepper<TForms, TShared>>,
     build: (sub: StepperBuilder<{}, TShared, TKinds>) => StepperBuilder<F2, S2, TK2>,
   ): StepperBuilder<TForms & Record<K, FlowEntry<Committed<F2>>>, TShared, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
+    this.flowNames[name] = true;
     const sub = new StepperBuilder() as StepperBuilder<{}, TShared, TKinds>;
     const chained = build(sub);
-    this.steps.push(flowStepNode(name as string, opts, erasedFlow(chained.build())));
+    this.steps.push(flowStepNode(name, opts, erasedFlow(chained.build())));
     return this as unknown as StepperBuilder<
       TForms & Record<K, FlowEntry<Committed<F2>>>,
       TShared,
@@ -723,18 +750,20 @@ export class StepperBuilder<
    * flow a read on that collection (`all()` / `others()`).
    */
   createRecurrentStepper<K extends string, C>(
-    name: K extends keyof TForms & string ? never : K,
+    name: K,
     cfg: RecurrentCfg<C, Stepper<TForms, TShared>>,
     build: (
       loop: RecurrentStepperBuilder<{}, TShared, C, TKinds>,
       view: FlowView<C>,
     ) => unknown,
   ): StepperBuilder<TForms & Record<K, FlowEntry<C>>, TShared, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
+    this.flowNames[name] = true;
     const loop = new RecurrentStepperBuilder<{}, TShared, C, TKinds>(cfg.collection, cfg.hasAny);
     build(loop, loop.view);
     // The single place this flow's collection type is erased for the node tree.
     const flow = loop._drain() as RecurrentFlowDefinition;
-    this.steps.push(flowStepNode(name as string, cfg, flow));
+    this.steps.push(flowStepNode(name, cfg, flow));
     return this as unknown as StepperBuilder<TForms & Record<K, FlowEntry<C>>, TShared, TKinds>;
   }
 
@@ -855,6 +884,7 @@ export class RecurrentStepperBuilder<
   private sharedInit: Record<string, unknown> = {};
   private readonly steps: SequenceNode[] = [];
   private readonly controlTypes: ControlTypeMap = {};
+  private readonly flowNames: Record<string, true> = {};
   private dockIndex = -1;
   private foldFn?: (collection: C, pass: StepContext<TForms, TShared>) => C;
   private completePredicate?: (collection: C) => boolean;
@@ -888,6 +918,7 @@ export class RecurrentStepperBuilder<
     name: K,
     provider: FormProvider<M>,
   ): RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, C, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as RecurrentStepperBuilder<
       TForms & Record<K, FormConfig<M>>,
@@ -908,6 +939,7 @@ export class RecurrentStepperBuilder<
     C,
     TKinds
   > {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
     const entry: ControlEntry<ControlValueOf<Cmp>, Cmp> = {
       control: true,
       component,
@@ -954,10 +986,10 @@ export class RecurrentStepperBuilder<
 
   /** A branch of pass steps: [pass open] AND [branch key] AND each step's own `when`. */
   branch<K extends string>(
-    select: (ctx: StepContext<TForms, TShared>) => K,
+    select: BranchSelect<TForms, TShared, K>,
     branches: Record<K, (branch: BranchBuilder<TForms, TShared>) => void>,
   ): this {
-    const erased = select as unknown as (ctx: RuntimeStepContext) => string;
+    const erased = select as unknown as (ctx: RuntimeStepContext) => string | null | undefined;
     for (const key of Object.keys(branches) as K[]) {
       const guard: RuntimeStepCondition = (ctx) => passGate(ctx) && erased(ctx) === key;
       branches[key](
@@ -969,13 +1001,15 @@ export class RecurrentStepperBuilder<
 
   /** A nested linear flow as a pass step — the symmetric direction. */
   createStepper<K extends string, F2, S2 extends Record<string, unknown>, TK2 extends string>(
-    name: K extends keyof TForms & string ? never : K,
+    name: K,
     opts: FlowStepOptions<Stepper<TForms, TShared>>,
     build: (sub: StepperBuilder<{}, TShared, TKinds>) => StepperBuilder<F2, S2, TK2>,
   ): RecurrentStepperBuilder<TForms & Record<K, FlowEntry<Committed<F2>>>, TShared, C, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
+    this.flowNames[name] = true;
     const sub = new StepperBuilder() as StepperBuilder<{}, TShared, TKinds>;
     const chained = build(sub);
-    const node = flowStepNode(name as string, opts, erasedFlow(chained.build()));
+    const node = flowStepNode(name, opts, erasedFlow(chained.build()));
     this.steps.push({ ...node, when: combineConditions(passGate, node.when) });
     return this as unknown as RecurrentStepperBuilder<
       TForms & Record<K, FlowEntry<Committed<F2>>>,
@@ -987,16 +1021,18 @@ export class RecurrentStepperBuilder<
 
   /** A nested recurrent flow as a pass step — a ring within a ring. */
   createRecurrentStepper<K extends string, C2>(
-    name: K extends keyof TForms & string ? never : K,
+    name: K,
     cfg: RecurrentCfg<C2, Stepper<TForms, TShared>>,
     build: (
       loop: RecurrentStepperBuilder<{}, TShared, C2, TKinds>,
       view: FlowView<C2>,
     ) => unknown,
   ): RecurrentStepperBuilder<TForms & Record<K, FlowEntry<C2>>, TShared, C, TKinds> {
+    claimName(name, [this.forms, this.controls, this.flowNames]);
+    this.flowNames[name] = true;
     const loop = new RecurrentStepperBuilder<{}, TShared, C2, TKinds>(cfg.collection, cfg.hasAny);
     build(loop, loop.view);
-    const node = flowStepNode(name as string, cfg, loop._drain() as RecurrentFlowDefinition);
+    const node = flowStepNode(name, cfg, loop._drain() as RecurrentFlowDefinition);
     this.steps.push({ ...node, when: combineConditions(passGate, node.when) });
     return this as unknown as RecurrentStepperBuilder<
       TForms & Record<K, FlowEntry<C2>>,

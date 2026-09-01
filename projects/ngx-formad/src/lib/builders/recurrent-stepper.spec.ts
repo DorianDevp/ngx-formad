@@ -23,8 +23,10 @@ const ctx = (flow: FlowContext, shared: Record<string, unknown> = {}): RuntimeSt
   flow,
 });
 
+type Source = 'invoice' | 'manual';
+
 const built = new StepperBuilder()
-  .withState({ source: '' })
+  .withState({ source: null as Source | null })
   .createForm('intro', form('Intro'))
   .createStep((s) => s.createPage({ options: { heading: 'Intro' } }, (p) => p.addForm((f) => f.intro)))
   .createRecurrentStepper(
@@ -35,7 +37,8 @@ const built = new StepperBuilder()
         .withState({ draftName: '' })
         .createForm('name', form('Name'))
         .createForm('bulk', form('Bulk'))
-        .branch((c) => (c.shared.source === 'invoice' ? 'invoice' : 'manual'), {
+        // The keys come straight from the shared field's type; null = no branch.
+        .branch((c) => c.shared.source, {
           manual: (b) =>
             b.step((s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm((f) => f.name)), {
               label: 'Name',
@@ -93,7 +96,10 @@ describe('createRecurrentStepper - the ring gates', () => {
   });
 
   it('shows exactly the chosen branch of the pass while a pass is open', () => {
-    const manual = effectiveSteps(ring!.steps, ctx({ collection: [], passOpen: true }));
+    const manual = effectiveSteps(
+      ring!.steps,
+      ctx({ collection: [], passOpen: true }, { source: 'manual' }),
+    );
     const invoice = effectiveSteps(
       ring!.steps,
       ctx({ collection: [], passOpen: true }, { source: 'invoice' }),
@@ -112,7 +118,54 @@ describe('createRecurrentStepper - the ring gates', () => {
   });
 });
 
+describe('Branching - the keys come from the type, absence is honest', () => {
+  it('keeps every branch out of the sequence while the selector reports null', () => {
+    const ring = isFlowStep(flowNode) && isRecurrent(flowNode.flow) ? flowNode.flow : null;
+    const undecided = effectiveSteps(ring!.steps, ctx({ collection: [], passOpen: true }, { source: null }));
+
+    expect(undecided.length).toBe(0);
+  });
+});
+
 describe('RecurrentStepperBuilder - authoring errors', () => {
+  it('refuses a pool name that is already taken, whatever kind claimed it', () => {
+    expect(() =>
+      new StepperBuilder()
+        .createForm('devices', form('A'))
+        .createRecurrentStepper(
+          'devices',
+          { collection: (): Item[] => [] },
+          (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
+        ),
+    ).toThrow(/already taken/);
+
+    expect(() =>
+      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
+        .createForm('name', form('A'))
+        .createForm('name', form('B')),
+    ).toThrow(/already taken/);
+  });
+
+
+  it('refuses a pool name that is already taken, whatever kind claimed it', () => {
+    expect(() =>
+      new StepperBuilder()
+        .createForm('devices', form('A'))
+        .createRecurrentStepper(
+          'devices',
+          { collection: (): Item[] => [] },
+          (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
+        ),
+    ).toThrow(/already taken/);
+
+    expect(() =>
+      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
+        .createForm('name', form('A'))
+        .createForm('name', form('B')),
+    ).toThrow(/already taken/);
+  });
+
+
   it('refuses to build without a dock', () => {
     const dockless = new RecurrentStepperBuilder<{}, {}, Item[]>(() => []);
     expect(() => dockless._drain()).toThrow(/dock/);
