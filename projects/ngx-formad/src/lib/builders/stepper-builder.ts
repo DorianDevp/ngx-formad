@@ -44,6 +44,7 @@ import {
 import {
   AnyControlEntry,
   AnyFormProvider,
+  ContextualForm,
   ControlComponent,
   ControlEntry,
   ControlKeys,
@@ -346,7 +347,7 @@ export class ForkArmBuilder<TForms, TShared extends Record<string, unknown>> {
   /** Arm-local form, eager or lazy; narrows the arm's pool. */
   createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    provider: FormProvider<M>,
+    provider: FormProvider<M> | ContextualForm<M, TForms, TShared>,
   ): ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TShared> {
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TShared>;
@@ -553,12 +554,15 @@ export class StepperBuilder<
   }
 
   /** Registers a form in the pool under `name`; narrows `TForms`. The provider may
-   *  be the config itself or a loader (`() => Promise<FormConfig<M>>`) for a form
-   *  whose definition is fetched only when its step is reached — either way the
-   *  pool type records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged. */
+   *  be the config itself, a loader (`() => Promise<FormConfig<M>>`) for a form
+   *  whose definition is fetched only when its step is reached, or a contextual
+   *  factory (`{ build: (ctx) => FormConfig<M> }`) whose SHAPE depends on the live
+   *  context — earlier `value(...)` reads and shared state, e.g. a details form
+   *  built for the manufacturer picked a step before. Either way the pool type
+   *  records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged. */
   createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    provider: FormProvider<M>,
+    provider: FormProvider<M> | ContextualForm<M, TForms, TShared>,
   ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds> {
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds>;
@@ -847,7 +851,7 @@ export class RecurrentStepperBuilder<
 
   createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    provider: FormProvider<M>,
+    provider: FormProvider<M> | ContextualForm<M, TForms, TShared>,
   ): RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, C, TKinds> {
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as RecurrentStepperBuilder<

@@ -100,6 +100,20 @@ export type StepCondition<TForms, TShared> = (ctx: StepContext<TForms, TShared>)
 /** A form supplied lazily — its config is fetched only when its step is reached. */
 export type FormLoader<M extends Record<string, unknown>> = () => Promise<FormConfig<M>>;
 
+/** A form BUILT per entry, from the live condition context: the factory runs
+ *  synchronously when its step is reached, so the form's SHAPE can depend on what
+ *  the user chose before (`ctx.shared`, `ctx.value(...)`). The reads are a
+ *  snapshot, not a subscription — a live form never re-shapes under the user's
+ *  hands; a step re-entered after a discard (Back inside a pass, a fresh `goTo`,
+ *  a new pass) rebuilds from fresh reads. */
+export interface ContextualForm<
+  M extends Record<string, unknown>,
+  TForms = ErasedForms,
+  TShared = ErasedShared,
+> {
+  readonly build: (ctx: StepContext<TForms, TShared>) => FormConfig<M>;
+}
+
 /** A form supplied eagerly or lazily. Both narrow `TForms` to `FormConfig<M>`, so
  *  `addForm` / `bind` / `value()` typings are identical whichever you use. */
 export type FormProvider<M extends Record<string, unknown>> = FormConfig<M> | FormLoader<M>;
@@ -108,8 +122,19 @@ export type FormProvider<M extends Record<string, unknown>> = FormConfig<M> | Fo
 // These are the same generics applied to the erased pool/shared shapes, not new
 // definitions — exactly mirroring how `RuntimeStepper` erases `Stepper`.
 
-/** The erased pool entry the runtime walks: a config or a loader, keyed by name. */
-export type AnyFormProvider = FormProvider<Record<string, unknown>>;
+/** The erased pool entry the runtime walks: a config, a loader, or a contextual
+ *  factory, keyed by name. */
+export type AnyFormProvider =
+  | FormProvider<Record<string, unknown>>
+  | ContextualForm<Record<string, unknown>>;
+
+export function isContextualForm(
+  entry: AnyFormProvider,
+): entry is ContextualForm<Record<string, unknown>> {
+  if (typeof entry !== 'object' || !('build' in entry)) return false;
+
+  return typeof entry.build === 'function';
+}
 
 /** The erased control entry the runtime materializes. */
 export type AnyControlEntry = ControlEntry<unknown, unknown>;

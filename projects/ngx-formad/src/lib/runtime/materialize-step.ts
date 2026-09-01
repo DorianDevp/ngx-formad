@@ -6,7 +6,12 @@ import {
   validateStandardSchema,
   ValidationError,
 } from '@angular/forms/signals';
-import { AnyControlEntry, AnyFormProvider } from '../builders/step-context';
+import {
+  AnyControlEntry,
+  AnyFormProvider,
+  isContextualForm,
+  RuntimeStepContext,
+} from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
 import { FormState, instantiateForm } from '../renderer/instantiate-form';
@@ -278,6 +283,7 @@ export function materializeStep(
 export async function resolveStepForms(
   step: StepNode,
   pool: Record<string, AnyFormProvider>,
+  ctx: RuntimeStepContext,
 ): Promise<Record<string, FormConfig<Record<string, unknown>>>> {
   // Loaded together: the forms on one step do not depend on each other, and
   // awaiting them in a row makes the step cost the *sum* of its imports on the one
@@ -286,11 +292,14 @@ export async function resolveStepForms(
     formNodes(step).map(async (node) => {
       const entry = pool[node.name];
       if (!entry) return null;
-      // A config is an object; a loader is a function - that is the discriminator.
+      // A loader is a function, a contextual factory carries `build`, a config is
+      // the object itself - that is the discriminator.
       const config =
         typeof entry === 'function'
           ? await entry()
-          : (entry as FormConfig<Record<string, unknown>>);
+          : isContextualForm(entry)
+            ? entry.build(ctx)
+            : (entry as FormConfig<Record<string, unknown>>);
       return [node.name, config] as const;
     }),
   );

@@ -9,7 +9,12 @@ import {
   SequenceNode,
 } from '../builders/flow';
 import { Reactive, toGetter } from '../builders/dynamic-component';
-import { DeferTrigger, FlowContext, RuntimeStepContext } from '../builders/step-context';
+import {
+  DeferTrigger,
+  FlowContext,
+  isContextualForm,
+  RuntimeStepContext,
+} from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
@@ -270,7 +275,11 @@ export class FormadStepperController implements StepperController {
       params: () => this.lazyTarget(),
       loader: async ({ params }) => ({
         node: params,
-        configs: await resolveStepForms(params, this.flow.forms),
+        configs: await resolveStepForms(
+          params,
+          this.flow.forms,
+          untracked(() => this.context()),
+        ),
       }),
       injector,
     });
@@ -891,14 +900,20 @@ export class FormadStepperController implements StepperController {
     return stepFormNames(node).some((name) => typeof pool[name] === 'function');
   }
 
+  // Configs available synchronously: plain configs pass through, a contextual
+  // factory builds from a SNAPSHOT of the live context (the read is untracked by
+  // the caller, so a form never re-shapes under the user — a discard + re-entry
+  // rebuilds it from fresh reads).
   private eagerConfigs(node: StepNode): ResolvedForms {
     const pool = this.flow.forms;
     const resolved: ResolvedForms = {};
     for (const name of stepFormNames(node)) {
       const entry = pool[name];
-      if (entry && typeof entry !== 'function') {
-        resolved[name] = entry as FormConfig<Record<string, unknown>>;
-      }
+      if (!entry || typeof entry === 'function') continue;
+
+      resolved[name] = isContextualForm(entry)
+        ? entry.build(this.context())
+        : (entry as FormConfig<Record<string, unknown>>);
     }
 
     return resolved;
