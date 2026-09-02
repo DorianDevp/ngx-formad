@@ -76,6 +76,22 @@ versions may carry breaking changes.
   levels behind an `aria-expanded` disclosure, announces the collected count through
   a polite live region, and keeps the root rail untouched.
 
+- **`formLayout().control(key, Component, cfg?)`.** A field rendered by a specific
+  `FormValueControl` component instead of a registered kind: the renderer binds
+  `FormField` to the field and feeds the component's presentational inputs, typed off
+  the class (`value` and the state inputs `FormField` owns are rejected). The field is
+  declared `customField()` in `ui` (formodel 0.3). `control()` checks the field's value
+  against the component's `FormValueControl<V>`; `component()` now rejects a
+  `FormValueControl` at compile time — an editor is a control, a component is a widget.
+
+### Removed
+
+- **Standalone value controls** — `createControl`, `addControl`, `ControlEntry`,
+  `LiveControl`, `ControlOutlet`, `stepValueNames`, `StandardSchemaOf` and the
+  `controls` pool on flows. A page composes forms and widgets; a value that gates a
+  step belongs to a form field, placed with `formLayout().control(...)` when it needs
+  its own editor.
+
 ### Changed
 
 - **`committed()` / `stepCommitted` are keyed by step, then by pool name** —

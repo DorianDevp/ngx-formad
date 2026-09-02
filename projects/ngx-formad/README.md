@@ -243,6 +243,22 @@ const signupForm: FormConfig<Signup> = {
 };
 ```
 
+A field whose editor is a specific `FormValueControl` component, not a registered kind,
+is declared `customField()` in `ui` and placed with `.control(key, Component, cfg?)`. The
+renderer binds `FormField` to the field and feeds the component's own presentational
+inputs (typed off the class; `value` and the state inputs `FormField` owns are rejected):
+
+```ts
+ui: UiFormConfigBuilder.from({ source: '' }).source(customField()),
+layout: formLayout<Pick>()
+  .control('source', RadioCards, { inputs: { label: 'How?', options: SOURCE_OPTIONS } })
+  .build(),
+```
+
+`control()` checks that the field's value fits the component's `FormValueControl<V>`, and
+`component()` rejects a `FormValueControl` at compile time — an editor is a control, not
+a widget. A `customField()` left without a `control()` placement throws when rendered.
+
 A component's inputs (and `visibleWhen`) are functions of a **context** — the live
 model value, the field tree (per-field `errors()`/`touched()`, not just values), and,
 when the form runs inside a stepper page, the cross-step `shared` store (`null`
@@ -642,9 +658,9 @@ new StepperBuilder()
   gate Next on its own state — e.g. `{ completeWhen: ({ shared }) => shared.consented }`.
   Pair it with **`incompleteMessage`** ("Accept the terms to continue") — that is what
   the blocked-Next explainer shows when this guard is what holds. It is reactive.
-  For a component that *carries a value* (a picker, a selection grid), prefer a
-  [standalone control](#standalone-value-controls): its validity gates Next
-  declaratively and its errors explain themselves.
+  For a component that *carries a value* (a picker, a selection grid), put the value in
+  a form field and place the component with `formLayout().control(...)`: its validity
+  gates Next declaratively and its errors explain themselves.
 - **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
   fetched only when its step is reached (eager steps stay synchronous). The pool type
   still records `FormConfig<M>`, so `addForm`/`bind`/`steps` are unchanged.
@@ -1137,7 +1153,7 @@ VAT-ID lookup, and similar widgets all become plain config fields this way.
 ### A blocked Next explains itself
 
 The classic wizard dead-end: every visible form is valid, yet Next stays greyed out —
-some `completeWhen` (or an invisible invalid control) holds the gate, and the user
+some `completeWhen` holds the gate, and the user
 has no idea what it wants. The suite treats a blocked Next as a question, not a wall:
 
 - The bundled chrome's Next is **never `disabled`** (it carries `aria-disabled` and a
@@ -1356,11 +1372,6 @@ fork((ctx) => key, {                          // TERMINAL — only build() after
     .createStep((step) => …)
     .result((ctx) => ({ kind: key, … })),     // each arm's result → union into TResult
 })
-createControl('plan', PlanPicker, {           // pools a bare FormValueControl beside the forms
-  initial: null,                              // T is read off the component's `value` model
-  schema?: planSchema,                        // any Standard Schema (zod 4 / valibot / arktype)
-  label?: 'Plan',                             // its name in the `blockers` list
-})
 step.createPage({ options: PageOptions }, (page) => …)    // page: PageBuilder<…>
 page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declared forms only
   submitLabel?: string,
@@ -1370,12 +1381,6 @@ page.addForm((f) => f.name, {                 // f: FieldRefs<TForms> — declar
     model.update(m => ({ ...m, companyName: payload.name }))),       //  (VAT-ID autofill)
 })
 page.addComponent(Component, { inputs, outputs, visibleWhen?, layout? })  // typed to the component
-page.addControl((c) => c.name, {              // c: FieldRefs<TForms> — declared controls only
-  inputs?, outputs?,                          // typed to the component, minus `value` (FormField owns it)
-  visibleWhen?: () => boolean,                // hidden ⇒ out of the completion fold
-  bind?: 'sharedKey',                         // key must hold exactly the control's value type
-  layout?: string,
-})
 page.addContent((c) => …, { layout?, visibleWhen? })  // prose as data; c: ContentBuilder
 //   (the options-first order works too: addContent({ layout }, (c) => …))
 //  c.p('Text', { className?, attrs?, on?, visibleWhen? }, (p) => …)   // text, options, children
