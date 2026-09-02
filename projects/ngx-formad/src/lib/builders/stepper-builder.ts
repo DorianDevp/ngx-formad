@@ -125,8 +125,15 @@ export type StepValues<Inst> = {
       : NonNullable<Inst>[F];
 };
 
-/** A linear sub-flow's egress: its named steps' values, each possibly absent. */
+/** A linear flow's egress — the root's `committed()` / `stepCommitted`, a nested
+ *  flow's value in its parent's context: the named steps' values, each possibly
+ *  absent (not reached yet, or gated off). */
 export type StepsCommitted<TSteps> = { readonly [K in keyof TSteps]?: StepValues<TSteps[K]> };
+
+/** The typed shape of a built stepper's egress — for a host narrowing the erased
+ *  `stepCommitted` record ONCE, at the boundary, instead of per field. */
+export type CommittedOf<S> =
+  S extends Stepper<infer _F, infer _S, infer _R, infer TSteps> ? StepsCommitted<TSteps> : never;
 
 // ── Placement options ──
 
@@ -584,8 +591,8 @@ export class ForkArmBuilder<TForms, TShared extends Rec, TSteps, TParent, TAdded
 }
 
 /** A forked chain — terminal. Nothing can follow a fork; only `build()` remains. */
-export interface TerminalForkBuilder<TForms, TShared extends Rec, TResult> {
-  build(): Stepper<TForms, TShared, TResult>;
+export interface TerminalForkBuilder<TForms, TShared extends Rec, TResult, TSteps> {
+  build(): Stepper<TForms, TShared, TResult, TSteps>;
 }
 
 /** The shape of a `fork`'s arms map: each key authors an arm ending in a result. */
@@ -602,8 +609,12 @@ type ArmResult<A> = {
 
 /** A built wizard: its typed form pool, its step tree, its shared store, its
  *  declared providers and — if it forks — a resolver for the active arm's
- *  discriminated result. `TResult` is `never` unless the chain forks. */
-export class Stepper<TForms, TShared extends Rec, TResult = never> {
+ *  discriminated result. `TResult` is `never` unless the chain forks. `TSteps` is
+ *  the accumulated record of named steps — see {@link CommittedOf}. */
+export class Stepper<TForms, TShared extends Rec, TResult = never, TSteps = {}> {
+  /** Phantom — carries the named-step record for {@link CommittedOf}. */
+  readonly __steps?: TSteps;
+
   constructor(
     readonly forms: TForms,
     readonly steps: readonly SequenceNode[],
@@ -628,8 +639,8 @@ export type RuntimeStepper = Stepper<Record<string, AnyForm>, Rec, unknown>;
 // and the shared store by string key, so it works on an erased view. `SharedState`
 // is invariant in its state type, so this widening needs one explicit step —
 // the single, named place that erasure happens, like `asRenderable` for a form.
-export function asStepper<TForms, TShared extends Rec, TResult = never>(
-  stepper: Stepper<TForms, TShared, TResult>,
+export function asStepper<TForms, TShared extends Rec, TResult = never, TSteps = {}>(
+  stepper: Stepper<TForms, TShared, TResult, TSteps>,
 ): RuntimeStepper {
   return stepper as unknown as RuntimeStepper;
 }
@@ -858,7 +869,7 @@ export class StepperBuilder<
     // chosen yet" (e.g. before the user decides) — no arm steps, no result.
     select: (ctx: GateContext<TShared, TSteps, TParent>) => string,
     arms: A,
-  ): TerminalForkBuilder<TForms, TShared, ArmResult<A>> {
+  ): TerminalForkBuilder<TForms, TShared, ArmResult<A>, TSteps> {
     const erased = select as unknown as (ctx: RuntimeStepContext) => string;
     const resolvers: Record<string, RuntimeResultResolver> = {};
     for (const key of Object.keys(arms) as (keyof A & string)[]) {
@@ -873,7 +884,7 @@ export class StepperBuilder<
     }
     this.resultResolver = (ctx) => resolvers[erased(ctx)]?.(ctx);
 
-    return this as unknown as TerminalForkBuilder<TForms, TShared, ArmResult<A>>;
+    return this as unknown as TerminalForkBuilder<TForms, TShared, ArmResult<A>, TSteps>;
   }
 
   /**
@@ -970,8 +981,8 @@ export class StepperBuilder<
     appendStep(this.steps, build, opts, guard);
   }
 
-  build(): Stepper<TForms, TShared> {
-    return new Stepper(
+  build(): Stepper<TForms, TShared, never, TSteps> {
+    return new Stepper<TForms, TShared, never, TSteps>(
       this.forms as unknown as TForms,
       this.steps,
       new SharedState(this.sharedInit as TShared),
@@ -1020,7 +1031,7 @@ function flowStepNode(name: string, opts: ErasedFlowStepOptions, flow: RuntimeFl
 }
 
 // Erases a built nested stepper to the runtime flow shape the controller drives.
-function erasedFlow(stepper: Stepper<unknown, Rec>): FlowDefinition {
+function erasedFlow(stepper: Stepper<unknown, Rec, never, unknown>): FlowDefinition {
   return stepper as unknown as FlowDefinition;
 }
 
