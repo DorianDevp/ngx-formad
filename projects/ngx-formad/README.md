@@ -484,12 +484,12 @@ boundary:
   short arms with **different results**:
 
 ```ts
-  .fork((ctx) => ctx.shared.mode, {
+  .fork((ctx) => ctx.shared.mode(), {
     now:      (arm) => arm.createStep(/* confirm */)
                           .result(() => ({ kind: 'published' as const })),
-    schedule: (arm) => arm.withState({ at: '' }).createForm('when', whenForm)
-                          .createStep(/* pick date */)
-                          .result(({ shared }) => ({ kind: 'scheduled' as const, at: shared.at })),
+    schedule: (arm) => arm.createForm('when', whenForm)
+                          .createStep(/* pick date */, { name: 'when' })
+                          .result(({ steps }) => ({ kind: 'scheduled' as const, at: steps.when?.when.model().at })),
   })
   .build(); // → Stepper<…, { kind:'published' } | { kind:'scheduled'; at:string }>
 ```
@@ -608,26 +608,31 @@ new StepperBuilder()
   .createForm('adminConfig', () => import('./admin').then((m) => m.adminConfigForm)) // lazy
   .createForm('userMeta', userMetaForm)
   .createForm('review', reviewForm)
-  .createStep((s) => s.createPage(/* Basics */))
+  .createStep((s) => s.createPage(/* Basics */), { name: 'basics' })
   .createStep((s) => s.createPage(/* Advanced */), {
-    when: ({ value }) => value('basics')?.accountType === 'admin', // (a) a prior step's value
+    when: ({ steps }) => steps.basics?.basics.model().accountType === 'admin', // (a) a prior step
     defer: 'idle', // render this heavy step inside @defer
   })
   .createStep((s) => s.createPage(/* Settings */), {
-    when: ({ shared }) => shared.accountType !== 'admin', // (b) shared state
+    when: ({ shared }) => shared.accountType() !== 'admin', // (b) shared state
   })
   .createStep((s) => s.createPage(/* Notes */), { optional: true }) // shows a Skip button
   .createStep((s) => s.createPage(/* Review */)) // ungated — admin & user paths rejoin here
   .build();
 ```
 
-- **`when(ctx)`** is typed against the wizard you're building — `ctx.shared` is your
-  `withState` shape, and `ctx.value('basics')` is that form's **last-committed**
-  model (both autocomplete; unknown keys are compile errors). It reads from three
-  sources: **(a)** a previous step's form value via `value()`, **(b)** the cross-step
-  `shared` state, and **(c)** anything you close over — ignore the arg and read an
-  external signal. It is reactive: flip the value and the step appears or disappears,
-  and the sequence re-shapes live.
+- **`when(ctx)`** is typed against the wizard you're building — `ctx.steps` is the
+  record of the NAMED steps before this one, each exposing the live instances it
+  placed by pool name (`steps.basics.basics` is a `FormState`: `.model()`,
+  `.rootForm`), and `ctx.shared` is your `withState` shape as one signal per key (both
+  autocomplete; unknown keys are compile errors). It reads from three sources:
+  **(a)** a previous step's live instance via `steps`, **(b)** the cross-step `shared`
+  state, and **(c)** anything you close over — ignore the arg and read an external
+  signal. A gate may run before its predecessors exist, so every entry of `steps` is
+  optional there; a step under `when` (or in a branch arm) is optional everywhere.
+  It is reactive: flip the value and the step appears or disappears, and the
+  sequence re-shapes live. Unnamed steps are reachable by authored index only —
+  fragile under reordering — so name any step another one reads.
 - **`optional: true`** makes the step skippable — the bundled shell renders a **Skip**
   that advances past the completion gate.
 - **`completeWhen(ctx)`** is an extra gate ANDed with the form fold, reading the same
@@ -642,15 +647,21 @@ new StepperBuilder()
   declaratively and its errors explain themselves.
 - **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
   fetched only when its step is reached (eager steps stay synchronous). The pool type
-  still records `FormConfig<M>`, so `addForm`/`bind`/`value` are unchanged.
+  still records `FormConfig<M>`, so `addForm`/`bind`/`steps` are unchanged.
+- **Seeding from a predecessor** — `addForm((f) => f.details, { initial: ({ steps }) =>
+  ({ manufacturer: steps.maker?.maker.model().manufacturer }) })` starts THIS instance
+  from another step's live value when the step materializes. It is the LOCAL channel;
+  `bind` (through shared state) is the global one — the same value should not travel
+  both ways.
 - **`defer`** renders the step's body inside an Angular `@defer` block (`'idle' |
   'viewport' | 'interaction'`) with a placeholder while it hydrates.
 
-The built `Stepper` is the source of truth for these types: `StepContextFor<S>`
-derives the `when` context from a stepper `S`, so a bring-your-own-UI host gets the
-same typing. Hosts compose the same primitives the shell uses — `effectiveSteps(steps, ctx)`
-(the conditional filter), `resolveStepForms` (await lazy configs), and `stepFormNames`
-— and drive their own `@defer` with any trigger.
+The built `Stepper` is the source of truth for these types: `CommittedOf<typeof built>`
+is the shape of everything it commits — `{ [step]?: { [poolName]: model } }` — so a
+host narrows the erased `stepCommitted` record once, at the boundary. Hosts compose
+the same primitives the shell uses — `effectiveSteps(steps, ctx)` (the conditional
+filter), `resolveStepForms` (await lazy configs), and `stepFormNames` — and drive
+their own `@defer` with any trigger.
 
 ### Branching
 
@@ -667,22 +678,24 @@ new StepperBuilder()
   .createForm('seats', seatsForm)
   .createForm('done', doneForm)
   .createStep((s) => s.createPage(/* Start */))
-  .branch((ctx) => ctx.shared.plan, {
-    //        ▲ ctx is the same typed context as `when`: read shared or value(...)
+  .branch((ctx) => ctx.shared.plan(), {
+    //        ▲ ctx is the same typed context as `when`: read shared or steps
     pro: (b) =>
       b
         .step((s) => s.createPage(/* Billing */))
-        .step((s) => s.createPage(/* Seats */), { when: ({ shared }) => shared.plan === 'pro' }),
+        .step((s) => s.createPage(/* Seats */), { when: ({ shared }) => shared.plan() === 'pro' }),
     free: (b) => b.step((s) => s.createPage(/* Free note */)),
   })
   .createStep((s) => s.createPage(/* Done */)) // ungated — both branches rejoin here
   .build();
 ```
 
-The selector is typed against the wizard (`ctx.shared.plan` autocompletes). Branches
-**nest** (`b.branch(...)`), and a step's own `when` is ANDed with the branch guard.
-Because branching reduces to conditions, the `value(...)` source works too: branch on
-a previous step's submitted answer, not just on shared.
+The selector is typed against the wizard (`ctx.shared.plan` autocompletes); returning
+`null` selects no branch — nothing is guessed. Branches **nest** (`b.branch(...)`),
+and a step's own `when` is ANDed with the branch guard. Because branching reduces to
+conditions, the `steps` source works too: branch on a named predecessor's live answer,
+not just on shared. A branch step is gated by nature, so successors see it as
+`| undefined`.
 
 ### Forking
 
@@ -706,20 +719,20 @@ const wizard = new StepperBuilder()
   .withState({ kind: '' as '' | 'individual' | 'business' })
   .createForm('start', kindForm)
   .createStep((s) => s.createPage(/* choose kind */))
-  .fork((ctx) => ctx.shared.kind, {
+  .fork((ctx) => ctx.shared.kind(), {
     individual: (arm) =>
       arm
         .withState({ ssn: '' })                     // arm-local state
         .createForm('person', personForm)
-        .createStep((s) => s.createPage(/* personal */))
-        .result(({ shared }) => ({ kind: 'individual' as const, ssn: shared.ssn })),
+        .createStep((s) => s.createPage(/* personal */), { name: 'person' })
+        .result(({ steps }) => ({ kind: 'individual' as const, ssn: steps.person?.person.model().ssn })),
     business: (arm) =>
       arm
         .withState({ vat: '' })
         .createForm('company', companyForm)
-        .createStep((s) => s.createPage(/* company */))
+        .createStep((s) => s.createPage(/* company */), { name: 'company' })
         .createStep((s) => s.createPage(/* seats */))
-        .result(({ shared }) => ({ kind: 'business' as const, vat: shared.vat })),
+        .result(({ steps }) => ({ kind: 'business' as const, vat: steps.company?.company.model().vat })),
   })
   .build();
 // build() → Stepper<…, { kind:'individual'; ssn:string } | { kind:'business'; vat:string }>
@@ -1012,10 +1025,10 @@ new StepperBuilder()
     { collection: (): Device[] => [], label: 'Devices' },
     (loop, view) =>
       loop
-        .withState({ draftName: '' })          // per-pass state, reset between passes
         .createForm('details', detailsForm)
-        .createStep((s) => /* ...a pass step... */)
-        .fold((collected, pass) => [...collected, toDevice(pass)])
+        .createStep((s) => /* ...a pass step... */, { name: 'details' })
+        // the pass context: the pass's own named steps, live — fresh every pass
+        .fold((collected, pass) => [...collected, toDevice(pass.steps.details?.details.model())])
         .completeWhen((devices) => devices.length > 0, 'Add at least one device')
         .dock((s) =>
           s.createPage({ options: { heading: 'Your devices' } }, (p) =>
@@ -1027,7 +1040,11 @@ new StepperBuilder()
 
 The flow occupies ONE slot of the parent sequence — one entry in the rail, one
 `index()` position — and renders through the same single chrome, however deep. Later
-steps read the collection as `value('devices')`, typed to what `collection` declared.
+steps read the collection as `ctx.steps.devices`, typed to what `collection` declared.
+A nested flow has its own namespace of step names (the same name may recur on another
+level) and reaches the level above explicitly through `ctx.parent`; its `ctx.shared`
+layers its own `withState` over the parent's; inside a ring `ctx.flow` exposes the
+`collection` and `passOpen` signals.
 A dock component stays dumb: it injects the two-method `FlowDock`, or marks its
 buttons with `ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller. The
 nesting also runs the other way (`createStepper` puts a linear sub-flow inside a
@@ -1143,12 +1160,14 @@ new StepperBuilder()
     schema: planSchema,        // ← any Standard Schema: zod 4, valibot, arktype
     label: 'Plan',             //    (used when its errors appear in `blockers`)
   })
-  .createStep((s) =>
-    s.createPage({ options: { heading: 'Choose a plan' } }, (p) =>
-      p.addControl((c) => c.plan, { bind: 'plan' }),
-    ),
+  .createStep(
+    (s) =>
+      s.createPage({ options: { heading: 'Choose a plan' } }, (p) =>
+        p.addControl((c) => c.plan, { bind: 'plan' }),
+      ),
+    { name: 'plan' },
   )
-  // later: ctx.value('plan') : Plan | null — typed, like any form's value
+  // later: ctx.steps.plan?.plan.value() : Plan | null — typed, like any form's model
 ```
 
 What falls out, with nothing else wired:
@@ -1161,8 +1180,8 @@ What falls out, with nothing else wired:
   Issue messages surface on the field and in the blocked-Next explainer below. The
   suite vendors only the spec's *types* — no validation dependency is added.
 - **Commit & typing** — the value commits on leave under its pool name, raw:
-  `ctx.value('plan')` in a later step's `when`/`completeWhen` is `Plan | null`,
-  `committed()['plan']` likewise. The component's `value` model is the single source
+  `ctx.steps.plan?.plan.value()` in a later step's `when`/`completeWhen` is
+  `Plan | null`, `committed()['plan']['plan']` likewise. The component's `value` model is the single source
   of the type (`createControl` reads it off `FormValueControl<T>`).
 - **Shared sync** — `bind: 'plan'` links the value to one shared key through the same
   directional engine forms use (seed on entry if pristine, commit on leave). The key
@@ -1262,7 +1281,7 @@ for its subtree; inject it from any slot or custom control:
 @Component({ selector: 'app-summary', template: `{{ data() | json }}` })
 class Summary {
   private readonly wiz = inject(FormadWizard, { optional: true }); // null outside a stepper
-  protected data = computed(() => this.wiz?.committed());           // every form's committed model
+  protected data = computed(() => this.wiz?.committed());           // { [step]: { [poolName]: model } }
 }
 ```
 
@@ -1312,7 +1331,7 @@ Everything is exported from the package root (`ngx-formad`).
 | Symbol | What it is |
 | --- | --- |
 | `StepperBuilder` | The fluent chain. Each method narrows the type (see below); `fork(...)` terminates it. Also `addControlType`/`overrideControlType` register wizard-scoped custom control kinds (typed: add rejects an existing kind, override requires one). |
-| `FormadWizard` | Injectable per stepper — `committed()` (every form's committed model), `controller`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
+| `FormadWizard` | Injectable per stepper — `committed()` (committed values by step, then pool name), `controller`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
 | `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `step()` and nested `branch()`. |
 | `ForkArmBuilder` / `ForkArm` | Authors one fork arm (`withState`/`createForm`/`createStep`/`branch`) ending in `result(...)`. |
 | `Stepper<TForms, TShared, TResult>` | The built wizard: `{ forms, steps, shared, resolveResult? }`. |
@@ -1382,13 +1401,14 @@ bring-your-own-UI path. The inner callbacks have small, fixed shapes:
 ```ts
 createStep((step) => …, {                     // step: StepBuilder<TForms, TShared>
   label?: string | (() => string),            // short name for a chrome's rail (controller.labels())
-  when?: (ctx) => boolean,                    // ctx: StepContextFor<Stepper<TForms, TShared>>
-  optional?: boolean,                         //   ctx.shared : TShared, ctx.value('x') : that model
+  name?: string,                              // the key successors read this step under: ctx.steps.<name>
+  when?: (ctx) => boolean,                    // ctx: GateContext<TShared, TSteps, TParent>
+  optional?: boolean,                         //   ctx.shared.key() a signal, ctx.steps.x?.form a live FormState
   defer?: 'idle' | 'viewport' | 'interaction',
   completeWhen?: (ctx) => boolean,            // extra gate ANDed with the form fold; same ctx as `when`
   incompleteMessage?: string,                 // what `blockers` says when completeWhen is what holds
 })
-branch((ctx) => key, {                        // ctx: StepContextFor<…>; key narrows `branches`
+branch((ctx) => key, {                        // ctx: GateContext<…>; key narrows `branches`
   [key]: (b) => b.step((step) => …, opts?)    // b: BranchBuilder — guarded steps; nests via b.branch()
 })
 fork((ctx) => key, {                          // TERMINAL — only build() after; arms don't rejoin

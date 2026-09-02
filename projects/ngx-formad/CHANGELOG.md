@@ -31,15 +31,33 @@ versions may carry breaking changes.
   A dock component stays dumb: it either injects the two-method `FlowDock` or marks
   its buttons with the attribute directives, MatDialog-style. No controller, no
   `goTo`, no shared-state reach-ins from a layout leaf.
+- **The incremental, reactive step context - `ctx.steps`, `ctx.shared`, `ctx.parent`.**
+  The pool holds TEMPLATES; the step that places a form instantiates it, so the same
+  config on two steps is two independent instances. What a later step reads is
+  therefore keyed by STEP: a step named in its options (`{ name: 'basics' }`) exposes
+  its live instances to every successor as `ctx.steps.basics.<poolName>` — a
+  `FormState` (`.model()`, `.rootForm`) or a control's `{ field, value() }` — typed by
+  accumulation along the chain, `| undefined` when the step is gated (`when`, a
+  branch arm, a pass). Unnamed steps are reachable by authored index only, which
+  is fragile under reordering: name any step another one reads. `ctx.shared` is the
+  store as one signal per key (the GLOBAL channel, `bind`'s counterpart), and a
+  nested flow keeps its own namespace of step names, reaching the level above through
+  `ctx.parent`. Everything in the context is live: `when`, `completeWhen`, a branch
+  selector, a fold and a dynamic step all read the same reactive tree — no snapshots.
+- **Local seeding - `addForm(..., { initial: (ctx) => Partial<M> })`.** The LOCAL
+  channel from a predecessor's live instance into this form, applied when the step
+  materializes (a re-entry after Back re-seeds). `bind` stays the global one.
+- **`CommittedOf<typeof built>`.** `Stepper` now carries the accumulated step record
+  (`TSteps`), so a host can narrow the erased `stepCommitted` record ONCE, at the
+  boundary, to `{ [step]?: { [poolName]: model } }` instead of casting per field.
 - **Dynamic steps - the step callback's second parameter.** Declaring it —
   `createStep((step, ctx) => ...)` — makes the step's STRUCTURE follow the live
-  context: the callback runs when the step is reached (a pure factory over a
-  snapshot taken after the previous step committed), so which pooled forms it
-  places and what prose it shows can depend on the user's earlier answers. One
-  place for the context, no new callbacks anywhere: a one-parameter callback
-  stays plain data built once, exactly as before. Values still travel through
-  `bind`; in-form conditionality stays `hidden()`/`visibleWhen` — the dynamic
-  step covers only what those cannot: the page's structure.
+  context: the callback runs when the step is reached (a pure factory over the
+  entry context), so which pooled forms it places and what prose it shows can
+  depend on the user's earlier answers. One place for the context, no new
+  callbacks anywhere: a one-parameter callback stays plain data built once,
+  exactly as before. In-form conditionality stays `hidden()`/`visibleWhen` — the
+  dynamic step covers only what those cannot: the page's structure.
 - **Flow providers - `provide(...)` on both builders.** A wizard is its own
   injection environment: the providers declared at the flow's definition become an
   `EnvironmentInjector` (a nested flow's inherits its parent's, the root inherits
@@ -60,8 +78,17 @@ versions may carry breaking changes.
 
 ### Changed
 
+- **`committed()` / `stepCommitted` are keyed by step, then by pool name** —
+  `{ basics: { basics: {...} } }`, a nested linear flow as its own step record, a
+  recurrent flow as its collection — because a template placed twice is two values.
+  A form hidden by `visibleWhen` is on its step but not among its values.
+- **`ctx.value(name)` is gone; `ctx.shared.<key>` is a signal.** Read a predecessor
+  through `ctx.steps.<step>.<poolName>.model()`, the store through `ctx.shared.key()`.
+  `StepContextFor`, `Committed` and the `FlowEntry` pool entry are removed with it: a
+  nested flow is a STEP of its parent (`ctx.steps.<flowName>`), not a pool member,
+  and step names are a namespace of their own (`claimName`) beside the pool's.
 - **The controller derives instead of repairing.** `FormadStepperController` holds
-  two intents (the cursor and the blocked-Next flag) plus commits; the current step
+ two intents (the cursor and the blocked-Next flag) plus commits; the current step
   clamps to the effective sequence in a `computed` (the self-gating repair `effect`
   is gone), step instances are a memoized derivation of the current node (the
   bootstrap `afterNextRender` is gone - an eager first step renders on first read),
