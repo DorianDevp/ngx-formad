@@ -1,4 +1,4 @@
-import { Component, input, signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FieldTree, hidden } from '@angular/forms/signals';
 import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
@@ -319,18 +319,13 @@ describe('FormRenderer — reactive select options', () => {
   });
 });
 
-@Component({ selector: 'test-echo', template: `<p class="echo">{{ value() }}</p>` })
-class Echo {
-  readonly value = input('');
-}
-
 type FL = { first: string; last: string };
 const layoutConfig: FormConfig<FL> = {
   model: () => ({ first: '', last: '' }),
   ui: UiFormConfigBuilder.from({ first: '', last: '' }).first(text('First')).last(text('Last')),
   layout: formLayout<FL>()
     .field('first')
-    .component(Echo, { inputs: { value: (ctx) => ctx.model.first } })
+    .content((c) => c.p('between', { className: 'echo' }))
     .field('last')
     .build(),
 };
@@ -343,7 +338,7 @@ class LayoutHost {
   readonly state = asRenderable(instantiateForm(layoutConfig));
 }
 
-describe('FormRenderer — layout overlay with a component', () => {
+describe('FormRenderer — layout overlay with a content block', () => {
   let fixture: ComponentFixture<LayoutHost>;
 
   beforeEach(async () => {
@@ -351,22 +346,11 @@ describe('FormRenderer — layout overlay with a component', () => {
     await pump(fixture);
   });
 
-  it('renders the component between the fields, in overlay order', () => {
+  it('renders the block between the fields, in overlay order', () => {
     const order = Array.from(
       fixture.nativeElement.querySelectorAll('input, .echo') as NodeListOf<HTMLElement>,
     ).map((el) => (el.tagName === 'INPUT' ? 'input' : 'echo'));
     expect(order).toEqual(['input', 'echo', 'input']);
-  });
-
-  it('binds the component input to the live model, per keystroke', async () => {
-    const first = fixture.nativeElement.querySelector('input') as HTMLInputElement;
-    first.value = 'Ada';
-    first.dispatchEvent(new Event('input'));
-    await pump(fixture);
-
-    expect((fixture.nativeElement.querySelector('.echo') as HTMLElement).textContent?.trim()).toBe(
-      'Ada',
-    );
   });
 });
 
@@ -434,7 +418,7 @@ const placedConfig: FormConfig<Placed> = {
   layout: formLayout<Placed>()
     .cols(2)
     .field('first', { colSpan: 2 })
-    .component(Echo, { colSpan: 2, inputs: { value: (ctx) => ctx.model.first } })
+    .content((c) => c.p('echo', { className: 'echo' }), { colSpan: 2 })
     .field('second')
     .build(),
 };
@@ -462,9 +446,8 @@ describe('FormRenderer - placement under the default layout adapter', () => {
     expect(host.style.gridColumn).toBe('span 2 / span 2');
   });
 
-  it("puts a component's colSpan on its slot", () => {
-    // test-echo › component-outlet › the grid slot div
-    const slot = (fixture.nativeElement.querySelector('test-echo') as HTMLElement).closest('div')!;
+  it("puts a content block's colSpan on its slot", () => {
+    const slot = (fixture.nativeElement.querySelector('.echo') as HTMLElement).closest('div')!;
     expect(slot.tagName.toLowerCase()).toBe('div');
     expect(slot.style.gridColumn).toBe('span 2 / span 2');
   });

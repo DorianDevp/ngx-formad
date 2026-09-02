@@ -15,8 +15,12 @@ import { FieldTree, FormField } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { applyLayoutClasses } from '../layout/layout-adapter';
-import { toGetter } from '../builders/dynamic-component';
-import { FieldConfig, extraInputsFor } from '../form-config/form-config';
+import {
+  FieldConfig,
+  FormLayoutContext,
+  extraInputsFor,
+  resolveControlInput,
+} from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
 import { FLOW_ENVIRONMENT } from './flow-environment';
 import { BoundOutputEffect, samePath } from './output-effect';
@@ -28,6 +32,8 @@ export class FieldOutlet {
   readonly config = input.required<FieldConfig>();
 
   readonly effects = input<readonly BoundOutputEffect[]>([]);
+
+  readonly context = input.required<FormLayoutContext>();
 
   private readonly vcr = inject(ViewContainerRef);
   private readonly controls = inject(CONTROL_ADAPTER);
@@ -83,7 +89,7 @@ export class FieldOutlet {
   private presentationalBindings(config: FieldConfig): Binding[] {
     if (config.control) {
       return Object.entries(config.control.inputs).map(([name, value]) =>
-        inputBinding(name, toGetter(value)),
+        inputBinding(name, () => resolveControlInput(value, this.context())),
       );
     }
 

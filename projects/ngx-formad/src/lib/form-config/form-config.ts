@@ -1,5 +1,5 @@
 import { Type } from '@angular/core';
-import { FieldTree, SchemaOrSchemaFn } from '@angular/forms/signals';
+import { SchemaOrSchemaFn } from '@angular/forms/signals';
 import {
   CUSTOM_FIELD,
   RepeatingGroupNode,
@@ -8,7 +8,6 @@ import {
   UiFormGroupNode,
 } from 'formodel';
 import { ContentChild } from '../builders/content';
-import { Reactive } from '../builders/dynamic-component';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
 import { mapReactive, ReactiveControlNode, ReactiveUiConfig } from './reactive';
@@ -41,10 +40,18 @@ export interface FieldConfig {
   readonly control?: ControlOverride;
 }
 
+export type ControlInput<V = unknown, M extends Record<string, unknown> = Record<string, unknown>> =
+  | V
+  | ((ctx: FormLayoutContext<M>) => V);
+
 export interface ControlOverride {
   readonly component: Type<unknown>;
 
-  readonly inputs: Readonly<Record<string, Reactive<unknown>>>;
+  readonly inputs: Readonly<Record<string, ControlInput>>;
+}
+
+export function resolveControlInput(input: ControlInput, ctx: FormLayoutContext): unknown {
+  return typeof input === 'function' ? (input as (ctx: FormLayoutContext) => unknown)(ctx) : input;
 }
 
 /** A scalar control in the render tree. */
@@ -75,30 +82,10 @@ export interface ArrayNode {
   readonly layout?: ItemSpec;
 }
 
-/** What a layout component's input getters (and `visibleWhen`) read: the live model
- *  value, the live field tree (per-field errors/touched, not just values), and — when
- *  the form runs inside a stepper page — the cross-step shared store (`null` for a
- *  standalone form). Given to `FormComponentSpec.inputs` so a component can be bound
- *  from any of them. */
-export interface FormComponentContext<M extends Record<string, unknown> = Record<string, unknown>> {
+export interface FormLayoutContext<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly model: M;
-  readonly form: FieldTree<M>;
-  readonly shared: SharedState<Record<string, unknown>> | null;
-}
 
-/** Authoring config for a component dropped into the field flow (from
- *  `formLayout(...).component(...)`): its inputs/outputs written as functions of the
- *  live {@link FormComponentContext}, so they stay reactive as fields change, plus
- *  optional visibility and its own grid placement. `kind:'component'` discriminates
- *  it from a field key in a layout. */
-export interface FormComponentSpec<M extends Record<string, unknown> = Record<string, unknown>> {
-  readonly kind: 'component';
-  readonly component: Type<unknown>;
-  readonly inputs?: Readonly<Record<string, (ctx: FormComponentContext<M>) => unknown>>;
-  readonly outputs?: Readonly<Record<string, (event: never) => void>>;
-  readonly visibleWhen?: (ctx: FormComponentContext<M>) => boolean;
-  /** How this component sits in the parent grid (`colSpan`/`colStart`). */
-  readonly item?: ItemSpec;
+  readonly shared: SharedState<Record<string, unknown>> | null;
 }
 
 /** Authoring config for prose between the fields (from `formLayout(...).content(...)`):
@@ -108,7 +95,7 @@ export interface FormComponentSpec<M extends Record<string, unknown> = Record<st
 export interface FormContentSpec<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: 'content';
   readonly children: readonly ContentChild[];
-  readonly visibleWhen?: (ctx: FormComponentContext<M>) => boolean;
+  readonly visibleWhen?: (ctx: FormLayoutContext<M>) => boolean;
   /** How this block sits in the parent grid (`colSpan`/`colStart`). */
   readonly item?: ItemSpec;
 }
@@ -120,21 +107,7 @@ export interface FormContentNode {
   readonly key: string;
   readonly path: readonly string[];
   readonly children: readonly ContentChild[];
-  readonly visibleWhen?: (ctx: FormComponentContext) => boolean;
-  readonly layout?: ItemSpec;
-}
-
-/** A component sitting between fields in the render tree — the flat-form counterpart
- *  of a page's `ComponentNode`, but with context-reactive inputs the renderer binds
- *  against the live form (the page variant pre-normalizes bindings at build time). */
-export interface FormComponentNode {
-  readonly kind: 'component';
-  readonly key: string;
-  readonly path: readonly string[];
-  readonly component: Type<unknown>;
-  readonly inputs: Readonly<Record<string, (ctx: FormComponentContext) => unknown>>;
-  readonly outputs: Readonly<Record<string, (event: never) => void>>;
-  readonly visibleWhen?: (ctx: FormComponentContext) => boolean;
+  readonly visibleWhen?: (ctx: FormLayoutContext) => boolean;
   readonly layout?: ItemSpec;
 }
 
@@ -157,7 +130,6 @@ export type RenderNode =
   | ControlNode
   | GroupNode
   | ArrayNode
-  | FormComponentNode
   | FormContentNode
   | FormRowNode;
 
@@ -171,7 +143,6 @@ export type FormLayoutItem<M extends Record<string, unknown>> =
       readonly control: ControlOverride;
       readonly item?: ItemSpec;
     }
-  | FormComponentSpec<M>
   | FormContentSpec<M>
   | {
       readonly kind: 'row';
@@ -252,12 +223,6 @@ function isArrayNode(node: unknown): node is RepeatingGroupNode<unknown> {
     'itemConfig' in node
   );
 }
-// A component spec is the only layout item / UI value carrying `kind: 'component'`;
-// field nodes discriminate on `type`, groups on `controlsConfig`.
-function isComponentSpec(item: unknown): item is FormComponentSpec {
-  return !!item && typeof item === 'object' && (item as { kind?: string }).kind === 'component';
-}
-
 // Builds one field's render node from its formodel config value: object → group,
 // `type:'array'` → array, else a scalar control. The single place a formodel node
 // becomes a render node, reused by the declared-order and layout-overlay walks.
@@ -320,19 +285,7 @@ export function buildLayoutNodes(
   const nodes: RenderNode[] = [];
   let synthetic = 0;
   for (const item of items) {
-    if (isComponentSpec(item)) {
-      const key = `@component:${synthetic++}`;
-      nodes.push({
-        kind: 'component',
-        key,
-        path: [...path, key],
-        component: item.component,
-        inputs: item.inputs ?? {},
-        outputs: item.outputs ?? {},
-        visibleWhen: item.visibleWhen,
-        layout: item.item,
-      });
-    } else if (item.kind === 'content') {
+    if (item.kind === 'content') {
       const key = `@content:${synthetic++}`;
       nodes.push({
         kind: 'content',

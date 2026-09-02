@@ -81,11 +81,15 @@ versions may carry breaking changes.
   `FormField` to the field and feeds the component's presentational inputs, typed off
   the class (`value` and the state inputs `FormField` owns are rejected). The field is
   declared `customField()` in `ui` (formodel 0.3). `control()` checks the field's value
-  against the component's `FormValueControl<V>`; `component()` now rejects a
-  `FormValueControl` at compile time — an editor is a control, a component is a widget.
+  against the component's `FormValueControl<V>`. Its inputs, like a `content()` gate,
+  may read the layout context (`{ model, shared }`), never the field tree.
 
 ### Removed
 
+- **`formLayout().component()` and `FormComponentContext`.** A form's layout arranges
+  fields (`field`, `control`, `row`) and prose (`content`); a component that edits a
+  field is a `control()`, a widget that is not a field belongs to the page. The field
+  tree is no longer handed to anything a layout places.
 - **Standalone value controls** — `createControl`, `addControl`, `ControlEntry`,
   `LiveControl`, `ControlOutlet`, `stepValueNames`, `StandardSchemaOf` and the
   `controls` pool on flows. A page composes forms and widgets; a value that gates a

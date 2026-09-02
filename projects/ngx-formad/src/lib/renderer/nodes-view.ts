@@ -1,21 +1,18 @@
-import { Component, computed, inject, input, inputBinding, outputBinding } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { FieldState, FieldTree } from '@angular/forms/signals';
 import { LAYOUT_ADAPTER } from '../provide';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import {
   ArrayNode,
   ControlNode,
-  FormComponentContext,
-  FormComponentNode,
   FormContentNode,
+  FormLayoutContext,
   FormRowNode,
   GroupNode,
   RenderNode,
 } from '../form-config/form-config';
 import { ContentChild } from '../builders/content';
-import { ComponentNode } from '../builders/nodes';
 import { FormadWizard } from '../runtime/wizard-context';
-import { ComponentOutlet } from './component-outlet';
 import { ContentView } from './content-view';
 import { FieldOutlet } from './field-outlet';
 import { BoundOutputEffect } from './output-effect';
@@ -28,7 +25,7 @@ import { BoundOutputEffect } from './output-effect';
 // `form(model)` already nests the `FieldTree` and folds validity over the whole.
 @Component({
   selector: 'ngx-formad-nodes',
-  imports: [FieldOutlet, ComponentOutlet, ContentView],
+  imports: [FieldOutlet, ContentView],
   // `display: contents` so this wrapper adds no layout box — the grid `<div>` below
   // is the real container, and nested groups stack without piling up extra nesting.
   host: { style: 'display: contents' },
@@ -62,16 +59,8 @@ import { BoundOutputEffect } from './output-effect';
               [node]="leaf(node.key)"
               [config]="control(node)"
               [effects]="effects()"
+              [context]="layoutContext()"
             />
-          }
-          @case ('component') {
-            <!-- A layout component: gated by its own visibility, placed in the grid
-                 by its item span, bound to the live form context. -->
-            @if (nodeVisible(node)) {
-              <div [class]="itemClass(component(node).layout)" [style]="itemStyle(component(node).layout)">
-                <ngx-formad-component-outlet [node]="outlet(node)" />
-              </div>
-            }
           }
           @case ('content') {
             <!-- Prose in the field flow: its own grid slot, gated like a component. -->
@@ -187,9 +176,6 @@ export class NodesView {
   protected array(node: RenderNode): ArrayNode {
     return node as ArrayNode;
   }
-  protected component(node: RenderNode): FormComponentNode {
-    return node as FormComponentNode;
-  }
   protected contentNode(node: RenderNode): FormContentNode {
     return node as FormContentNode;
   }
@@ -197,24 +183,14 @@ export class NodesView {
     return node as FormRowNode;
   }
 
-  // ── Layout components ──
-  // The context every component input getter reads: the live model value, the field
-  // tree at this level (per-field errors/touched), and the shared store when inside a
-  // stepper. Reading `model()` here is what keeps a component's bindings reactive.
-  private ctx(): FormComponentContext {
-    return {
-      model: this.model(),
-      form: this.tree() as unknown as FieldTree<Record<string, unknown>>,
-      shared: this.wizard?.sharedOrNull() ?? null,
-    };
-  }
+  protected readonly layoutContext = computed<FormLayoutContext>(() => ({
+    model: this.model(),
+    shared: this.wizard?.sharedOrNull() ?? null,
+  }));
 
-  // A component or a content block is shown unless its `visibleWhen` gate - read
-  // reactively, against the live form context - says no. One gate for both, so a
-  // change to how the context is resolved cannot apply to only one of them.
   protected nodeVisible(node: RenderNode): boolean {
-    const gate = (node as FormComponentNode | FormContentNode).visibleWhen;
-    return gate ? gate(this.ctx()) : true;
+    const gate = (node as FormContentNode).visibleWhen;
+    return gate ? gate(this.layoutContext()) : true;
   }
 
   // Hand-built or deserialized content may carry no children; that is an empty
@@ -242,27 +218,6 @@ export class NodesView {
     const hasStyle = spec ? Object.keys(this.itemStyle(spec)).length > 0 : false;
     if (!spec || (!placement && !hasStyle)) return `${base} ngx-formad-col-full`;
     return placement ? `${base} ${placement}` : base;
-  }
-
-  // One `ComponentNode` per component node, built once — its input bindings are
-  // getters that read `ctx()` (hence the live model), so they stay reactive without
-  // rebuilding when values change. `nodes()` is stable, so this map is too.
-  private readonly outlets = computed(() => {
-    const map = new Map<FormComponentNode, ComponentNode>();
-    for (const node of this.nodes()) {
-      if (node.kind !== 'component') continue;
-      const inputs = Object.entries(node.inputs).map(([name, get]) =>
-        inputBinding(name, () => get(this.ctx())),
-      );
-      const outputs = Object.entries(node.outputs).map(([name, handler]) =>
-        outputBinding(name, handler as (event: unknown) => void),
-      );
-      map.set(node, { kind: 'component', component: node.component, bindings: [...inputs, ...outputs] });
-    }
-    return map;
-  });
-  protected outlet(node: RenderNode): ComponentNode {
-    return this.outlets().get(node as FormComponentNode)!;
   }
 
   // ── Repeating arrays ──
@@ -308,7 +263,7 @@ function blankValue(type: string): unknown {
 function blankItem(nodes: readonly RenderNode[]): Record<string, unknown> {
   const item: Record<string, unknown> = {};
   for (const node of nodes) {
-    if (node.kind === 'component' || node.kind === 'content' || node.kind === 'row') continue;
+    if (node.kind === 'content' || node.kind === 'row') continue;
     if (node.kind === 'group') item[node.key] = blankItem(node.children);
     else if (node.kind === 'array') item[node.key] = [];
     else item[node.key] = blankValue(node.node.type);

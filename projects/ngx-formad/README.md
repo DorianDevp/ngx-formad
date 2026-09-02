@@ -234,11 +234,6 @@ const signupForm: FormConfig<Signup> = {
     .field('last', { colSpan: { md: 1 } }) // first | last, side by side ≥ md
     .field('password', { colSpan: { base: 1, md: 2 } })
     .field('repeat', { colSpan: { base: 1, md: 2 } })
-    // A component, its inputs bound to the LIVE form — updates as you type.
-    .component(PasswordChecklist, {
-      colSpan: { base: 1, md: 2 },
-      inputs: { value: (ctx) => ctx.model.password },
-    })
     .build(),
 };
 ```
@@ -255,23 +250,21 @@ layout: formLayout<Pick>()
   .build(),
 ```
 
-`control()` checks that the field's value fits the component's `FormValueControl<V>`, and
-`component()` rejects a `FormValueControl` at compile time — an editor is a control, not
-a widget. A `customField()` left without a `control()` placement throws when rendered.
+`control()` checks that the field's value fits the component's `FormValueControl<V>`. A
+`customField()` left without a `control()` placement throws when rendered. There is no
+component slot inside a form: a widget that is not a field belongs to the page.
 
-A component's inputs (and `visibleWhen`) are functions of a **context** — the live
-model value, the field tree (per-field `errors()`/`touched()`, not just values), and,
-when the form runs inside a stepper page, the cross-step `shared` store (`null`
-standalone):
+A `control()` input and a `content()` gate may read the **layout context** — the live
+model value and, inside a stepper page, the cross-step `shared` store (`null`
+standalone). Never the field tree: a control edits its ONE field through `FormField`,
+anything else it needs arrives as a plain input.
 
 ```ts
-.component(SummaryCard, {
-  inputs: {
-    name: (ctx) => ctx.model.first,
-    invalid: (ctx) => ctx.form.password().invalid(),
-    plan: (ctx) => ctx.shared?.get('plan'),
-  },
-  visibleWhen: (ctx) => ctx.model.password.length > 0,
+.control('sellDate', IsoDateControl, {
+  inputs: { label: (ctx) => (ctx.model.verified ? 'Sold on' : 'Sold on (estimated)') },
+})
+.content((c) => c.p('Verified against the catalogue.'), {
+  visibleWhen: (ctx) => ctx.model.verified,
 })
 ```
 

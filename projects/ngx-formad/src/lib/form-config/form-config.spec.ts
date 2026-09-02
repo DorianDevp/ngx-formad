@@ -1,10 +1,9 @@
-import { Component, input, isSignal, Signal, signal } from '@angular/core';
+import { isSignal, Signal, signal } from '@angular/core';
 import { UiFormConfigBuilder, email, select, text, UiFormGroupConfig } from 'formodel';
 import {
   buildLayoutNodes,
   buildNodes,
   extraInputsFor,
-  FormComponentNode,
   FormLayoutItem,
   FormRowNode,
   flattenFields,
@@ -17,11 +16,6 @@ import { reactive, ReactiveControlNode, readReactive } from './reactive';
 const erase = (ui: unknown) => ui as UiFormGroupConfig<Record<string, unknown>>;
 const eraseItems = (items: readonly FormLayoutItem<Record<string, string>>[]) =>
   items as unknown as readonly FormLayoutItem<Record<string, unknown>>[];
-
-@Component({ selector: 'test-note', template: '' })
-class NoteComponent {
-  readonly value = input('');
-}
 
 describe('flattenFields', () => {
   it('emits one field per top-level scalar control, in order', () => {
@@ -160,21 +154,6 @@ describe('buildLayoutNodes', () => {
     const { items } = formLayout<Record<string, string>>().field('first').field('missing').build();
     const nodes = buildLayoutNodes(ui, eraseItems(items));
     expect(nodes.map((n) => n.key)).toEqual(['first']);
-  });
-
-  it('lifts a component spec to a component node with a synthetic key', () => {
-    const { items } = formLayout<Record<string, string>>()
-      .field('password')
-      .component(NoteComponent, { inputs: { value: (ctx) => String(ctx.model['password']) } })
-      .build();
-
-    const nodes = buildLayoutNodes(ui, eraseItems(items));
-    const component = nodes[1] as FormComponentNode;
-
-    expect(component.kind).toBe('component');
-    expect(component.component).toBe(NoteComponent);
-    expect(component.key).toBe('@component:0');
-    expect(component.inputs['value']({ model: { password: 'x' } } as never)).toBe('x');
   });
 
   it('builds a row node whose children resolve against the same ui', () => {
