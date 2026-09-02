@@ -23,7 +23,6 @@ export * from './lib/renderer/field-outlet';
 export * from './lib/renderer/component-outlet';
 export * from './lib/renderer/flow-environment';
 export * from './lib/renderer/content-view';
-export * from './lib/renderer/control-outlet';
 export * from './lib/renderer/nodes-view';
 export * from './lib/renderer/form-renderer';
 
@@ -31,7 +30,6 @@ export * from './lib/renderer/form-renderer';
 export * from './lib/builders/content';
 export * from './lib/builders/dynamic-component';
 export * from './lib/builders/shared-link';
-export * from './lib/builders/standard-schema';
 export * from './lib/builders/step-context';
 export * from './lib/builders/nodes';
 export * from './lib/builders/flow';

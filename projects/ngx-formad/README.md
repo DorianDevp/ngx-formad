@@ -1134,66 +1134,6 @@ built for `Product[]` is a type error on a `string` field. A control with no con
 needs no `props` (omit it; the renderer forwards nothing extra). The product step,
 VAT-ID lookup, and similar widgets all become plain config fields this way.
 
-## Standalone value controls
-
-A custom control *kind* still lives inside a form. Sometimes the widget **is** the
-step — a plan picker, a consent card, a selection grid — and authoring a one-field
-formodel config around it is ceremony. `createControl` registers a bare
-`FormValueControl` component in the pool, beside the forms, and `addControl` places
-it on a page; the runtime wraps it in an implicit single-value field tree, so it is
-a full citizen of every pipeline a form is in:
-
-```ts
-@Component({ selector: 'app-plan-picker', template: `…` })
-class PlanPicker implements FormValueControl<Plan | null> {
-  value = model<Plan | null>(null);   // the value type below is read off this model
-}
-
-const planSchema = z.union([z.literal('basic'), z.literal('pro')], {
-  error: 'Pick a plan first.',
-});
-
-new StepperBuilder()
-  .withState({ plan: null as Plan | null })
-  .createControl('plan', PlanPicker, {
-    initial: null,
-    schema: planSchema,        // ← any Standard Schema: zod 4, valibot, arktype
-    label: 'Plan',             //    (used when its errors appear in `blockers`)
-  })
-  .createStep(
-    (s) =>
-      s.createPage({ options: { heading: 'Choose a plan' } }, (p) =>
-        p.addControl((c) => c.plan, { bind: 'plan' }),
-      ),
-    { name: 'plan' },
-  )
-  // later: ctx.steps.plan?.plan.value() : Plan | null — typed, like any form's model
-```
-
-What falls out, with nothing else wired:
-
-- **Completion** — the schema's verdict is the implicit field's validity, which folds
-  into `canNext` exactly like a form field. "A selection was made" stops being an
-  imperative `completeWhen` and becomes data.
-- **Validation** — `schema` is any [Standard Schema](https://standardschema.dev)
-  (zod 4, valibot, arktype…), run natively by signal forms' `validateStandardSchema`.
-  Issue messages surface on the field and in the blocked-Next explainer below. The
-  suite vendors only the spec's *types* — no validation dependency is added.
-- **Commit & typing** — the value commits on leave under its pool name, raw:
-  `ctx.steps.plan?.plan.value()` in a later step's `when`/`completeWhen` is
-  `Plan | null`, `committed()['plan']['plan']` likewise. The component's `value` model is the single source
-  of the type (`createControl` reads it off `FormValueControl<T>`).
-- **Shared sync** — `bind: 'plan'` links the value to one shared key through the same
-  directional engine forms use (seed on entry if pristine, commit on leave). The key
-  must hold exactly the control's value type — a mismatch is a compile error.
-- **Placement extras** — `addControl` also takes `inputs`/`outputs` (typed to the
-  component, minus `value` — the `FormField` directive owns that binding),
-  `visibleWhen` (a hidden control leaves the completion fold), and `layout`.
-
-`FormValueControl` is the same contract custom control kinds implement, so a widget
-can graduate in either direction: field-in-a-form (`addControlType` + config) when it
-belongs to a model, standalone (`createControl` + `addControl`) when it *is* the step.
-
 ### A blocked Next explains itself
 
 The classic wizard dead-end: every visible form is valid, yet Next stays greyed out —

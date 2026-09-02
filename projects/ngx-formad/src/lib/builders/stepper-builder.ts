@@ -4,7 +4,7 @@ import { FormConfig } from '../form-config/form-config';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
 import { ContentBuild, buildContent } from './content';
-import { ComponentCfg, Reactive, toBindings, toGetter } from './dynamic-component';
+import { ComponentCfg, Reactive, toBindings } from './dynamic-component';
 import {
   FlowDefinition,
   FlowStepNode,
@@ -30,19 +30,13 @@ import {
   selectedKey,
   SharedLink,
 } from './shared-link';
-import { StandardSchemaOf } from './standard-schema';
 import {
-  AnyControlEntry,
   AnyFormProvider,
-  ControlComponent,
-  ControlEntry,
-  ControlKeys,
   DeferTrigger,
   FormKeys,
   FormModel,
   FormProvider,
   GateContext,
-  LiveControlInstance,
   RuntimeFormSeed,
   RuntimeResultResolver,
   RuntimeStepCondition,
@@ -90,13 +84,6 @@ type Rec = Record<string, unknown>;
 // generics instead; this alias is only the erased shape the runtime walks.
 type AnyForm = FormConfig<Rec>;
 
-/** The shared keys whose type is exactly `T` — what a control's `bind` may pick.
- *  Mutual assignability, because the sync writes in both directions. */
-type MatchingSharedKey<TShared, T> = {
-  [K in keyof TShared]: TShared[K] extends T ? (T extends TShared[K] ? K : never) : never;
-}[keyof TShared] &
-  string;
-
 type UnionToIntersection<U> = (U extends unknown ? (k: U) => void : never) extends (
   k: infer I,
 ) => void
@@ -120,9 +107,7 @@ export type GatedEntry<N extends string, Inst> = [N] extends [never]
 export type StepValues<Inst> = {
   readonly [F in keyof NonNullable<Inst>]: NonNullable<Inst>[F] extends FormState<infer M>
     ? M
-    : NonNullable<Inst>[F] extends LiveControlInstance<infer T>
-      ? T
-      : NonNullable<Inst>[F];
+    : NonNullable<Inst>[F];
 };
 
 /** A linear flow's egress — the root's `committed()` / `stepCommitted`, a nested
@@ -136,23 +121,6 @@ export type CommittedOf<S> =
   S extends Stepper<infer _F, infer _S, infer _R, infer TSteps> ? StepsCommitted<TSteps> : never;
 
 // ── Placement options ──
-
-/** Placement options for a pooled standalone control, typed to its component `C`
- *  and value `T`. `value` (and the state inputs `FormField` maintains) are bound
- *  by the runtime, so `inputs` covers only the component's own presentational
- *  surface. */
-export interface ControlCfg<C, T, TShared> {
-  readonly inputs?: ComponentCfg<Omit<C, 'value'>>['inputs'];
-  readonly outputs?: ComponentCfg<Omit<C, 'value'>>['outputs'];
-  /** The renderer auto-`@if`-gates the control on this; hidden controls leave the
-   *  completion fold, like hidden forms. */
-  readonly visibleWhen?: () => boolean;
-  /** Layout classes for this control's slot. */
-  readonly layout?: string;
-  /** Sync the control's value with one shared-state key (seed on entry if
-   *  pristine, commit on leave) — the directional engine forms use. */
-  readonly bind?: MatchingSharedKey<TShared, T>;
-}
 
 /** Placement options for a content block: the slot's layout classes and the gate
  *  that hides the whole block. Per-tag classes and gates live on the tags. */
@@ -253,28 +221,6 @@ export class PageBuilder<TForms, TShared extends Rec, TSteps, TParent, P = {}> {
       links: opts.bind ? recordLinks(opts.bind) : [],
       effects: opts.effects ? recordEffects(opts.effects) : [],
       initial: opts.initial as unknown as RuntimeFormSeed | undefined,
-    });
-
-    return this as unknown as PageBuilder<TForms, TShared, TSteps, TParent, P & Record<K, true>>;
-  }
-
-  /** A standalone control from the pool (`createControl`), selected by callback —
-   *  the same idiom as `addForm`, and the same lifecycle underneath: its implicit
-   *  field folds into completion and its value is this step's instance. */
-  addControl<K extends ControlKeys<TForms> & string>(
-    select: (controls: FieldRefs<TForms>) => FieldRef<K, unknown>,
-    opts: ControlCfg<ControlComponent<TForms[K]>, FormModel<TForms[K]>, TShared> = {},
-  ): PageBuilder<TForms, TShared, TSteps, TParent, P & Record<K, true>> {
-    const name = selectedKey<TForms>(
-      select as (f: FieldRefs<TForms>) => FieldRef<keyof TForms, unknown>,
-    );
-    this.children.push({
-      kind: 'control',
-      name,
-      bindings: toBindings({ inputs: opts.inputs, outputs: opts.outputs }),
-      visibleWhen: opts.visibleWhen,
-      layout: opts.layout,
-      sharedKey: opts.bind,
     });
 
     return this as unknown as PageBuilder<TForms, TShared, TSteps, TParent, P & Record<K, true>>;
@@ -624,9 +570,6 @@ export class Stepper<TForms, TShared extends Rec, TResult = never, TSteps = {}> 
     /** Wizard-scoped control kinds (from `addControlType`/`overrideControlType`),
      *  layered over the global adapter by the shell for this stepper's subtree. */
     readonly controlTypes: ControlTypeMap = {},
-    /** Standalone value controls (`createControl`), keyed by pool name. Typed on
-     *  `TForms` alongside the forms; this is the erased runtime pool. */
-    readonly controls: Record<string, AnyControlEntry> = {},
     /** The flow's declared dependencies — see `StepperBuilder.provide`. */
     readonly providers: readonly Provider[] = [],
   ) {}
@@ -643,23 +586,6 @@ export function asStepper<TForms, TShared extends Rec, TResult = never, TSteps =
   stepper: Stepper<TForms, TShared, TResult, TSteps>,
 ): RuntimeStepper {
   return stepper as unknown as RuntimeStepper;
-}
-
-/** The value type a `FormValueControl` component edits — read off its `value`
- *  model, so the component itself is the single source of the entry's type. */
-export type ControlValueOf<C> = C extends FormValueControl<infer T> ? T : never;
-
-/** Declaration options for `createControl`. */
-export interface ControlOptions<T> {
-  /** The value the implicit field starts from (or a factory, for a fresh object
-   *  per materialization — the same convention as a form's `model`). */
-  readonly initial: T | (() => T);
-  /** A Standard Schema (zod 4, valibot, arktype) validating the value. Failed
-   *  issues make the control invalid — Next blocks and the issues' messages show
-   *  in the blocker list, so the gate explains itself. */
-  readonly schema?: StandardSchemaOf<T>;
-  /** The name used for this control in the blocker list; defaults to its pool name. */
-  readonly label?: string;
 }
 
 /** Options for a nested flow step — the parent-side slot, not the flow itself. */
@@ -695,9 +621,6 @@ export class StepperBuilder<
 
   // The pool stores configs or lazy loaders; the runtime resolves loaders on reach.
   private readonly forms: Record<string, AnyFormProvider> = {};
-  // Standalone controls live in their own runtime pool (they materialize through
-  // a different path), but share the `TForms` type map with the forms.
-  private readonly controls: Record<string, AnyControlEntry> = {};
   private sharedInit: Rec = {};
   private readonly steps: SequenceNode[] = [];
   private resultResolver?: RuntimeResultResolver;
@@ -758,45 +681,10 @@ export class StepperBuilder<
     name: K,
     provider: FormProvider<M>,
   ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, TKinds, TSteps, TParent> {
-    claimName(name, [this.forms, this.controls]);
+    claimName(name, [this.forms]);
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as StepperBuilder<
       TForms & Record<K, FormConfig<M>>,
-      TShared,
-      TKinds,
-      TSteps,
-      TParent
-    >;
-  }
-
-  /** Registers a standalone value control TEMPLATE in the pool under `name`; narrows
-   *  `TForms` beside the forms. The component must implement `FormValueControl`
-   *  (its `value` model is the source of the entry's value type), and the runtime
-   *  wraps it in an implicit single-value field tree per placing step — so its
-   *  validity folds into step completion and its value is that step's instance. */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  createControl<K extends string, C extends FormValueControl<any>>(
-    name: K,
-    component: Type<C>,
-    opts: ControlOptions<ControlValueOf<C>>,
-  ): StepperBuilder<
-    TForms & Record<K, ControlEntry<ControlValueOf<C>, C>>,
-    TShared,
-    TKinds,
-    TSteps,
-    TParent
-  > {
-    claimName(name, [this.forms, this.controls]);
-    const entry: ControlEntry<ControlValueOf<C>, C> = {
-      control: true,
-      component,
-      initial: toGetter(opts.initial),
-      schema: opts.schema,
-      label: opts.label,
-    };
-    this.controls[name] = entry;
-    return this as unknown as StepperBuilder<
-      TForms & Record<K, ControlEntry<ControlValueOf<C>, C>>,
       TShared,
       TKinds,
       TSteps,
@@ -988,7 +876,6 @@ export class StepperBuilder<
       new SharedState(this.sharedInit as TShared),
       this.resultResolver,
       this.controlTypes,
-      this.controls,
       this.providers,
     );
   }
@@ -1075,7 +962,6 @@ export class RecurrentStepperBuilder<
   readonly __steps?: TSteps;
 
   private readonly forms: Record<string, AnyFormProvider> = {};
-  private readonly controls: Record<string, AnyControlEntry> = {};
   private sharedInit: Rec = {};
   private readonly steps: SequenceNode[] = [];
   private readonly controlTypes: ControlTypeMap = {};
@@ -1120,42 +1006,10 @@ export class RecurrentStepperBuilder<
     name: K,
     provider: FormProvider<M>,
   ): RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, TShared, C, TKinds, TSteps, TParent> {
-    claimName(name, [this.forms, this.controls]);
+    claimName(name, [this.forms]);
     this.forms[name] = provider as unknown as AnyFormProvider;
     return this as unknown as RecurrentStepperBuilder<
       TForms & Record<K, FormConfig<M>>,
-      TShared,
-      C,
-      TKinds,
-      TSteps,
-      TParent
-    >;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  createControl<K extends string, Cmp extends FormValueControl<any>>(
-    name: K,
-    component: Type<Cmp>,
-    opts: ControlOptions<ControlValueOf<Cmp>>,
-  ): RecurrentStepperBuilder<
-    TForms & Record<K, ControlEntry<ControlValueOf<Cmp>, Cmp>>,
-    TShared,
-    C,
-    TKinds,
-    TSteps,
-    TParent
-  > {
-    claimName(name, [this.forms, this.controls]);
-    const entry: ControlEntry<ControlValueOf<Cmp>, Cmp> = {
-      control: true,
-      component,
-      initial: toGetter(opts.initial),
-      schema: opts.schema,
-      label: opts.label,
-    };
-    this.controls[name] = entry;
-    return this as unknown as RecurrentStepperBuilder<
-      TForms & Record<K, ControlEntry<ControlValueOf<Cmp>, Cmp>>,
       TShared,
       C,
       TKinds,
@@ -1376,7 +1230,6 @@ export class RecurrentStepperBuilder<
       recurrent: true,
       steps: this.steps,
       forms: this.forms,
-      controls: this.controls,
       shared: new SharedState(this.sharedInit),
       controlTypes: this.controlTypes,
       providers: this.providers,

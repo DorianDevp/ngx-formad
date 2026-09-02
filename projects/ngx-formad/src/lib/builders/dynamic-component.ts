@@ -11,7 +11,7 @@ export type Reactive<V> = V | (() => V);
 
 /** Keys of C that are signal inputs. */
 export type InputKeys<C> = {
-  [K in keyof C]: C[K] extends InputSignal<unknown> ? K : never;
+  [K in keyof C]: C[K] extends InputSignal<infer _V> ? K : never;
 }[keyof C];
 
 /** Keys of C that are output emitters. */

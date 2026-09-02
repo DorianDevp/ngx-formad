@@ -1,8 +1,25 @@
 import { Type } from '@angular/core';
+import { FormValueControl } from '@angular/forms/signals';
 import { ItemSpec, LayoutSpec, Responsive } from '../layout/layout-adapter';
 import { ContentBuild, buildContent } from '../builders/content';
-import { InputKeys, InputVal, OutputKeys, OutputVal } from '../builders/dynamic-component';
+import { InputKeys, InputVal, OutputKeys, OutputVal, Reactive } from '../builders/dynamic-component';
 import { FormComponentContext, FormComponentSpec, FormLayout, FormLayoutItem } from './form-config';
+
+type NotControl<C> = C extends FormValueControl<infer _V> ? never : unknown;
+
+type ControlValue<C> = C extends FormValueControl<infer V> ? V : never;
+
+type ValueFits<V, C> = V extends ControlValue<C> ? unknown : never;
+
+export type FormFieldManaged = keyof FormValueControl<unknown>;
+
+type PresentationalKeys<C> = InputKeys<Omit<C, FormFieldManaged>>;
+
+export interface FormControlCfg<C> extends ItemSpec {
+  readonly inputs?: { [K in PresentationalKeys<C>]?: Reactive<InputVal<C, K>> } & {
+    [K in Exclude<keyof C, PresentationalKeys<C>>]?: never;
+  };
+}
 
 // The layout overlay is authored here, separate from field-building: `ui` still
 // declares the fields (kind/label/options); this only decides render order, grid
@@ -68,8 +85,22 @@ export class FormLayoutBuilder<M extends Record<string, unknown>> {
     return this;
   }
 
+  control<K extends keyof M & string, C>(
+    key: K,
+    control: Type<C> & ValueFits<M[K], C>,
+    cfg: FormControlCfg<C> = {},
+  ): this {
+    this._items.push({
+      kind: 'control',
+      key,
+      control: { component: control, inputs: cfg.inputs ?? {} },
+      item: itemOf(cfg),
+    });
+    return this;
+  }
+
   /** Drop a component here, its inputs/outputs bound to the live form context. */
-  component<C>(component: Type<C>, cfg: FormComponentCfg<C, M> = {}): this {
+  component<C>(component: Type<C> & NotControl<C>, cfg: FormComponentCfg<C, M> = {}): this {
     this._items.push({
       kind: 'component',
       component: component as Type<unknown>,

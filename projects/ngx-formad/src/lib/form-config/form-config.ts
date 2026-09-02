@@ -1,12 +1,14 @@
 import { Type } from '@angular/core';
 import { FieldTree, SchemaOrSchemaFn } from '@angular/forms/signals';
 import {
+  CUSTOM_FIELD,
   RepeatingGroupNode,
   SelectFormControlNode,
   UiFormGroupConfig,
   UiFormGroupNode,
 } from 'formodel';
 import { ContentChild } from '../builders/content';
+import { Reactive } from '../builders/dynamic-component';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
 import { mapReactive, ReactiveControlNode, ReactiveUiConfig } from './reactive';
@@ -36,6 +38,13 @@ export interface FieldConfig {
   readonly node: ReactiveControlNode;
   /** Optional per-field layout, applied by the layout adapter's `item()`. */
   readonly layout?: ItemSpec;
+  readonly control?: ControlOverride;
+}
+
+export interface ControlOverride {
+  readonly component: Type<unknown>;
+
+  readonly inputs: Readonly<Record<string, Reactive<unknown>>>;
 }
 
 /** A scalar control in the render tree. */
@@ -156,6 +165,12 @@ export type RenderNode =
  *  placement), a component, a content block, or a nested row of further items. */
 export type FormLayoutItem<M extends Record<string, unknown>> =
   | { readonly kind: 'field'; readonly key: keyof M & string; readonly item?: ItemSpec }
+  | {
+      readonly kind: 'control';
+      readonly key: keyof M & string;
+      readonly control: ControlOverride;
+      readonly item?: ItemSpec;
+    }
   | FormComponentSpec<M>
   | FormContentSpec<M>
   | {
@@ -337,6 +352,18 @@ export function buildLayoutNodes(
         layout: item.item,
         children: buildLayoutNodes(ui, item.children, path),
       });
+    } else if (item.kind === 'control') {
+      const node = (ui as Record<string, unknown>)[item.key];
+      if (node) {
+        nodes.push({
+          kind: 'control',
+          key: item.key,
+          path: [...path, item.key],
+          node: node as ReactiveControlNode,
+          layout: item.item,
+          control: item.control,
+        });
+      }
     } else {
       const node = (ui as Record<string, unknown>)[item.key];
       if (node) nodes.push(buildFieldNode(item.key, node, [...path, item.key], item.item));
@@ -383,6 +410,7 @@ export function extraInputsFor(node: ReactiveControlNode): Record<string, unknow
   // itself be a signal, unwrapped like any other entry.
   const props = (node as { props?: unknown }).props;
   if (props !== undefined) return { props };
+  if (node.type === CUSTOM_FIELD) return {};
 
   const inputs: Record<string, unknown> = {};
 

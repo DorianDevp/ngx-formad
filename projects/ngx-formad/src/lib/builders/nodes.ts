@@ -48,22 +48,6 @@ export interface FormNode {
   readonly initial?: RuntimeFormSeed;
 }
 
-/** A standalone value control drawn from the pool by name (`createControl` +
- *  `addControl`): a `FormValueControl` component the runtime wraps in an implicit
- *  single-value field tree, so its validity folds into step completion and its
- *  value commits like a form's. */
-export interface ValueControlNode {
-  readonly kind: 'control';
-  readonly name: string;
-  /** Extra presentational inputs/outputs; the value itself is bound by `FormField`. */
-  readonly bindings: Binding[];
-  readonly visibleWhen?: () => boolean;
-  readonly layout?: string;
-  /** Shared-state key the value syncs with (directional: seed on entry if
-   *  pristine, commit on leave) — same engine as a form field's `bind`. */
-  readonly sharedKey?: string;
-}
-
 /** A nested layout group. */
 export interface RowNode {
   readonly kind: 'row';
@@ -72,7 +56,7 @@ export interface RowNode {
 }
 
 /** Anything that can sit in a page. */
-export type LayoutNode = ContentNode | ComponentNode | FormNode | ValueControlNode | RowNode;
+export type LayoutNode = ContentNode | ComponentNode | FormNode | RowNode;
 
 /** Page chrome - the text a chrome draws around the page's nodes. Both lines are
  *  `Reactive`, because a step's own heading is often a function of what the user

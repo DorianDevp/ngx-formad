@@ -4,7 +4,6 @@ import { SharedState } from '../sync/shared-state';
 import { Reactive } from './dynamic-component';
 import { SequenceNodeKind, StepNode } from './nodes';
 import {
-  AnyControlEntry,
   AnyFormProvider,
   DeferTrigger,
   RuntimeResultResolver,
@@ -26,8 +25,6 @@ export interface FlowDefinition {
   readonly steps: readonly SequenceNode[];
 
   readonly forms: Record<string, AnyFormProvider>;
-
-  readonly controls: Record<string, AnyControlEntry>;
 
   readonly shared: SharedState<Record<string, unknown>>;
 

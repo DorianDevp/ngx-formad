@@ -570,7 +570,6 @@ export class FormadStepperController implements StepperController {
 
     const issues: StepIssue[] = [];
     for (const form of step.forms) if (form.visible()) issues.push(...form.issues());
-    for (const control of step.controls) if (control.visible()) issues.push(...control.issues());
 
     if (node.completeWhen && !this.inContext(() => node.completeWhen!(this.context()))) {
       issues.push({
@@ -709,7 +708,6 @@ export class FormadStepperController implements StepperController {
     const step = this.ownStep();
     if (step) {
       for (const form of step.forms) form.touch();
-      for (const control of step.controls) control.touch();
     }
     this.attemptedNext.set(true);
   }
@@ -938,7 +936,6 @@ export class FormadStepperController implements StepperController {
     // completion fold and out of the blocker list already; committing it too would
     // push its factory defaults into shared state.
     for (const form of live.forms) if (form.visible()) form.commit();
-    for (const control of live.controls) if (control.visible()) control.commit();
 
     this.notifyCommitted();
   }
@@ -1012,7 +1009,6 @@ export class FormadStepperController implements StepperController {
   private showCached(node: StepNode, cached: LiveStep): LiveStep {
     if (this.lastShown !== node) {
       for (const form of cached.forms) form.seed();
-      for (const control of cached.controls) control.seed();
       this.lastShown = node;
     }
 
@@ -1023,7 +1019,6 @@ export class FormadStepperController implements StepperController {
     const live = materializeStep(
       pages,
       resolved,
-      this.flow.controls,
       this.flow.shared,
       this.environment,
       this.inContext(() => this.entryContext(node)),
@@ -1071,10 +1066,6 @@ function valuesOf(live: LiveStep): Record<string, unknown> {
 
   for (const form of live.forms) {
     if (form.visible()) values[form.name] = form.state.model();
-  }
-
-  for (const control of live.controls) {
-    if (control.visible()) values[control.name] = control.value();
   }
 
   return values;
