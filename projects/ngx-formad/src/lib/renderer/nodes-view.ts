@@ -1,272 +1,326 @@
 import { Component, computed, inject, input } from '@angular/core';
 import { FieldState, FieldTree } from '@angular/forms/signals';
-import { LAYOUT_ADAPTER } from '../provide';
-import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
+import { ContentChild } from '../builders/content';
+import { ErasedRecord, ErasedValue } from '../builders/step-context';
 import {
   ArrayNode,
   ControlNode,
+  FieldNode,
   FormContentNode,
   FormLayoutContext,
   FormRowNode,
   GroupNode,
   RenderNode,
+  RenderNodeKind,
 } from '../form-config/form-config';
-import { ContentChild } from '../builders/content';
+import { ItemSpec, LayoutAdapter, LayoutSpec } from '../layout/layout-adapter';
+import { LAYOUT_ADAPTER } from '../provide';
 import { FormadWizard } from '../runtime/wizard-context';
 import { ContentView } from './content-view';
 import { FieldOutlet } from './field-outlet';
+import { childOf, FieldItems, FieldLevel } from './instantiate-form';
 import { BoundOutputEffect } from './output-effect';
 
-// Draws one level of the render tree, recursing into nested groups. It is the
-// recursive core the flat `FormRenderer` of old grew into: a control becomes a
-// `FieldOutlet`; a group becomes a labelled fieldset whose body is *this same
-// component* over the group's children and the matching child field tree
-// (`root.location` → its `city`, `street`, …). Validation needs nothing special —
-// `form(model)` already nests the `FieldTree` and folds validity over the whole.
+interface Placement {
+  readonly itemClass: string;
+  readonly itemStyle: Readonly<Record<string, string>>;
+}
+
+interface ControlRow extends Placement {
+  readonly kind: RenderNodeKind.Control;
+  readonly key: string;
+  readonly node: ControlNode;
+  readonly tree: FieldTree<ErasedValue>;
+}
+
+interface GroupRow extends Placement {
+  readonly kind: RenderNodeKind.Group;
+  readonly key: string;
+  readonly label: string;
+  readonly children: readonly RenderNode[];
+  readonly tree: FieldLevel;
+  readonly layout: LayoutSpec;
+  readonly blockClass: string;
+}
+
+interface ArrayItemRow {
+  readonly index: number;
+  readonly tree: FieldLevel;
+}
+
+interface ArrayRow extends Placement {
+  readonly kind: RenderNodeKind.Array;
+  readonly key: string;
+  readonly node: ArrayNode;
+  readonly state: FieldState<ErasedValue[]>;
+  readonly items: readonly ArrayItemRow[];
+  readonly blockClass: string;
+}
+
+interface ContentRow extends Placement {
+  readonly kind: RenderNodeKind.Content;
+  readonly key: string;
+  readonly children: readonly ContentChild[];
+}
+
+interface LayoutRow extends Placement {
+  readonly kind: RenderNodeKind.Row;
+  readonly key: string;
+  readonly children: readonly RenderNode[];
+  readonly grid: LayoutSpec;
+}
+
+type ViewRow = ControlRow | GroupRow | ArrayRow | ContentRow | LayoutRow;
+
+interface LevelScope {
+  readonly tree: FieldLevel;
+  readonly context: FormLayoutContext;
+  readonly adapter: LayoutAdapter;
+}
+
+function placementOf(adapter: LayoutAdapter, spec: ItemSpec | undefined): Placement {
+  const classes = adapter.item(spec ?? {});
+
+  return { itemClass: classes.class ?? '', itemStyle: classes.style ?? {} };
+}
+
+function blockClass(base: string, placement: Placement): string {
+  const placed = placement.itemClass.length > 0 || Object.keys(placement.itemStyle).length > 0;
+  if (!placed) return `${base} ngx-formad-col-full`;
+
+  return placement.itemClass ? `${base} ${placement.itemClass}` : base;
+}
+
+function groupRow(node: GroupNode, scope: LevelScope): GroupRow {
+  const placement = placementOf(scope.adapter, node.layout);
+
+  return {
+    kind: RenderNodeKind.Group,
+    key: node.key,
+    label: node.label,
+    children: node.children,
+    tree: childOf(scope.tree, node.key) as FieldLevel,
+    layout: { cols: node.maxCols },
+    blockClass: blockClass('ngx-formad-group', placement),
+    ...placement,
+  };
+}
+
+function arrayRow(node: ArrayNode, scope: LevelScope): ArrayRow {
+  const placement = placementOf(scope.adapter, node.layout);
+  const items = childOf(scope.tree, node.key) as FieldItems;
+  const state = items();
+  const length = state.value().length;
+
+  return {
+    kind: RenderNodeKind.Array,
+    key: node.key,
+    node,
+    state,
+    items: Array.from({ length }, (_, index) => ({ index, tree: items[index] as FieldLevel })),
+    blockClass: blockClass('ngx-formad-array', placement),
+    ...placement,
+  };
+}
+
+function contentRow(node: FormContentNode, scope: LevelScope): ContentRow | null {
+  const visible = node.visibleWhen ? node.visibleWhen(scope.context) : true;
+  if (!visible || node.children.length === 0) return null;
+
+  return {
+    kind: RenderNodeKind.Content,
+    key: node.key,
+    children: node.children,
+    ...placementOf(scope.adapter, node.layout),
+  };
+}
+
+function layoutRow(node: FormRowNode, scope: LevelScope): LayoutRow {
+  return {
+    kind: RenderNodeKind.Row,
+    key: node.key,
+    children: node.children,
+    grid: node.grid,
+    ...placementOf(scope.adapter, node.layout),
+  };
+}
+
+function rowOf(node: RenderNode, scope: LevelScope): ViewRow | null {
+  const field = scope.tree[node.key];
+  if (field !== undefined && field().hidden()) return null;
+
+  switch (node.kind) {
+    case RenderNodeKind.Control:
+      return {
+        kind: RenderNodeKind.Control,
+        key: node.key,
+        node,
+        tree: childOf(scope.tree, node.key),
+        ...placementOf(scope.adapter, node.layout),
+      };
+    case RenderNodeKind.Group:
+      return groupRow(node, scope);
+    case RenderNodeKind.Array:
+      return arrayRow(node, scope);
+    case RenderNodeKind.Content:
+      return contentRow(node, scope);
+    case RenderNodeKind.Row:
+      return layoutRow(node, scope);
+  }
+}
+
+function blankValue(type: FieldNode['type']): ErasedValue {
+  switch (type) {
+    case 'number':
+    case 'date':
+    case 'select':
+    case 'radio':
+    case 'file':
+      return null;
+    case 'checkbox':
+      return false;
+    default:
+      return '';
+  }
+}
+
+function blankEntries(node: RenderNode): [string, ErasedValue][] {
+  switch (node.kind) {
+    case RenderNodeKind.Content:
+    case RenderNodeKind.Row:
+      return [];
+    case RenderNodeKind.Group:
+      return [[node.key, blankItem(node.children)]];
+    case RenderNodeKind.Array:
+      return [[node.key, []]];
+    case RenderNodeKind.Control:
+      return [[node.key, blankValue(node.node.type)]];
+  }
+}
+
+function blankItem(nodes: readonly RenderNode[]): ErasedRecord {
+  return Object.fromEntries(nodes.flatMap((node) => blankEntries(node)));
+}
+
+/** Draws one level of the render tree, recursing into groups, rows and repeating arrays over the matching field trees. */
 @Component({
   selector: 'ngx-formad-nodes',
   imports: [FieldOutlet, ContentView],
-  // `display: contents` so this wrapper adds no layout box — the grid `<div>` below
-  // is the real container, and nested groups stack without piling up extra nesting.
   host: { style: 'display: contents' },
   template: `
     <div [class]="containerClass()" [style]="containerStyle()">
-      @for (node of nodes(); track node.key) {
-        <!-- Honor the native field state: a field hidden by the schema's
-             \`hidden()\` logic drops out of the DOM (and out of validation). -->
-        @if (!hiddenAt(node.key)) {
-        @switch (node.kind) {
-          @case ('group') {
-            <fieldset [class]="blockClass('ngx-formad-group', group(node).layout)" [style]="itemStyle(group(node).layout)">
-              @if (group(node).label) {
-                <legend class="ngx-formad-group-label">{{ group(node).label }}</legend>
+      @for (row of rows(); track row.key) {
+        @switch (row.kind) {
+          @case (kinds.Group) {
+            <fieldset [class]="row.blockClass" [style]="row.itemStyle">
+              @if (row.label) {
+                <legend class="ngx-formad-group-label">{{ row.label }}</legend>
               }
-
               <ngx-formad-nodes
-                [nodes]="group(node).children"
-                [tree]="childTree(node.key)"
-                [model]="childModel(node.key)"
-                [layout]="{ cols: group(node).maxCols }"
+                [nodes]="row.children"
+                [tree]="row.tree"
+                [layout]="row.layout"
                 [effects]="effects()"
               />
             </fieldset>
           }
-          @case ('control') {
-            <!-- The directive mounts the control as the grid item itself — no
-                 wrapper div; the field's own layout lands on the control host. -->
+          @case (kinds.Control) {
             <ng-container
               ngxFormadField
-              [node]="leaf(node.key)"
-              [config]="control(node)"
+              [node]="row.tree"
+              [config]="row.node"
               [effects]="effects()"
               [context]="layoutContext()"
             />
           }
-          @case ('content') {
-            <!-- Prose in the field flow: its own grid slot, gated like a component. -->
-            @if (nodeVisible(node) && contentChildren(node).length) {
-              <div
-                [class]="itemClass(contentNode(node).layout)"
-                [style]="itemStyle(contentNode(node).layout)"
-              >
-                <ngx-formad-content [children]="contentChildren(node)" />
-              </div>
-            }
+          @case (kinds.Content) {
+            <div [class]="row.itemClass" [style]="row.itemStyle">
+              <ngx-formad-content [children]="row.children" />
+            </div>
           }
-          @case ('row') {
-            <!-- A nested layout row: its own sub-grid over the same field-tree level. -->
-            <div [class]="itemClass(rowNode(node).layout)" [style]="itemStyle(rowNode(node).layout)">
+          @case (kinds.Row) {
+            <div [class]="row.itemClass" [style]="row.itemStyle">
               <ngx-formad-nodes
-                [nodes]="rowNode(node).children"
+                [nodes]="row.children"
                 [tree]="tree()"
-                [model]="model()"
-                [layout]="rowNode(node).grid"
+                [layout]="row.grid"
                 [effects]="effects()"
               />
             </div>
           }
-          @case ('array') {
-            <fieldset [class]="blockClass('ngx-formad-array', array(node).layout)" [style]="itemStyle(array(node).layout)">
-
-              @if (array(node).node.label) {
-                <legend class="ngx-formad-group-label">{{ array(node).node.label }}</legend>
+          @case (kinds.Array) {
+            <fieldset [class]="row.blockClass" [style]="row.itemStyle">
+              @if (row.node.node.label) {
+                <legend class="ngx-formad-group-label">{{ row.node.node.label }}</legend>
               }
-
-              @for (i of itemIndexes(node.key); track i) {
+              @for (item of row.items; track item.index) {
                 <div class="ngx-formad-array-item">
-                  <ngx-formad-nodes
-                    [nodes]="array(node).item"
-                    [tree]="itemTree(node.key, i)"
-                    [model]="itemModel(node.key, i)"
-                  />
-
-                  @if (array(node).node.removable !== false) {
-                    <button
-                      type="button"
-                      class="ngx-formad-array-remove"
-                      (click)="removeItem(node.key, i)"
-                    >
-                      {{ array(node).node.removeLabel ?? 'Remove' }}
+                  <ngx-formad-nodes [nodes]="row.node.item" [tree]="item.tree" />
+                  @if (row.node.node.removable !== false) {
+                    <button type="button" class="ngx-formad-array-remove" (click)="removeItem(row, item.index)">
+                      {{ row.node.node.removeLabel ?? 'Remove' }}
                     </button>
                   }
                 </div>
               }
-              @if (array(node).node.addable !== false) {
-                <button type="button" class="ngx-formad-array-add" (click)="addItem(node)">
-                  {{ array(node).node.addLabel ?? 'Add' }}
+              @if (row.node.node.addable !== false) {
+                <button type="button" class="ngx-formad-array-add" (click)="addItem(row)">
+                  {{ row.node.node.addLabel ?? 'Add' }}
                 </button>
               }
             </fieldset>
           }
-        }
         }
       }
     </div>
   `,
 })
 export class NodesView {
-  /** The nodes at this level of the tree. */
   readonly nodes = input.required<readonly RenderNode[]>();
-  /** The field tree at this level, indexable by child key. */
-  readonly tree = input.required<Record<string, FieldTree<unknown>>>();
-  /** The live model VALUE at this level — fed to layout components' input getters
-   *  so their bindings stay reactive as fields change. */
-  readonly model = input<Record<string, unknown>>({});
-  /** How this level's children are arranged; resolved through the layout adapter. */
+
+  readonly tree = input.required<FieldLevel>();
+
   readonly layout = input<LayoutSpec>({});
-  /** Control-output effects, passed through to each field directive (and nested groups). */
+
   readonly effects = input<readonly BoundOutputEffect[]>([]);
 
+  readonly kinds = RenderNodeKind;
+
   private readonly layoutAdapter = inject(LAYOUT_ADAPTER);
-  // Null for a standalone form; the cross-step store when inside `<ngx-formad-stepper>`.
+
   private readonly wizard = inject(FormadWizard, { optional: true });
 
-  // The leaf field tree a control binds to, and the child tree a group descends
-  // into — both a plain index into the current level (the native `root.x` move).
-  protected leaf(key: string): FieldTree<unknown> {
-    return this.tree()[key];
-  }
-  protected childTree(key: string): Record<string, FieldTree<unknown>> {
-    return this.tree()[key] as unknown as Record<string, FieldTree<unknown>>;
-  }
-
-  // Whether the field/group at `key` is hidden by the schema's native `hidden()`
-  // logic — read reactively so the `@if` toggles as the condition changes.
-  protected hiddenAt(key: string): boolean {
-    const node = this.tree()[key];
-    return node ? (node as unknown as () => FieldState<unknown>)().hidden() : false;
-  }
-
-  // The child model a group descends into, and the item model an array item binds
-  // to — plain reads of the current model value, kept reactive via the input signal.
-  protected childModel(key: string): Record<string, unknown> {
-    return (this.model()[key] as Record<string, unknown>) ?? {};
-  }
-  protected itemModel(key: string, i: number): Record<string, unknown> {
-    return ((this.model()[key] as unknown[])?.[i] as Record<string, unknown>) ?? {};
-  }
-
-  // Narrowing helpers for the template's `@switch` (templates can't cast).
-  protected control(node: RenderNode): ControlNode {
-    return node as ControlNode;
-  }
-  protected group(node: RenderNode): GroupNode {
-    return node as GroupNode;
-  }
-  protected array(node: RenderNode): ArrayNode {
-    return node as ArrayNode;
-  }
-  protected contentNode(node: RenderNode): FormContentNode {
-    return node as FormContentNode;
-  }
-  protected rowNode(node: RenderNode): FormRowNode {
-    return node as FormRowNode;
-  }
-
-  protected readonly layoutContext = computed<FormLayoutContext>(() => ({
-    model: this.model(),
+  readonly layoutContext = computed<FormLayoutContext>(() => ({
+    model: this.tree()().value(),
     shared: this.wizard?.sharedOrNull() ?? null,
   }));
 
-  protected nodeVisible(node: RenderNode): boolean {
-    const gate = (node as FormContentNode).visibleWhen;
-    return gate ? gate(this.layoutContext()) : true;
-  }
+  readonly rows = computed<readonly ViewRow[]>(() => {
+    const scope: LevelScope = {
+      tree: this.tree(),
+      context: this.layoutContext(),
+      adapter: this.layoutAdapter,
+    };
 
-  // Hand-built or deserialized content may carry no children; that is an empty
-  // block, not a crash (`children` is `input.required` on the view).
-  protected contentChildren(node: RenderNode): readonly ContentChild[] {
-    return (node as FormContentNode).children ?? [];
-  }
+    return this.nodes().flatMap((node) => {
+      const row = rowOf(node, scope);
 
-  // An item's grid placement (colSpan/colStart), as the adapter answers it. Both
-  // halves matter: the class adapter returns classes, the zero-dependency CSS-grid
-  // default returns *styles*, and a consumer reading only one silently drops the
-  // placement of every component, content block and row.
-  protected itemClass(spec: ItemSpec | undefined): string {
-    return this.layoutAdapter.item(spec ?? {}).class ?? '';
-  }
-  protected itemStyle(spec: ItemSpec | undefined): Record<string, string> {
-    return this.layoutAdapter.item(spec ?? {}).style ?? {};
-  }
-
-  // A group or array spans the whole row unless the overlay placed it - the
-  // full-width default is what makes a nested fieldset readable, but it is a
-  // default, not a rule the layout cannot override.
-  protected blockClass(base: string, spec: ItemSpec | undefined): string {
-    const placement = spec ? this.itemClass(spec) : '';
-    const hasStyle = spec ? Object.keys(this.itemStyle(spec)).length > 0 : false;
-    if (!spec || (!placement && !hasStyle)) return `${base} ngx-formad-col-full`;
-    return placement ? `${base} ${placement}` : base;
-  }
-
-  // ── Repeating arrays ──
-  // The array field is index-by-number to item field trees; its value signal
-  // (`U[]`) drives the count, so reading it here keeps `@for` reactive, and
-  // add/remove are plain immutable updates of that signal.
-  private arrayState(key: string): FieldState<unknown[]> {
-    return (this.tree()[key] as unknown as () => FieldState<unknown[]>)();
-  }
-  protected itemIndexes(key: string): number[] {
-    const length = this.arrayState(key).value().length;
-    return Array.from({ length }, (_, i) => i);
-  }
-  protected itemTree(key: string, i: number): Record<string, FieldTree<unknown>> {
-    const items = this.tree()[key] as unknown as Record<number, FieldTree<unknown>>;
-    return items[i] as unknown as Record<string, FieldTree<unknown>>;
-  }
-  protected addItem(node: RenderNode): void {
-    const blank = blankItem(this.array(node).item);
-    this.arrayState(node.key).value.update((items) => [...items, blank]);
-  }
-  protected removeItem(key: string, i: number): void {
-    this.arrayState(key).value.update((items) => items.filter((_, idx) => idx !== i));
-  }
+      return row === null ? [] : [row];
+    });
+  });
 
   private readonly container = computed(() => this.layoutAdapter.container(this.layout()));
-  protected readonly containerClass = computed(() => this.container().class ?? '');
-  protected readonly containerStyle = computed(() => this.container().style ?? {});
-}
 
-// A fresh array item, built from the item's render nodes: controls get a kind-
-// appropriate empty value, groups recurse, nested arrays start empty.
-// The empty value a control kind starts from. A date, a select and a file are all
-// "nothing chosen", which is `null` - seeding them with `''` types a new array item
-// differently from the model factory that made the first one.
-function blankValue(type: string): unknown {
-  if (type === 'number' || type === 'date' || type === 'select' || type === 'radio') return null;
-  if (type === 'file') return null;
-  if (type === 'checkbox') return false;
-  return '';
-}
+  readonly containerClass = computed(() => this.container().class ?? '');
 
-function blankItem(nodes: readonly RenderNode[]): Record<string, unknown> {
-  const item: Record<string, unknown> = {};
-  for (const node of nodes) {
-    if (node.kind === 'content' || node.kind === 'row') continue;
-    if (node.kind === 'group') item[node.key] = blankItem(node.children);
-    else if (node.kind === 'array') item[node.key] = [];
-    else item[node.key] = blankValue(node.node.type);
+  readonly containerStyle = computed(() => this.container().style ?? {});
+
+  addItem(row: ArrayRow): void {
+    const blank = blankItem(row.node.item);
+    row.state.value.update((items) => [...items, blank]);
   }
-  return item;
+
+  removeItem(row: ArrayRow, index: number): void {
+    row.state.value.update((items) => items.filter((_, at) => at !== index));
+  }
 }

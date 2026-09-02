@@ -1,14 +1,14 @@
 import { EnvironmentInjector } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { FieldTree } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
-import { FormConfig } from '../form-config/form-config';
-import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
 import { isStepNode, SequenceNode } from '../builders/flow';
 import { StepNode } from '../builders/nodes';
-import { StepperBuilder } from '../builders/stepper-builder';
-import { SharedState } from '../sync/shared-state';
+import { RuntimeStepContext } from '../builders/step-context';
+import { asStepper, StepperBuilder } from '../builders/stepper-builder';
+import { FormConfig } from '../form-config/form-config';
+import { childOf, FieldLevel } from '../renderer/instantiate-form';
 import {
+  MaterializeOptions,
   materializeStep,
   resolvePages,
   resolveStepForms,
@@ -26,6 +26,8 @@ const billing: FormConfig<Billing> = {
   model: () => ({ email: '' }),
   ui: UiFormConfigBuilder.from({ email: '' }).email(text('Billing email')),
 };
+
+const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
 function buildStepper() {
   return new StepperBuilder()
@@ -57,41 +59,54 @@ function buildStepper() {
     .build();
 }
 
-describe('materializeStep', () => {
-  it('carries a value entered in step 1 into step 5 through shared state', () => {
-    const stepper = buildStepper();
-    const injector = TestBed.inject(EnvironmentInjector);
-    const pool = stepper.forms as unknown as Record<string, FormConfig<Record<string, unknown>>>;
-    const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
+function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
+  const node = steps[index];
+  if (!isStepNode(node)) throw new Error(`step ${index} is not a leaf`);
 
-    // Enter step 1, type into the account email, commit on the way out.
-    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, shared, injector, EMPTY_CONTEXT);
-    const root1 = step1.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
-    const accountEmail = root1['email'];
+  return node;
+}
+
+function pagesAt(steps: readonly SequenceNode[], index: number) {
+  return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);
+}
+
+async function optionsFor(stepper: ReturnType<typeof buildStepper>, index: number): Promise<MaterializeOptions> {
+  const runtime = asStepper(stepper);
+  const pages = pagesAt(runtime.steps, index);
+
+  return {
+    pool: await resolveStepForms(pages, runtime.forms),
+    shared: runtime.shared,
+    environment: TestBed.inject(EnvironmentInjector),
+    entry: EMPTY_CONTEXT,
+  };
+}
+
+describe('materializeStep', () => {
+  it('carries a value entered in step 1 into step 2 through shared state', async () => {
+    const stepper = buildStepper();
+
+    const step1 = materializeStep(pagesAt(stepper.steps, 0), await optionsFor(stepper, 0));
+    const accountEmail = childOf(step1.forms[0].state.rootForm, 'email');
     accountEmail().value.set('alice@example.com');
     accountEmail().markAsDirty();
     step1.forms[0].commit();
 
-    // Enter step 2: its email is pristine, so it picks up the shared value.
-    const step2 = materializeStep(pagesAt(stepper.steps, 1), pool, shared, injector, EMPTY_CONTEXT);
-    const root2 = step2.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
-    const billingEmail = root2['email'];
+    const step2 = materializeStep(pagesAt(stepper.steps, 1), await optionsFor(stepper, 1));
+    const billingEmail = childOf(step2.forms[0].state.rootForm, 'email');
     expect(billingEmail().value()).toBe('alice@example.com');
   });
 
-  it('registers each form so the step folds completion over it', () => {
+  it('registers each form so the step folds completion over it', async () => {
     const stepper = buildStepper();
-    const injector = TestBed.inject(EnvironmentInjector);
-    const pool = stepper.forms as unknown as Record<string, FormConfig<Record<string, unknown>>>;
-    const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
-    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, shared, injector, EMPTY_CONTEXT);
+    const step1 = materializeStep(pagesAt(stepper.steps, 0), await optionsFor(stepper, 0));
+
     expect(step1.registry.live().length).toBe(1);
-    // No schema on these forms, so they are valid and the step is complete.
     expect(step1.registry.completed()).toBe(true);
   });
 
-  it('seeds and commits a nested-group field through its path', () => {
+  it('seeds and commits a nested-group field through its path', async () => {
     type Addr = { address: { city: string } };
     const addrForm: FormConfig<Addr> = {
       model: () => ({ address: { city: '' } }),
@@ -100,68 +115,61 @@ describe('materializeStep', () => {
         (b) => b.city(text('City')),
       ),
     };
-    const stepper = new StepperBuilder()
-      .withState({ city: '' })
-      .createForm('addr', addrForm)
-      .createStep((step) =>
-        step.createPage({ options: {} }, (page) =>
-          page.addForm((f) => f.addr, {
-            bind: (l) => l.link((m) => m.address.city, (s) => s.city),
-          }),
-        ),
-      )
-      .build();
-
-    const injector = TestBed.inject(EnvironmentInjector);
-    const pool = stepper.forms as unknown as Record<string, FormConfig<Record<string, unknown>>>;
-    const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
-
-    shared.patch({ city: 'Oslo' });
-    const live = materializeStep(pagesAt(stepper.steps, 0), pool, shared, injector, EMPTY_CONTEXT); // seeds on entry
-    const root = live.forms[0].state.rootForm as unknown as {
-      address: Record<string, FieldTree<unknown>>;
+    const runtime = asStepper(
+      new StepperBuilder()
+        .withState({ city: '' })
+        .createForm('addr', addrForm)
+        .createStep((step) =>
+          step.createPage({ options: {} }, (page) =>
+            page.addForm((f) => f.addr, {
+              bind: (l) => l.link((m) => m.address.city, (s) => s.city),
+            }),
+          ),
+        )
+        .build(),
+    );
+    const pages = pagesAt(runtime.steps, 0);
+    const options: MaterializeOptions = {
+      pool: await resolveStepForms(pages, runtime.forms),
+      shared: runtime.shared,
+      environment: TestBed.inject(EnvironmentInjector),
+      entry: EMPTY_CONTEXT,
     };
-    expect(root.address['city']().value()).toBe('Oslo'); // shared → nested field
 
-    root.address['city']().value.set('Bergen');
-    root.address['city']().markAsDirty();
+    options.shared.patch({ city: 'Oslo' });
+    const live = materializeStep(pages, options);
+    const address = childOf(live.forms[0].state.rootForm, 'address') as FieldLevel;
+    const city = childOf(address, 'city');
+    expect(city().value()).toBe('Oslo');
+
+    city().value.set('Bergen');
+    city().markAsDirty();
     live.forms[0].commit();
-    expect(shared.get('city')).toBe('Bergen'); // nested field → shared
+    expect(options.shared.get('city')).toBe('Bergen');
   });
 
   it('lists a step’s form names depth-first', () => {
     const stepper = buildStepper();
+
     expect(stepFormNames(pagesAt(stepper.steps, 0))).toEqual(['account']);
     expect(stepFormNames(pagesAt(stepper.steps, 1))).toEqual(['billing']);
   });
 
   it('resolveStepForms awaits a lazily-loaded form and passes eager ones through', async () => {
-    const lazyStepper = new StepperBuilder()
-      .withState({})
-      .createForm('account', account)
-      .createForm('billing', () => Promise.resolve(billing)) // lazy provider
-      .createStep((step) =>
-        step.createPage({ options: {} }, (page) => page.addForm((f) => f.account).addForm((f) => f.billing)),
-      )
-      .build();
+    const runtime = asStepper(
+      new StepperBuilder()
+        .withState({})
+        .createForm('account', account)
+        .createForm('billing', () => Promise.resolve(billing))
+        .createStep((step) =>
+          step.createPage({ options: {} }, (page) => page.addForm((f) => f.account).addForm((f) => f.billing)),
+        )
+        .build(),
+    );
 
-    const pool = lazyStepper.forms as unknown as Record<string, AnyFormProvider>;
-    const resolved = await resolveStepForms(pagesAt(lazyStepper.steps, 0), pool);
+    const resolved = await resolveStepForms(pagesAt(runtime.steps, 0), runtime.forms);
 
-    expect(resolved['account']).toBe(account); // eager: passed through
-    expect(resolved['billing']).toBe(billing); // lazy: awaited from the loader
+    expect(resolved['account']).toBe(account);
+    expect(resolved['billing']).toBe(billing);
   });
 });
-
-// The fixtures above author leaf steps only, so indexing is narrowing, not hope.
-function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
-  const node = steps[index];
-  if (!isStepNode(node)) throw new Error(`step ${index} is not a leaf`);
-  return node;
-}
-
-const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, parent: undefined };
-
-function pagesAt(steps: readonly SequenceNode[], index: number) {
-  return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);
-}

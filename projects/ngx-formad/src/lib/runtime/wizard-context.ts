@@ -1,43 +1,30 @@
 import { computed, Injectable, signal, Signal } from '@angular/core';
+import { ErasedRecord } from '../builders/step-context';
 import { SharedState } from '../sync/shared-state';
 import { StepperController } from './stepper-controller';
 
-// The wizard's collected data, injectable from any step slot or custom control
-// rendered inside `<ngx-formad-stepper>`. A summary screen reads `committed()`;
-// a value-contributing widget (a product picker) reads/writes `shared` — neither
-// needs the host to wire inputs. `StepperComponent` provides one instance for its
-// subtree, so slots created within it inherit it through DI.
-//
-// Inject it `{ optional: true }`: it is null for a standalone `<ngx-formad-form>`
-// that isn't inside a stepper.
+/** The wizard's collected data, injectable from any step slot or control rendered inside `<ngx-formad-stepper>`. */
 @Injectable()
 export class FormadWizard {
   private readonly _controller = signal<StepperController | null>(null);
-  private _shared: SharedState<Record<string, unknown>> | null = null;
 
-  /** The headless controller — `committed()`, `step()`, `index()`, `result()`, … */
+  private _shared: SharedState<ErasedRecord> | null = null;
+
   readonly controller: Signal<StepperController | null> = this._controller.asReadonly();
 
-  /** Every last-committed value, keyed by pool name (reactive): a form's model
-   *  record, or a standalone control's raw value. */
-  readonly committed = computed<Record<string, unknown>>(
-    () => this._controller()?.committed() ?? {},
-  );
+  readonly committed = computed<ErasedRecord>(() => this._controller()?.committed() ?? {});
 
-  /** The cross-step shared store — `get` / `patch` / `select` / `snapshot`. */
-  get shared(): SharedState<Record<string, unknown>> {
+  get shared(): SharedState<ErasedRecord> {
     if (!this._shared) throw new Error('FormadWizard is not initialized yet.');
+
     return this._shared;
   }
 
-  /** The shared store, or `null` if not yet wired — for readers (like a form's
-   *  layout components) that must not throw before the stepper shell initializes it. */
-  sharedOrNull(): SharedState<Record<string, unknown>> | null {
+  sharedOrNull(): SharedState<ErasedRecord> | null {
     return this._shared;
   }
 
-  /** @internal — wired once by the stepper shell. */
-  _init(controller: StepperController, shared: SharedState<Record<string, unknown>>): void {
+  _init(controller: StepperController, shared: SharedState<ErasedRecord>): void {
     this._shared = shared;
     this._controller.set(controller);
   }

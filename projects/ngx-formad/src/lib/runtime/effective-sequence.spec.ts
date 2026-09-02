@@ -48,7 +48,7 @@ function ctx(over: { shared?: Record<string, unknown>; steps?: Record<string, Ru
   const shared: Record<string, Signal<unknown>> = {};
   for (const [key, value] of Object.entries(over.shared ?? {})) shared[key] = signal(value);
 
-  return { steps: over.steps ?? {}, shared, parent: undefined };
+  return { steps: over.steps ?? {}, shared, flow: undefined, parent: undefined };
 }
 
 describe('effectiveSteps', () => {

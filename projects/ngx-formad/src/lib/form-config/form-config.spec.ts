@@ -1,42 +1,45 @@
 import { isSignal, Signal, signal } from '@angular/core';
-import { UiFormConfigBuilder, email, select, text, UiFormGroupConfig } from 'formodel';
+import { UiFormConfigBuilder, email, select, text } from 'formodel';
+import { ErasedRecord, ErasedValue } from '../builders/step-context';
 import {
   buildLayoutNodes,
   buildNodes,
+  ErasedUi,
   extraInputsFor,
   FormLayoutItem,
   FormRowNode,
   flattenFields,
   GroupNode,
+  RenderNodeKind,
   SelectOption,
 } from './form-config';
 import { formLayout } from './form-layout';
 import { reactive, ReactiveControlNode, readReactive } from './reactive';
 
-const erase = (ui: unknown) => ui as UiFormGroupConfig<Record<string, unknown>>;
-const eraseItems = (items: readonly FormLayoutItem<Record<string, string>>[]) =>
-  items as unknown as readonly FormLayoutItem<Record<string, unknown>>[];
+type Names = { first: string; last: string; password: string };
+
+function erasedItems(items: readonly FormLayoutItem<Names>[]): readonly FormLayoutItem<ErasedRecord>[] {
+  return items as readonly FormLayoutItem<ErasedRecord>[];
+}
 
 describe('flattenFields', () => {
   it('emits one field per top-level scalar control, in order', () => {
-    const ui = UiFormConfigBuilder.from({ first: '', last: '' })
+    const ui: ErasedUi = UiFormConfigBuilder.from({ first: '', last: '' })
       .first(text('First'))
       .last(text('Last'));
 
-    const fields = flattenFields(erase(ui));
+    const fields = flattenFields(ui);
 
     expect(fields.map((f) => f.key)).toEqual(['first', 'last']);
     expect(fields[0].node.type).toBe('text');
   });
 
   it('flattens nested-group leaves with their full path', () => {
-    const ui = UiFormConfigBuilder.from({ name: '', address: { city: '', street: '' } })
+    const ui: ErasedUi = UiFormConfigBuilder.from({ name: '', address: { city: '', street: '' } })
       .name(text('Name'))
-      .address({ label: 'Address', maxCols: 2 }, (b) =>
-        b.city(text('City')).street(text('Street')),
-      );
+      .address({ label: 'Address', maxCols: 2 }, (b) => b.city(text('City')).street(text('Street')));
 
-    const fields = flattenFields(erase(ui));
+    const fields = flattenFields(ui);
 
     expect(fields.map((f) => f.path.join('.'))).toEqual(['name', 'address.city', 'address.street']);
   });
@@ -44,20 +47,18 @@ describe('flattenFields', () => {
 
 describe('buildNodes', () => {
   it('builds a group node for a nested object, with its children', () => {
-    const ui = UiFormConfigBuilder.from({ name: '', address: { city: '', street: '' } })
+    const ui: ErasedUi = UiFormConfigBuilder.from({ name: '', address: { city: '', street: '' } })
       .name(text('Name'))
-      .address({ label: 'Address', maxCols: 2 }, (b) =>
-        b.city(text('City')).street(text('Street')),
-      );
+      .address({ label: 'Address', maxCols: 2 }, (b) => b.city(text('City')).street(text('Street')));
 
-    const nodes = buildNodes(erase(ui));
+    const nodes = buildNodes(ui);
 
-    expect(nodes.map((n) => n.kind)).toEqual(['control', 'group']);
+    expect(nodes.map((n) => n.kind)).toEqual([RenderNodeKind.Control, RenderNodeKind.Group]);
     const group = nodes[1] as GroupNode;
     expect(group.label).toBe('Address');
     expect(group.maxCols).toBe(2);
     expect(group.children.map((c) => c.key)).toEqual(['city', 'street']);
-    expect(group.children.every((c) => c.kind === 'control')).toBe(true);
+    expect(group.children.every((c) => c.kind === RenderNodeKind.Control)).toBe(true);
   });
 });
 
@@ -83,24 +84,17 @@ describe('extraInputsFor', () => {
 
   it('includes a placeholder only when the node carries one', () => {
     expect(extraInputsFor(text('Name'))).not.toHaveProperty('placeholder');
-    expect(extraInputsFor(text('Name', { placeholder: 'Jane' }))).toHaveProperty(
-      'placeholder',
-      'Jane',
-    );
+    expect(extraInputsFor(text('Name', { placeholder: 'Jane' }))).toHaveProperty('placeholder', 'Jane');
   });
 });
 
-describe('extraInputsFor — reactive props', () => {
+describe('extraInputsFor - reactive props', () => {
   it('maps signal-backed select options through a live computed', () => {
     const options = signal<SelectOption[]>([{ value: 'admin', description: 'Admin' }]);
     const node: ReactiveControlNode = { type: 'select', label: 'Role', options };
 
-    const mapped = extraInputsFor(node)['options'] as Signal<
-      readonly { value: unknown; label: string }[]
-    >;
+    const mapped = extraInputsFor(node)['options'] as Signal<readonly { value: ErasedValue; label: string }[]>;
 
-    // The mapping stays live: it is a computed over the authored signal, so
-    // seeding the options after instantiation re-maps without re-rendering.
     expect(isSignal(mapped)).toBe(true);
     expect(mapped()).toEqual([{ value: 'admin', label: 'Admin' }]);
 
@@ -131,40 +125,37 @@ describe('extraInputsFor — reactive props', () => {
 });
 
 describe('buildLayoutNodes', () => {
-  const ui = erase(
-    UiFormConfigBuilder.from({ first: '', last: '', password: '' })
-      .first(text('First'))
-      .last(text('Last'))
-      .password(text('Password')),
-  );
+  const ui: ErasedUi = UiFormConfigBuilder.from({ first: '', last: '', password: '' })
+    .first(text('First'))
+    .last(text('Last'))
+    .password(text('Password'));
 
   it('resolves fields by key in overlay order, applying placement', () => {
-    const { items } = formLayout<Record<string, string>>()
-      .field('last')
-      .field('first', { colSpan: 2 })
-      .build();
+    const { items } = formLayout<Names>().field('last').field('first', { colSpan: 2 }).build();
 
-    const nodes = buildLayoutNodes(ui, eraseItems(items));
+    const nodes = buildLayoutNodes(ui, erasedItems(items));
 
     expect(nodes.map((n) => n.key)).toEqual(['last', 'first']);
-    expect(nodes[1]).toMatchObject({ kind: 'control', key: 'first', layout: { colSpan: 2 } });
+    expect(nodes[1]).toMatchObject({ kind: RenderNodeKind.Control, key: 'first', layout: { colSpan: 2 } });
   });
 
   it('skips a field key that has no matching ui entry', () => {
-    const { items } = formLayout<Record<string, string>>().field('first').field('missing').build();
-    const nodes = buildLayoutNodes(ui, eraseItems(items));
+    const { items } = formLayout<Names & { missing: string }>().field('first').field('missing').build();
+
+    const nodes = buildLayoutNodes(ui, items as readonly FormLayoutItem<ErasedRecord>[]);
+
     expect(nodes.map((n) => n.key)).toEqual(['first']);
   });
 
   it('builds a row node whose children resolve against the same ui', () => {
-    const { items } = formLayout<Record<string, string>>()
-      .row({ cols: 2 }, (row) => row.field('first').field('last'))
+    const { items } = formLayout<Names>()
+      .row((row) => row.field('first').field('last'), { cols: 2 })
       .build();
 
-    const nodes = buildLayoutNodes(ui, eraseItems(items));
+    const nodes = buildLayoutNodes(ui, erasedItems(items));
     const row = nodes[0] as FormRowNode;
 
-    expect(row.kind).toBe('row');
+    expect(row.kind).toBe(RenderNodeKind.Row);
     expect(row.grid).toEqual({ cols: 2 });
     expect(row.children.map((c) => c.key)).toEqual(['first', 'last']);
   });

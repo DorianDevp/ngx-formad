@@ -1,11 +1,11 @@
+import { Signal, signal } from '@angular/core';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
+import { effectiveSteps } from '../runtime/effective-sequence';
 import { isFlowStep, isRecurrent } from './flow';
 import { SequenceNodeKind } from './nodes';
-import { Signal, signal } from '@angular/core';
-import { RuntimeStepContext, RuntimeStepInstance } from './step-context';
+import { ErasedValue, RuntimeStepContext, RuntimeStepInstance } from './step-context';
 import { RecurrentStepperBuilder, StepperBuilder } from './stepper-builder';
-import { effectiveSteps } from '../runtime/effective-sequence';
 
 type One = { v: string };
 
@@ -16,20 +16,24 @@ const form = (label: string): FormConfig<One> => ({
 
 type Item = { name: string };
 
-// A ring-context factory: the shape a recurrent controller supplies to its own
-// steps' conditions — shared and ring state as signals, hand-built.
-function ctx(
-  flow: { collection: unknown; passOpen: boolean },
-  values: Record<string, unknown> = {},
-  steps: Record<string, RuntimeStepInstance> = {},
-): RuntimeStepContext {
-  const shared: Record<string, Signal<unknown>> = {};
-  for (const [key, value] of Object.entries(values)) shared[key] = signal(value);
+interface RingCtx {
+  readonly state: Item[];
+
+  readonly passOpen: boolean;
+
+  readonly values?: Record<string, ErasedValue>;
+
+  readonly steps?: Record<string, RuntimeStepInstance>;
+}
+
+function ctx(ring: RingCtx): RuntimeStepContext {
+  const shared: Record<string, Signal<ErasedValue>> = {};
+  for (const [key, value] of Object.entries(ring.values ?? {})) shared[key] = signal(value);
 
   return {
-    steps,
+    steps: ring.steps ?? {},
     shared,
-    flow: { collection: signal(flow.collection), passOpen: signal(flow.passOpen) },
+    flow: { state: signal(ring.state), passOpen: signal(ring.passOpen) },
     parent: undefined,
   };
 }
@@ -40,15 +44,14 @@ const built = new StepperBuilder()
   .withState({ source: null as Source | null })
   .createForm('intro', form('Intro'))
   .createStep((s) => s.createPage({ options: { heading: 'Intro' } }, (p) => p.addForm((f) => f.intro)))
-  .createRecurrentStepper(
-    'devices',
-    { collection: (): Item[] => [], label: 'Devices' },
-    (loop) =>
+  .createRecurrentStepper('devices', {
+    initial: (): Item[] => [],
+    label: 'Devices',
+    build: (loop) =>
       loop
         .withState({ draftName: '' })
         .createForm('name', form('Name'))
         .createForm('bulk', form('Bulk'))
-        // The keys come straight from the shared field's type; null = no branch.
         .branch((c) => c.shared.source(), {
           manual: (b) =>
             b.step((s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm((f) => f.name)), {
@@ -63,10 +66,12 @@ const built = new StepperBuilder()
         .dock((s) => s.createPage({ options: { heading: 'Collected' } }, (p) => p.addContent()), {
           label: 'Dock',
         }),
-  )
+  })
   .build();
 
 const flowNode = built.steps[1];
+
+const ring = isFlowStep(flowNode) && isRecurrent(flowNode.flow) ? flowNode.flow : null;
 
 describe('createRecurrentStepper - the emitted node', () => {
   it('emits ONE flow node carrying the whole ring', () => {
@@ -77,23 +82,22 @@ describe('createRecurrentStepper - the emitted node', () => {
     expect(isRecurrent(flowNode.flow)).toBe(true);
   });
 
-  it('does NOT merge the flow pool or state into the parent (the anti-fork rule)', () => {
-    const parentPool = built.forms as Record<string, unknown>;
-    expect(Object.keys(parentPool)).toEqual(['intro']);
+  it('does NOT merge the flow pool or state into the parent', () => {
+    expect(Object.keys(built.forms)).toEqual(['intro']);
     expect(() => built.shared.get('draftName' as never)).toThrow();
   });
 
   it('authors the dock last and records its position', () => {
-    if (!isFlowStep(flowNode) || !isRecurrent(flowNode.flow)) throw new Error('not a ring');
-    expect(flowNode.flow.dockAt).toBe(flowNode.flow.steps.length - 1);
+    expect(ring?.dockAt).toBe((ring?.steps.length ?? 0) - 1);
   });
 
-  it('mirrors the flow completeness onto the parent slot, seeded before any fold', () => {
+  it('mirrors the flow completeness onto the parent slot, from the initial state before any fold', () => {
     if (!isFlowStep(flowNode)) throw new Error('expected a flow step');
-    const empty: RuntimeStepContext = { steps: {}, shared: {}, parent: undefined };
+    const empty: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
     const one: RuntimeStepContext = {
-      steps: { devices: [{ name: 'a' }] as unknown as RuntimeStepInstance },
+      steps: { devices: [{ name: 'a' }] },
       shared: {},
+      flow: undefined,
       parent: undefined,
     };
     expect(flowNode.completeWhen?.(empty)).toBe(false);
@@ -102,41 +106,30 @@ describe('createRecurrentStepper - the emitted node', () => {
 });
 
 describe('createRecurrentStepper - the ring gates', () => {
-  const ring = isFlowStep(flowNode) && isRecurrent(flowNode.flow) ? flowNode.flow : null;
-
   it('shows exactly the dock while no pass is open', () => {
-    const visible = effectiveSteps(ring!.steps, ctx({ collection: [], passOpen: false }));
+    const visible = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: false }));
     expect(visible.length).toBe(1);
     expect(visible[0]).toBe(ring!.steps[ring!.dockAt]);
   });
 
   it('shows exactly the chosen branch of the pass while a pass is open', () => {
-    const manual = effectiveSteps(
-      ring!.steps,
-      ctx({ collection: [], passOpen: true }, { source: 'manual' }),
-    );
-    const invoice = effectiveSteps(
-      ring!.steps,
-      ctx({ collection: [], passOpen: true }, { source: 'invoice' }),
-    );
+    const manual = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'manual' } }));
+    const invoice = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'invoice' } }));
     expect(manual.length).toBe(1);
     expect(invoice.length).toBe(1);
     expect(manual[0]).not.toBe(invoice[0]);
     expect(manual[0]).not.toBe(ring!.steps[ring!.dockAt]);
   });
 
-  it('gates the dock completeness on the collection, with the authored message', () => {
+  it('gates the dock completeness on the state, with the authored message', () => {
     const dock = ring!.steps[ring!.dockAt];
-    expect(dock.completeWhen?.(ctx({ collection: [], passOpen: false }))).toBe(false);
-    expect(dock.completeWhen?.(ctx({ collection: [{ name: 'a' }], passOpen: false }))).toBe(true);
+    expect(dock.completeWhen?.(ctx({ state: [], passOpen: false }))).toBe(false);
+    expect(dock.completeWhen?.(ctx({ state: [{ name: 'a' }], passOpen: false }))).toBe(true);
     expect(dock.incompleteMessage).toBe('Add at least one device');
   });
-});
 
-describe('Branching - the keys come from the type, absence is honest', () => {
   it('keeps every branch out of the sequence while the selector reports null', () => {
-    const ring = isFlowStep(flowNode) && isRecurrent(flowNode.flow) ? flowNode.flow : null;
-    const undecided = effectiveSteps(ring!.steps, ctx({ collection: [], passOpen: true }, { source: null }));
+    const undecided = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: null } }));
 
     expect(undecided.length).toBe(0);
   });
@@ -144,9 +137,8 @@ describe('Branching - the keys come from the type, absence is honest', () => {
 
 describe('RecurrentStepperBuilder - authoring errors', () => {
   it('refuses a pool name or a step name that is already taken on its level', () => {
-    // Templates and steps are separate namespaces — but each is unique within itself.
     expect(() =>
-      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
+      new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] })
         .createForm('name', form('A'))
         .createForm('name', form('B')),
     ).toThrow(/already taken/);
@@ -157,45 +149,20 @@ describe('RecurrentStepperBuilder - authoring errors', () => {
         .createStep((s) => s.createPage({ options: {} }, (p) => p.addForm((f) => f.intro)), {
           name: 'devices',
         })
-        .createRecurrentStepper(
-          'devices',
-          { collection: (): Item[] => [] },
-          (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
-        ),
+        .createRecurrentStepper('devices', {
+          initial: (): Item[] => [],
+          build: (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
+        }),
     ).toThrow(/already taken/);
   });
-
-
-  it('refuses a pool name or a step name that is already taken on its level', () => {
-    // Templates and steps are separate namespaces — but each is unique within itself.
-    expect(() =>
-      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
-        .createForm('name', form('A'))
-        .createForm('name', form('B')),
-    ).toThrow(/already taken/);
-
-    expect(() =>
-      new StepperBuilder()
-        .createForm('intro', form('A'))
-        .createStep((s) => s.createPage({ options: {} }, (p) => p.addForm((f) => f.intro)), {
-          name: 'devices',
-        })
-        .createRecurrentStepper(
-          'devices',
-          { collection: (): Item[] => [] },
-          (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
-        ),
-    ).toThrow(/already taken/);
-  });
-
 
   it('refuses to build without a dock', () => {
-    const dockless = new RecurrentStepperBuilder<{}, {}, Item[]>(() => []);
+    const dockless = new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] });
     expect(() => dockless._drain()).toThrow(/dock/);
   });
 
   it('refuses a second dock', () => {
-    const loop = new RecurrentStepperBuilder<{}, {}, Item[]>(() => []);
+    const loop = new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] });
     loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent()));
     expect(() =>
       loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),

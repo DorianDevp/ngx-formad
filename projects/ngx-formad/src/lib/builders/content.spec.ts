@@ -1,5 +1,5 @@
 import { signal } from '@angular/core';
-import { ContentChild, ContentTagChild, buildContent, isContentTag } from './content';
+import { ContentChild, ContentChildKind, ContentTagChild, buildContent, isContentTag } from './content';
 
 // The builder's whole job is to turn method calls into the node tree the renderer
 // draws, with every dynamic value normalized to a getter. These tests read the
@@ -8,7 +8,7 @@ import { ContentChild, ContentTagChild, buildContent, isContentTag } from './con
 
 function tagAt(children: readonly ContentChild[], index = 0): ContentTagChild {
   const child = children[index];
-  if (child.kind !== 'tag') throw new Error(`child ${index} is not a tag`);
+  if (child.kind !== ContentChildKind.Tag) throw new Error(`child ${index} is not a tag`);
   return child;
 }
 
@@ -19,7 +19,7 @@ function read<V>(source: V | (() => V)): V {
 }
 
 function textOf(child: ContentChild): string {
-  if (child.kind !== 'text') throw new Error('not a text child');
+  if (child.kind !== ContentChildKind.Text) throw new Error('not a text child');
   return String(read(child.value));
 }
 
@@ -86,7 +86,7 @@ describe('ContentBuilder', () => {
     );
 
     expect(tree).toHaveLength(1);
-    const kinds = tagAt(tree).children.map((child) => (child.kind === 'tag' ? child.tag : 'text'));
+    const kinds = tagAt(tree).children.map((child) => (child.kind === ContentChildKind.Tag ? child.tag : 'text'));
     expect(kinds).toEqual(['text', 'a', 'text', 'a', 'text']);
   });
 

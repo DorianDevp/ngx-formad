@@ -1,8 +1,8 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { ContentChild, buildContent } from '../builders/content';
-import { StepNode } from '../builders/nodes';
+import { ContentChild, ContentChildKind, buildContent } from '../builders/content';
+import { isStepNode } from '../builders/flow';
 import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from '../runtime/stepper.component';
@@ -130,13 +130,13 @@ describe('ContentView', () => {
 })
 class UnknownTagHost {
   readonly tree: ContentChild[] = [
-    { kind: 'tag', tag: 'script' as 'p', attrs: [], listeners: [], children: [] },
+    { kind: ContentChildKind.Tag, tag: 'script' as 'p', attrs: [], listeners: [], children: [] },
     {
-      kind: 'tag',
+      kind: ContentChildKind.Tag,
       tag: 'p',
       attrs: [],
       listeners: [],
-      children: [{ kind: 'text', value: () => 'drawn' }],
+      children: [{ kind: ContentChildKind.Text, value: () => 'drawn' }],
     },
   ];
 }
@@ -158,9 +158,9 @@ describe('ContentView - unknown tags', () => {
   template: `<ngx-formad-content [children]="tree" />`,
 })
 class SparseNodeHost {
-  readonly tree = [
-    { kind: 'tag', tag: 'p', children: [{ kind: 'text', value: 'bare' }] },
-  ] as unknown as ContentChild[];
+  readonly tree: ContentChild[] = JSON.parse(
+    '[{"kind":"tag","tag":"p","children":[{"kind":"text","value":"bare"}]}]',
+  );
 }
 
 describe('ContentView - a sparse hand-written node', () => {
@@ -220,9 +220,9 @@ class LegacyNodeHost {
       )
       .build();
 
-    const pages = (built.steps[0] as StepNode).pages as readonly { children: readonly unknown[] }[];
-    const node = pages[0].children[0] as { children?: unknown };
-    delete node.children;
+    const step = built.steps[0];
+    if (!isStepNode(step) || typeof step.pages === 'function') throw new Error('expected a static leaf step');
+    Reflect.deleteProperty(step.pages[0].children[0], 'children');
     this.stepper = asStepper(built);
   }
 }

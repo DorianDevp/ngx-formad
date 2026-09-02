@@ -2,69 +2,60 @@ import { computed, signal, Signal, WritableSignal } from '@angular/core';
 import { RecurrentFlowDefinition } from '../builders/flow';
 import { RuntimeStepContext } from '../builders/step-context';
 
-// A recurrent flow's own state, and nothing else's: the collection folded so far
-// and whether a pass is open, held as ONE immutable record behind one signal.
-// Every transition is a pure reducer applied through `update`, so the ring cannot
-// be half-changed and there is no mutation for an outsider to reach — the
-// controller asks for transitions, the fold itself stays the author's pure
-// function, and readers see derived signals only.
-
 interface RingState<C> {
-  readonly collection: C;
+  readonly state: C;
 
   readonly passOpen: boolean;
+
+  readonly folds: number;
 }
 
 export class FlowRing<C = unknown> {
-  private readonly state: WritableSignal<RingState<C>>;
+  private readonly ring: WritableSignal<RingState<C>>;
 
-  readonly collection: Signal<C>;
+  readonly state: Signal<C>;
 
   readonly passOpen: Signal<boolean>;
 
-  constructor(private readonly flow: RecurrentFlowDefinition<C>) {
-    this.state = signal(freshState(flow));
-    this.collection = computed(() => this.state().collection);
-    this.passOpen = computed(() => this.state().passOpen);
+  readonly folds: Signal<number>;
 
-    // Components authored inside the flow read the collection through the port;
-    // `others` equals the collection while adding (an open pass has not folded yet).
-    flow.port._bind({ collection: this.collection, others: this.collection });
+  constructor(private readonly flow: RecurrentFlowDefinition<C>) {
+    this.ring = signal(freshRing(flow));
+    this.state = computed(() => this.ring().state);
+    this.passOpen = computed(() => this.ring().passOpen);
+    this.folds = computed(() => this.ring().folds);
   }
 
-  /** The finished pass enters the collection through the author's pure fold, and
-   *  the pass closes — one atomic transition. */
   fold(pass: RuntimeStepContext): void {
-    this.state.update((state) => ({
-      collection: this.flow.fold ? this.flow.fold(state.collection, pass) : state.collection,
+    this.ring.update((ring) => ({
+      state: this.flow.fold ? this.flow.fold(ring.state, pass) : ring.state,
       passOpen: false,
+      folds: ring.folds + 1,
     }));
   }
 
-  /** A fresh pass opens; the collection is untouched. */
   openPass(): void {
-    this.state.update((state) => ({ ...state, passOpen: true }));
+    this.ring.update((ring) => ({ ...ring, passOpen: true }));
   }
 
-  /** Back out of a draft: the pass closes, its values are simply never folded. */
   abandonPass(): void {
-    this.state.update((state) => ({ ...state, passOpen: false }));
+    this.ring.update((ring) => ({ ...ring, passOpen: false }));
   }
 
   reset(): void {
-    this.state.set(freshState(this.flow));
+    this.ring.set(freshRing(this.flow));
   }
 
-  hasAny(): boolean {
-    return this.flow.hasAny(this.collection());
+  dockReachable(): boolean {
+    const reachable = this.flow.dockReachable;
+
+    return reachable ? reachable(this.state()) : this.folds() > 0;
   }
 }
 
-// The starting point, also the reset point: a seeded collection, and a pass open
-// exactly when that seed does not already satisfy the flow (an empty collection
-// enters the ring at the pass's first step; a pre-filled one lands on the dock).
-function freshState<C>(flow: RecurrentFlowDefinition<C>): RingState<C> {
-  const collection = flow.seed();
+function freshRing<C>(flow: RecurrentFlowDefinition<C>): RingState<C> {
+  const state = flow.initial();
+  const reachable = flow.dockReachable ? flow.dockReachable(state) : false;
 
-  return { collection, passOpen: !flow.hasAny(collection) };
+  return { state, passOpen: !reachable, folds: 0 };
 }

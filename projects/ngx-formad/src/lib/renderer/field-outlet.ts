@@ -13,8 +13,7 @@ import {
 } from '@angular/core';
 import { FieldTree, FormField } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
-import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
-import { applyLayoutClasses } from '../layout/layout-adapter';
+import { ErasedValue } from '../builders/step-context';
 import {
   FieldConfig,
   FormLayoutContext,
@@ -22,12 +21,15 @@ import {
   resolveControlInput,
 } from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
+import { applyLayoutClasses } from '../layout/layout-adapter';
+import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { FLOW_ENVIRONMENT } from './flow-environment';
 import { BoundOutputEffect, samePath } from './output-effect';
 
+/** Mounts one field's control as the grid item itself, bound through `FormField` plus the node's presentational inputs. */
 @Directive({ selector: '[ngxFormadField]' })
 export class FieldOutlet {
-  readonly node = input.required<FieldTree<unknown>>();
+  readonly node = input.required<FieldTree<ErasedValue>>();
 
   readonly config = input.required<FieldConfig>();
 
@@ -36,11 +38,14 @@ export class FieldOutlet {
   readonly context = input.required<FormLayoutContext>();
 
   private readonly vcr = inject(ViewContainerRef);
+
   private readonly controls = inject(CONTROL_ADAPTER);
+
   private readonly layoutAdapter = inject(LAYOUT_ADAPTER);
+
   private readonly flowEnvironment = inject(FLOW_ENVIRONMENT, { optional: true });
 
-  private ref: ComponentRef<unknown> | null = null;
+  private ref: ComponentRef<object> | null = null;
 
   constructor() {
     effect(() => {
@@ -52,30 +57,24 @@ export class FieldOutlet {
     });
   }
 
-  private render(config: FieldConfig): ComponentRef<unknown> | null {
+  private render(config: FieldConfig): ComponentRef<object> | null {
     const control = this.componentFor(config);
     if (!control) return null;
 
-    const bindings = this.presentationalBindings(config);
-    for (const effect of this.effects()) {
-      if (samePath(effect.path, config.path)) {
-        bindings.push(outputBinding(effect.output, (payload: unknown) => effect.run(payload)));
-      }
-    }
-
+    const effects = this.effects()
+      .filter((effect) => samePath(effect.path, config.path))
+      .map((effect) => outputBinding(effect.output, (payload: ErasedValue) => effect.run(payload)));
     const ref = this.vcr.createComponent(control, {
       directives: [{ type: FormField, bindings: [inputBinding('formField', () => this.node())] }],
-      bindings,
+      bindings: [...this.presentationalBindings(config), ...effects],
       environmentInjector: this.flowEnvironment?.() ?? undefined,
     });
-
-    const item = this.layoutAdapter.item(config.layout ?? {});
-    applyLayoutClasses(ref.location.nativeElement as HTMLElement, item);
+    applyLayoutClasses(ref.location.nativeElement as HTMLElement, this.layoutAdapter.item(config.layout ?? {}));
 
     return ref;
   }
 
-  private componentFor(config: FieldConfig): Type<unknown> | null {
+  private componentFor(config: FieldConfig): Type<object> | null {
     if (config.control) return config.control.component;
     if (config.node.type === CUSTOM_FIELD) {
       throw new Error(

@@ -9,7 +9,7 @@ import { StepPageView } from './step-page-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
 
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+async function settle(fixture: ComponentFixture<object>): Promise<void> {
   for (let i = 0; i < 4; i++) {
     fixture.detectChanges();
     await fixture.whenStable();
@@ -25,8 +25,6 @@ const oneForm = (label: string): FormConfig<One> => ({
 
 type Item = { name: string };
 
-// The dock: a dumb panel — data in, the restart intent through the attribute
-// directive. It injects nothing and navigates nothing.
 @Component({
   selector: 'dock-panel',
   imports: [FormadDockRestart],
@@ -66,9 +64,6 @@ class RingChrome {
   readonly controller = input.required<StepperController>();
 }
 
-// Intro (binds its value to shared.source, the branch selector) → the ring
-// (manual: Name + Details; invoice: Bulk, folding many-or-none) → Final, gated on
-// the collection the ring committed.
 function deviceStepper(): RuntimeStepper {
   return asStepper(
     new StepperBuilder()
@@ -85,10 +80,10 @@ function deviceStepper(): RuntimeStepper {
           ),
         { label: 'Intro' },
       )
-      .createRecurrentStepper(
-        'devices',
-        { collection: (): Item[] => [], label: 'Devices' },
-        (loop, view) =>
+      .createRecurrentStepper('devices', {
+        initial: (): Item[] => [],
+        label: 'Devices',
+        build: (loop) =>
           loop
             .withState({ draftName: '' })
             .createForm('name', oneForm('Name'))
@@ -121,25 +116,24 @@ function deviceStepper(): RuntimeStepper {
                   { name: 'bulk', label: 'Bulk' },
                 ),
             })
-            // The pass's own steps as live instances; a branch step may be absent.
-            .fold((collected, pass) => {
+            .fold((state, pass) => {
               const bulk = pass.steps.bulk?.bulk.model();
               if (bulk !== undefined) {
-                if (bulk.v === 'none') return collected;
-                return [...collected, { name: `${bulk.v}-1` }, { name: `${bulk.v}-2` }];
+                if (bulk.v === 'none') return state;
+                return [...state, { name: `${bulk.v}-1` }, { name: `${bulk.v}-2` }];
               }
 
-              return [...collected, { name: pass.shared.draftName() }];
+              return [...state, { name: pass.shared.draftName() }];
             })
             .completeWhen((items) => items.length > 0, 'Add at least one device')
             .dock(
-              (s) =>
+              (s, ctx) =>
                 s.createPage({ options: { heading: 'Collected' } }, (p) =>
-                  p.addComponent(DockPanel, { inputs: { items: () => view.all() } }),
+                  p.addComponent(DockPanel, { inputs: { items: () => ctx.flow.state() } }),
                 ),
               { label: 'Dock' },
             ),
-      )
+      })
       .createStep(
         (s) => s.createPage({ options: { heading: 'Final' } }, (p) => p.addForm((f) => f.final)),
         { label: 'Final', when: (c) => (c.steps.devices?.length ?? 0) > 0 },
@@ -214,11 +208,10 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(counts()).toEqual({ steppers: 1, chromes: 1 });
   });
 
-  it('enters the ring at the pass while the collection is empty', async () => {
+  it('enters the ring at the pass while nothing has folded', async () => {
     await throughIntro();
 
     expect(heading()).toBe('Name');
-    // The wizard-scoped rail: the whole ring is ONE slot, index 1 of the root.
     expect(read('.idx')).toBe('1');
     expect(read('.levels')).toBe('2');
   });
@@ -232,7 +225,7 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(read('.idx')).toBe('1');
   });
 
-  it('gates the wizard steps behind the ring on the live collection', async () => {
+  it('gates the wizard steps behind the ring on the live state', async () => {
     await throughIntro();
     expect(read('.total')).toBe('2');
 
@@ -240,7 +233,7 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(read('.total')).toBe('3');
   });
 
-  it('opens a fresh pass from the dock intent, keeping the collection', async () => {
+  it('opens a fresh pass from the dock intent, keeping the state', async () => {
     await throughIntro();
     await addManual('alpha');
     await click('.add');
@@ -252,7 +245,7 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(read('.count')).toBe('2');
   });
 
-  it('Next on the dock advances the instance above, with the collection committed', async () => {
+  it('Next on the dock advances the instance above, with the state committed', async () => {
     await throughIntro();
     await addManual('alpha');
     await click('.next');
@@ -300,14 +293,14 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(shown()).toBe('');
   });
 
-  it('Back on the pass first step leaves the flow while nothing is collected', async () => {
+  it('Back on the pass first step leaves the flow while nothing has folded', async () => {
     await throughIntro();
     await click('.back');
 
     expect(heading()).toBe('Intro');
   });
 
-  it('Back on the pass first step abandons the draft to the dock once something is collected', async () => {
+  it('Back on the pass first step abandons the draft to the dock once a pass folded', async () => {
     await throughIntro();
     await addManual('alpha');
     await click('.add');
@@ -326,7 +319,7 @@ describe('Recurrent flow - the ring around the dock', () => {
     expect(heading()).toBe('Intro');
   });
 
-  it('re-enters at the dock when the collection already satisfies the flow', async () => {
+  it('re-enters at the dock once a pass has folded', async () => {
     await throughIntro();
     await addManual('alpha');
     await click('.back');

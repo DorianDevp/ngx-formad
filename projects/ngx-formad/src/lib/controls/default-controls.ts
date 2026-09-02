@@ -1,42 +1,30 @@
 import { Component, computed, input, model } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
-
-// The plain-HTML controls. Each implements the native `FormValueControl`
-// contract and nothing more: a two-way `value`, the field-state inputs it cares
-// to show, and a single error line. They are intentionally unstyled — this is
-// the funnel's entry point, the "ugly but working, zero deps" tier. A prettier
-// tier (Material, PrimeNG) is a different adapter, not a change here.
-//
-// Accessibility is built in: the `<label>` wraps the control (so the label is
-// associated without a `for`/`id` dance), and on error the control gets
-// `aria-invalid` + `aria-describedby` pointing at an `role="alert"` message, with
-// `aria-required` mirrored from the field. Each control owns a unique id so the
-// description link is unambiguous even with many controls on a page.
+import { ErasedValue } from '../builders/step-context';
 
 type Errors = readonly ValidationError.WithOptionalFieldTree[];
 
-// Per-instance id for the aria-describedby link between control and error text.
 let controlSeq = 0;
+
 function nextControlId(): string {
-  return `ngxf-${++controlSeq}`;
+  controlSeq += 1;
+
+  return `ngxf-${controlSeq}`;
 }
 
-// Shared label markup: the visible label plus a required marker (decorative —
-// `aria-required` on the control carries the semantics).
 const labelText = `{{ label() }}@if (required()) {<span class="ngx-formad-req" aria-hidden="true"> *</span>}`;
 
-// Shared error line: an alerting, addressable message shown once touched.
 const errorLine = `
   @if (touched() && errors().length) {
     <small class="ngx-formad-error" [id]="cid + '-err'" role="alert">{{ errors()[0]?.message }}</small>
   }`;
 
-// The aria attributes a control mirrors from its field state.
 const ariaAttrs = `
   [attr.aria-invalid]="touched() && errors().length ? 'true' : null"
   [attr.aria-describedby]="touched() && errors().length ? cid + '-err' : null"
   [attr.aria-required]="required() ? 'true' : null"`;
 
+/** The plain-HTML single-line text control; `type` selects the native input type. */
 @Component({
   selector: 'ngx-formad-text',
   template: `
@@ -56,23 +44,30 @@ const ariaAttrs = `
   `,
 })
 export class TextControl implements FormValueControl<string> {
-  protected readonly cid = nextControlId();
+  readonly cid = nextControlId();
+
   value = model('');
-  // One component backs every single-line text kind; the kind only changes the
-  // native input `type`, which the renderer passes through.
+
   type = input<'text' | 'email' | 'password' | 'tel' | 'url'>('text');
+
   label = input('');
+
   placeholder = input('');
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  protected asString(e: Event): string {
+  asString(e: Event): string {
     return (e.target as HTMLInputElement).value;
   }
 }
 
+/** The plain-HTML textarea control. */
 @Component({
   selector: 'ngx-formad-textarea',
   template: `
@@ -92,21 +87,30 @@ export class TextControl implements FormValueControl<string> {
   `,
 })
 export class TextareaControl implements FormValueControl<string> {
-  protected readonly cid = nextControlId();
+  readonly cid = nextControlId();
+
   value = model('');
+
   label = input('');
+
   placeholder = input('');
+
   rows = input(3);
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  protected asString(e: Event): string {
+  asString(e: Event): string {
     return (e.target as HTMLTextAreaElement).value;
   }
 }
 
+/** The plain-HTML number control; an empty box is `null`, not `0`. */
 @Component({
   selector: 'ngx-formad-number',
   template: `
@@ -125,27 +129,35 @@ export class TextareaControl implements FormValueControl<string> {
   `,
 })
 export class NumberControl implements FormValueControl<number | null> {
-  protected readonly cid = nextControlId();
+  readonly cid = nextControlId();
+
   value = model<number | null>(null);
+
   label = input('');
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  // An empty box is `null`, not `0` — they mean different things to a validator.
-  protected asNumber(e: Event): number | null {
+  asNumber(e: Event): number | null {
     const raw = (e.target as HTMLInputElement).value;
+
     return raw === '' ? null : Number(raw);
   }
 }
 
-/** An option as the select/radio controls consume it. */
+/** An option as the select and radio controls consume it. */
 export interface ControlOption {
-  readonly value: unknown;
+  readonly value: ErasedValue;
+
   readonly label: string;
 }
 
+/** The plain-HTML select control; options carry their index as the DOM value so any value type maps back. */
 @Component({
   selector: 'ngx-formad-select',
   template: `
@@ -157,11 +169,6 @@ export interface ControlOption {
         (change)="value.set(optionFrom($event))"
         (blur)="touched.set(true)"
       >
-        <!-- A single-select element always has something selected, so a value the
-             options do not contain (the usual empty initial one) would show as the
-             first option while the model held something else - a required field
-             blocking Next next to a visibly made choice. The empty option is that
-             state, spelled out. -->
         @if (!matched()) {
           <option value="" selected></option>
         }
@@ -173,33 +180,34 @@ export interface ControlOption {
     </label>
   `,
 })
-export class SelectControl implements FormValueControl<unknown> {
-  protected readonly cid = nextControlId();
-  value = model<unknown>(null);
+export class SelectControl implements FormValueControl<ErasedValue> {
+  readonly cid = nextControlId();
+
+  value = model<ErasedValue>(null);
+
   label = input('');
-  // Options ride alongside the contract — the renderer feeds them from the node.
+
   options = input<readonly ControlOption[]>([]);
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  /** Whether the current value is one of the options - what decides if the empty
-   *  option is on screen. */
-  protected readonly matched = computed(() =>
-    this.options().some((option) => option.value === this.value()),
-  );
+  readonly matched = computed(() => this.options().some((option) => option.value === this.value()));
 
-  // Each option carries its index as the DOM value (an option's value is a string,
-  // and these may be objects or numbers), so the read maps back through `options`.
-  // The empty option's '' is the "nothing chosen" case.
-  protected optionFrom(e: Event): unknown {
+  optionFrom(e: Event): ErasedValue {
     const raw = (e.target as HTMLSelectElement).value;
     if (raw === '') return null;
+
     return this.options()[Number(raw)]?.value ?? null;
   }
 }
 
+/** The plain-HTML checkbox control; `innerHTML` renders rich consent prose instead of the label. */
 @Component({
   selector: 'ngx-formad-checkbox',
   template: `
@@ -213,8 +221,6 @@ export class SelectControl implements FormValueControl<unknown> {
         (blur)="touched.set(true)"
       />
       @if (innerHTML()) {
-        <!-- A rich label, e.g. a consent with links. The node's innerHTML is
-             author-controlled config, not user input, so binding it is safe. -->
         <span class="ngx-formad-checkbox-label" [innerHTML]="innerHTML()"></span>
       } @else {
         <span>${labelText}</span>
@@ -224,22 +230,28 @@ export class SelectControl implements FormValueControl<unknown> {
   `,
 })
 export class CheckboxControl implements FormValueControl<boolean> {
-  protected readonly cid = nextControlId();
+  readonly cid = nextControlId();
+
   value = model(false);
+
   label = input('');
-  // A consent-style checkbox carries its prose (often with links) as HTML on the
-  // node; when present it renders instead of the plain label.
+
   innerHTML = input('');
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  protected asChecked(e: Event): boolean {
+  asChecked(e: Event): boolean {
     return (e.target as HTMLInputElement).checked;
   }
 }
 
+/** The plain-HTML date control; `minDate`/`maxDate` clamp the native picker. */
 @Component({
   selector: 'ngx-formad-date',
   template: `
@@ -247,10 +259,10 @@ export class CheckboxControl implements FormValueControl<boolean> {
       <span>${labelText}</span>
       <input
         type="date"
-        [value]="asInputValue(value())"
+        [value]="inputValue()"
         [disabled]="disabled()"
-        [min]="asInputValue(minDate())"
-        [max]="asInputValue(maxDate())"
+        [min]="minInputValue()"
+        [max]="maxInputValue()"
         ${ariaAttrs}
         (input)="value.set(asDate($event))"
         (blur)="touched.set(true)"
@@ -260,33 +272,47 @@ export class CheckboxControl implements FormValueControl<boolean> {
   `,
 })
 export class DateControl implements FormValueControl<Date | null> {
-  protected readonly cid = nextControlId();
+  readonly cid = nextControlId();
+
   value = model<Date | null>(null);
+
   label = input('');
+
   disabled = input(false);
-  // Optional bounds, forwarded from a formodel `date` node's `limit`. Named
-  // `minDate`/`maxDate` because `min`/`max` are reserved by the native control
-  // contract (numeric constraints synced from the field).
+
   minDate = input<Date | null>(null);
+
   maxDate = input<Date | null>(null);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  // `<input type="date">` speaks `yyyy-MM-dd`; the field carries a real `Date`.
-  protected asInputValue(date: Date | null): string {
-    if (!date) return '';
-    const y = date.getFullYear();
-    const m = `${date.getMonth() + 1}`.padStart(2, '0');
-    const d = `${date.getDate()}`.padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }
-  protected asDate(e: Event): Date | null {
+  readonly inputValue = computed(() => toInputDate(this.value()));
+
+  readonly minInputValue = computed(() => toInputDate(this.minDate()));
+
+  readonly maxInputValue = computed(() => toInputDate(this.maxDate()));
+
+  asDate(e: Event): Date | null {
     const raw = (e.target as HTMLInputElement).value;
+
     return raw ? new Date(`${raw}T00:00:00`) : null;
   }
 }
 
+function toInputDate(date: Date | null): string {
+  if (!date) return '';
+
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/** The plain-HTML file control; `maxFiles` caps the picked list. */
 @Component({
   selector: 'ngx-formad-file',
   template: `
@@ -313,22 +339,30 @@ export class DateControl implements FormValueControl<Date | null> {
   `,
 })
 export class FileControl implements FormValueControl<readonly File[]> {
-  protected readonly cid = nextControlId();
+  readonly cid = nextControlId();
+
   value = model<readonly File[]>([]);
+
   label = input('');
+
   accept = input('');
+
   multiple = input(false);
+
   maxFiles = input<number | null>(null);
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  // Capture the picked files (capped at `maxFiles` when set) as a plain array;
-  // the field validates and the form holds them like any other value.
-  protected asFiles(e: Event): readonly File[] {
+  asFiles(e: Event): readonly File[] {
     const picked = Array.from((e.target as HTMLInputElement).files ?? []);
     const cap = this.maxFiles();
+
     return cap != null ? picked.slice(0, cap) : picked;
   }
 }

@@ -16,7 +16,7 @@ import { StepPageView } from './step-page-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
 
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+async function settle(fixture: ComponentFixture<object>): Promise<void> {
   for (let i = 0; i < 4; i++) {
     fixture.detectChanges();
     await fixture.whenStable();
@@ -62,14 +62,9 @@ class NestChrome {
   readonly controller = input.required<StepperController>();
 }
 
-// ── A recurrent stepper AS THE ROOT: the same shell, the same chrome. ──
-
 function rootRing(): RuntimeFlow {
-  const loop = new RecurrentStepperBuilder<{}, {}, Item[]>(() => []);
-  const view = loop.view;
-
   return asRecurrentStepper(
-    loop
+    new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] })
       .withState({ draft: '' })
       .createForm('name', oneForm('Name'))
       .createStep(
@@ -82,12 +77,12 @@ function rootRing(): RuntimeFlow {
           ),
         { label: 'Name' },
       )
-      .fold((collected, pass) => [...collected, { name: pass.shared.draft() }])
+      .fold((state, pass) => [...state, { name: pass.shared.draft() }])
       .completeWhen((items) => items.length > 0, 'Add at least one')
       .dock(
-        (s) =>
+        (s, ctx) =>
           s.createPage({ options: { heading: 'Collected' } }, (p) =>
-            p.addComponent(NestDock, { inputs: { items: () => view.all() } }),
+            p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }),
           ),
         { label: 'Dock' },
       )
@@ -105,44 +100,40 @@ class RootRingHost {
   readonly stepper = rootRing();
 }
 
-// ── A linear stepper as a PASS STEP of a ring — the symmetric direction. ──
-
 function ringWithLinearPass(): RuntimeStepper {
   return asStepper(
     new StepperBuilder()
       .withState({})
-      .createRecurrentStepper(
-        'items',
-        { collection: (): Item[] => [], label: 'Items' },
-        (loop, view) =>
+      .createRecurrentStepper('items', {
+        initial: (): Item[] => [],
+        label: 'Items',
+        build: (loop) =>
           loop
-            .createStepper('unit', { label: 'Unit' }, (sub) =>
-              sub
-                .createForm('a', oneForm('A'))
-                .createForm('b', oneForm('B'))
-                .createStep(
-                  (s) => s.createPage({ options: { heading: 'A' } }, (p) => p.addForm((f) => f.a)),
-                  { name: 'a', label: 'A' },
-                )
-                .createStep(
-                  (s) => s.createPage({ options: { heading: 'B' } }, (p) => p.addForm((f) => f.b)),
-                  { name: 'b', label: 'B' },
-                ),
-            )
-            // The nested linear flow's egress: its named steps' values.
-            .fold((collected, pass) => {
-              const unit = pass.steps.unit;
-              return [...collected, { name: unit?.a?.a.v ?? '' }];
+            .createStepper('unit', {
+              label: 'Unit',
+              build: (sub) =>
+                sub
+                  .createForm('a', oneForm('A'))
+                  .createForm('b', oneForm('B'))
+                  .createStep(
+                    (s) => s.createPage({ options: { heading: 'A' } }, (p) => p.addForm((f) => f.a)),
+                    { name: 'a', label: 'A' },
+                  )
+                  .createStep(
+                    (s) => s.createPage({ options: { heading: 'B' } }, (p) => p.addForm((f) => f.b)),
+                    { name: 'b', label: 'B' },
+                  ),
             })
+            .fold((state, pass) => [...state, { name: pass.steps.unit?.a?.a.v ?? '' }])
             .completeWhen((items) => items.length > 0)
             .dock(
-              (s) =>
+              (s, ctx) =>
                 s.createPage({ options: { heading: 'Collected' } }, (p) =>
-                  p.addComponent(NestDock, { inputs: { items: () => view.all() } }),
+                  p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }),
                 ),
               { label: 'Dock' },
             ),
-      )
+      })
       .build(),
   );
 }
@@ -177,7 +168,7 @@ describe('Recurrent stepper as the root flow', () => {
     await settle(fixture);
   });
 
-  it('runs the ring at the root and completes with the collection as the result', async () => {
+  it('runs the ring at the root and completes with the state as the result', async () => {
     expect(heading()).toBe('Name');
 
     await type('alpha');

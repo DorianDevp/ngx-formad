@@ -1,44 +1,45 @@
-import { FLOW_ENVIRONMENT } from '../renderer/flow-environment';
-import { Component, computed, input, inject } from '@angular/core';
+import { Component, computed, inject, input } from '@angular/core';
 import { ContentChild } from '../builders/content';
-import { ComponentNode, ContentNode, FormNode, LayoutNode, RowNode } from '../builders/nodes';
+import { LayoutNode, LayoutNodeKind } from '../builders/nodes';
 import { ComponentOutlet } from '../renderer/component-outlet';
 import { ContentView } from '../renderer/content-view';
+import { FLOW_ENVIRONMENT } from '../renderer/flow-environment';
 import { FormRenderer } from '../renderer/form-renderer';
 import { LiveForm, LiveStep } from './materialize-step';
 
+interface PageNodeRow {
+  readonly node: LayoutNode;
+  readonly live: LiveForm | null;
+  readonly content: readonly ContentChild[];
+}
+
+/** Draws one level of a page's nodes: live forms, components, content blocks and nested rows. */
 @Component({
   selector: 'ngx-formad-page-nodes',
   imports: [FormRenderer, ComponentOutlet, ContentView, PageNodesView],
   host: { style: 'display: contents' },
   template: `
-    @for (node of nodes(); track node) {
-      @switch (node.kind) {
-        @case ('form') {
-          @if (visible(form(node))) {
-            @if (liveFormFor(form(node).name); as live) {
-              <ngx-formad-form [state]="live.state" [effects]="live.effects" />
-            }
+    @for (row of rows(); track row.node) {
+      @switch (row.node.kind) {
+        @case (kinds.Form) {
+          @if (row.live) {
+            <ngx-formad-form [state]="row.live.state" [effects]="row.live.effects" />
           }
         }
-        @case ('component') {
-          @if (visible(component(node))) {
-            <ngx-formad-component-outlet [node]="component(node)" />
-          }
+        @case (kinds.Component) {
+          <ngx-formad-component-outlet [node]="row.node" />
         }
-        @case ('row') {
-          <div class="ngx-formad-row" [class]="row(node).layout">
-            <ngx-formad-page-nodes [nodes]="row(node).children" [forms]="forms()" />
+        @case (kinds.Row) {
+          <div class="ngx-formad-row" [class]="row.node.layout">
+            <ngx-formad-page-nodes [nodes]="row.node.children" [forms]="forms()" />
           </div>
         }
-        @case ('content') {
-          @if (visible(content(node))) {
-            <div class="ngx-formad-content" [class]="content(node).layout ?? ''">
-              @if (contentChildren(node).length) {
-                <ngx-formad-content [children]="contentChildren(node)" />
-              }
-            </div>
-          }
+        @case (kinds.Content) {
+          <div class="ngx-formad-content" [class]="row.node.layout ?? ''">
+            @if (row.content.length) {
+              <ngx-formad-content [children]="row.content" />
+            }
+          </div>
         }
       }
     }
@@ -49,35 +50,20 @@ export class PageNodesView {
 
   readonly forms = input.required<ReadonlyMap<string, LiveForm>>();
 
-  liveFormFor(name: string): LiveForm | undefined {
-    return this.forms().get(name);
-  }
+  readonly kinds = LayoutNodeKind;
 
-  visible(node: { visibleWhen?: () => boolean }): boolean {
-    return node.visibleWhen ? node.visibleWhen() : true;
-  }
-
-  form(node: LayoutNode): FormNode {
-    return node as FormNode;
-  }
-
-  component(node: LayoutNode): ComponentNode {
-    return node as ComponentNode;
-  }
-
-  row(node: LayoutNode): RowNode {
-    return node as RowNode;
-  }
-
-  content(node: LayoutNode): ContentNode {
-    return node as ContentNode;
-  }
-
-  contentChildren(node: LayoutNode): readonly ContentChild[] {
-    return (node as ContentNode).children ?? [];
-  }
+  readonly rows = computed<readonly PageNodeRow[]>(() =>
+    this.nodes()
+      .filter((node) => (node.kind === LayoutNodeKind.Row ? true : (node.visibleWhen?.() ?? true)))
+      .map((node) => ({
+        node,
+        live: node.kind === LayoutNodeKind.Form ? (this.forms().get(node.name) ?? null) : null,
+        content: node.kind === LayoutNodeKind.Content ? (node.children ?? []) : [],
+      })),
+  );
 }
 
+/** Draws every page of a live step and publishes the step's flow environment to the components below. */
 @Component({
   providers: [
     {
@@ -107,9 +93,5 @@ export class PageNodesView {
 export class StepPageView {
   readonly step = input.required<LiveStep>();
 
-  readonly formMap = computed(() => {
-    const map = new Map<string, LiveForm>();
-    for (const form of this.step().forms) map.set(form.name, form);
-    return map;
-  });
+  readonly formMap = computed(() => new Map(this.step().forms.map((form) => [form.name, form])));
 }

@@ -1,23 +1,24 @@
 import { signal, WritableSignal } from '@angular/core';
-import { FieldTree } from '@angular/forms/signals';
 import { FormInstance, InstanceRegistry } from './instance-registry';
 
-// A minimal stand-in for a live form: just the `valid()` the fold reads, wrapped
-// so `rootForm()` returns a field-state-shaped object. The registry never
-// touches anything else, so this is enough to exercise the fold.
-function fakeInstance(valid: boolean, visible: boolean, pending = false): FormInstance {
-  const rootForm = (() => ({
-    valid: () => valid,
-    pending: () => pending,
-  })) as unknown as FieldTree<unknown>;
-  return { rootForm, visible: signal(visible) };
+interface Fake {
+  readonly valid: boolean;
+  readonly visible: boolean;
+  readonly pending?: boolean;
+}
+
+function fakeInstance(fake: Fake): FormInstance {
+  return {
+    rootForm: () => ({ valid: () => fake.valid, pending: () => fake.pending ?? false }),
+    visible: signal(fake.visible),
+  };
 }
 
 describe('InstanceRegistry', () => {
   it('counts only visible instances as live', () => {
     const registry = new InstanceRegistry();
-    registry.add(fakeInstance(true, true));
-    registry.add(fakeInstance(true, false));
+    registry.add(fakeInstance({ valid: true, visible: true }));
+    registry.add(fakeInstance({ valid: true, visible: false }));
 
     expect(registry.all().length).toBe(2);
     expect(registry.live().length).toBe(1);
@@ -25,26 +26,25 @@ describe('InstanceRegistry', () => {
 
   it('is complete only when every live instance is valid', () => {
     const registry = new InstanceRegistry();
-    registry.add(fakeInstance(true, true));
+    registry.add(fakeInstance({ valid: true, visible: true }));
     expect(registry.completed()).toBe(true);
 
-    registry.add(fakeInstance(false, true));
+    registry.add(fakeInstance({ valid: false, visible: true }));
     expect(registry.completed()).toBe(false);
   });
 
   it('reports a live validator still running', () => {
     const registry = new InstanceRegistry();
-    // Not valid *and* no errors - the state a blocked Next used to have nothing to
-    // say about.
-    registry.add(fakeInstance(false, true, true));
+    registry.add(fakeInstance({ valid: false, visible: true, pending: true }));
+
     expect(registry.completed()).toBe(false);
     expect(registry.pending()).toBe(true);
   });
 
   it('ignores a hidden form still validating', () => {
     const registry = new InstanceRegistry();
-    registry.add(fakeInstance(true, true));
-    registry.add(fakeInstance(false, false, true));
+    registry.add(fakeInstance({ valid: true, visible: true }));
+    registry.add(fakeInstance({ valid: false, visible: false, pending: true }));
 
     expect(registry.pending()).toBe(false);
     expect(registry.completed()).toBe(true);
@@ -52,8 +52,8 @@ describe('InstanceRegistry', () => {
 
   it('excludes a hidden invalid form from completion', () => {
     const registry = new InstanceRegistry();
-    registry.add(fakeInstance(true, true));
-    registry.add(fakeInstance(false, false)); // hidden + invalid → ignored
+    registry.add(fakeInstance({ valid: true, visible: true }));
+    registry.add(fakeInstance({ valid: false, visible: false }));
 
     expect(registry.completed()).toBe(true);
   });
@@ -61,17 +61,12 @@ describe('InstanceRegistry', () => {
   it('recomputes completion when a later instance lands', () => {
     const registry = new InstanceRegistry();
     const visible: WritableSignal<boolean> = signal(true);
-    registry.add(fakeInstance(true, true));
+    registry.add(fakeInstance({ valid: true, visible: true }));
     expect(registry.completed()).toBe(true);
 
-    // A lazily-reached, still-invalid form appears.
-    registry.add({
-      rootForm: (() => ({ valid: () => false })) as unknown as FieldTree<unknown>,
-      visible,
-    });
+    registry.add({ rootForm: () => ({ valid: () => false, pending: () => false }), visible });
     expect(registry.completed()).toBe(false);
 
-    // Hiding it drops it back out of the fold.
     visible.set(false);
     expect(registry.completed()).toBe(true);
   });

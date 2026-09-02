@@ -1,9 +1,9 @@
 import { Component, input, output, signal } from '@angular/core';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
-import { ComponentNode, FormNode, StepNode } from './nodes';
+import { ComponentNode, FormNode, LayoutNodeKind, StepNode } from './nodes';
 import { isStepNode, SequenceNode } from './flow';
-import { RuntimeStepContext } from './step-context';
+import { DeferTrigger, RuntimeStepContext } from './step-context';
 import { resolvePages } from '../runtime/materialize-step';
 import { StepperBuilder } from './stepper-builder';
 
@@ -78,7 +78,7 @@ describe('StepperBuilder', () => {
   it('records a form node selected by callback, with its shared links', () => {
     const stepper = buildStepper();
     const children = pagesAt(stepper.steps, 0)[0].children;
-    const formNode = children.find((c) => c.kind === 'form') as FormNode;
+    const formNode = children.find((c) => c.kind === LayoutNodeKind.Form) as FormNode;
 
     expect(formNode.name).toBe('account');
     expect(formNode.submitLabel).toBe('Next');
@@ -108,7 +108,7 @@ describe('StepperBuilder', () => {
       .build();
 
     const formNode = pagesAt(stepper.steps, 0)[0].children.find(
-      (c) => c.kind === 'form',
+      (c) => c.kind === LayoutNodeKind.Form,
     ) as FormNode;
     expect(formNode.links).toEqual([{ modelPath: ['vat'], sharedKey: 'vat' }]);
   });
@@ -116,7 +116,7 @@ describe('StepperBuilder', () => {
   it('normalizes a dynamic component into bindings', () => {
     const stepper = buildStepper();
     const children = pagesAt(stepper.steps, 0)[0].children;
-    const componentNode = children.find((c) => c.kind === 'component') as ComponentNode;
+    const componentNode = children.find((c) => c.kind === LayoutNodeKind.Component) as ComponentNode;
 
     expect(componentNode.component).toBe(Banner);
     // One input binding (tone) and one output binding (dismissed).
@@ -134,7 +134,7 @@ describe('StepperBuilder', () => {
       .createForm('account', account)
       .createStep((step) => step.createPage({ options: { heading: 'A' } }, (page) => page.addForm((f) => f.account)), {
         optional: true,
-        defer: 'idle',
+        defer: DeferTrigger.Idle,
         when: ({ shared }) => shared.email() === 'go',
       })
       .build();
@@ -143,8 +143,8 @@ describe('StepperBuilder', () => {
     expect(node.optional).toBe(true);
     expect(node.defer).toBe('idle');
     // The condition is stored erased but stays callable with a runtime context.
-    expect(node.when?.({ steps: {}, shared: { email: signal('go') }, parent: undefined })).toBe(true);
-    expect(node.when?.({ steps: {}, shared: { email: signal('no') }, parent: undefined })).toBe(false);
+    expect(node.when?.({ steps: {}, shared: { email: signal('go') }, flow: undefined, parent: undefined })).toBe(true);
+    expect(node.when?.({ steps: {}, shared: { email: signal('no') }, flow: undefined, parent: undefined })).toBe(false);
   });
 });
 
@@ -155,7 +155,7 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
   return node;
 }
 
-const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, parent: undefined };
+const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
 function pagesAt(steps: readonly SequenceNode[], index: number) {
   return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);

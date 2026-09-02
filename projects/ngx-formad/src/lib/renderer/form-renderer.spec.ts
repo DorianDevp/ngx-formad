@@ -1,11 +1,11 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { FieldTree, hidden } from '@angular/forms/signals';
+import { hidden } from '@angular/forms/signals';
 import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
 import { defineForm, FormConfig, SelectOption } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { FormRenderer } from './form-renderer';
-import { asRenderable, instantiateForm } from './instantiate-form';
+import { instantiateForm } from './instantiate-form';
 
 async function pump(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 3; i++) {
@@ -34,7 +34,7 @@ const accountConfig: FormConfig<Account> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class Host {
-  readonly state = asRenderable(instantiateForm(accountConfig));
+  readonly state = instantiateForm(accountConfig);
 }
 
 describe('FormRenderer', () => {
@@ -93,32 +93,25 @@ describe('FormRenderer', () => {
     emailInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    const root = fixture.componentInstance.state.rootForm as unknown as Record<
-      string,
-      FieldTree<unknown>
-    >;
-    expect(root['email']().value()).toBe('alice@example.com');
+    expect(fixture.componentInstance.state.rootForm.email().value()).toBe('alice@example.com');
   });
 
   it('marks the field dirty on a user edit but not on a programmatic write', async () => {
-    const root = fixture.componentInstance.state.rootForm as unknown as Record<
-      string,
-      FieldTree<unknown>
-    >;
-    expect(root['email']().dirty()).toBe(false);
+    const root = fixture.componentInstance.state.rootForm;
+    expect(root.email().dirty()).toBe(false);
 
     // A programmatic seed-style write must leave the field pristine, or the
     // shared-state seed gate would refuse to ever re-seed it.
     fixture.componentInstance.state.model.set({ email: 'seed@example.com', name: '', type: '' });
     await fixture.whenStable();
-    expect(root['email']().dirty()).toBe(false);
+    expect(root.email().dirty()).toBe(false);
 
     // A real user edit must flip dirty so the gate backs off.
     const emailInput = inputs()[0];
     emailInput.value = 'typed@example.com';
     emailInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
-    expect(root['email']().dirty()).toBe(true);
+    expect(root.email().dirty()).toBe(true);
   });
 });
 
@@ -137,7 +130,7 @@ const nestedConfig: FormConfig<Nested> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class NestedHost {
-  readonly state = asRenderable(instantiateForm(nestedConfig));
+  readonly state = instantiateForm(nestedConfig);
 }
 
 describe('FormRenderer — nested groups', () => {
@@ -170,10 +163,7 @@ describe('FormRenderer — nested groups', () => {
     cityInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    const root = fixture.componentInstance.state.rootForm as unknown as {
-      address: { city: FieldTree<string> };
-    };
-    expect(root.address.city().value()).toBe('Berlin');
+    expect(fixture.componentInstance.state.rootForm.address.city().value()).toBe('Berlin');
   });
 });
 
@@ -194,7 +184,7 @@ const itemsConfig: FormConfig<WithItems> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class ArrayHost {
-  readonly state = asRenderable(instantiateForm(itemsConfig));
+  readonly state = instantiateForm(itemsConfig);
 }
 
 describe('FormRenderer — repeating arrays', () => {
@@ -223,10 +213,7 @@ describe('FormRenderer — repeating arrays', () => {
     inputs()[0].value = 'ABC-1';
     inputs()[0].dispatchEvent(new Event('input'));
     await pump(fixture);
-    const root = fixture.componentInstance.state.rootForm as unknown as {
-      items: Record<number, { sku: FieldTree<string> }>;
-    };
-    expect(root.items[0].sku().value()).toBe('ABC-1');
+    expect(fixture.componentInstance.state.rootForm.items[0]?.sku().value()).toBe('ABC-1');
 
     button('Remove')!.click();
     await pump(fixture);
@@ -247,7 +234,7 @@ const conditionalConfig: FormConfig<AB> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class ConditionalHost {
-  readonly state = asRenderable(instantiateForm(conditionalConfig));
+  readonly state = instantiateForm(conditionalConfig);
 }
 
 describe('FormRenderer — conditional fields via hidden()', () => {
@@ -285,7 +272,7 @@ class ReactiveHost {
   // `defineForm` kept the authored ui type, so this handle is the WritableSignal
   // itself — the typed seeding surface, no cast.
   readonly live = instantiateForm(countryConfig);
-  readonly state = asRenderable(this.live);
+  readonly state = this.live;
 }
 
 describe('FormRenderer — reactive select options', () => {
@@ -335,7 +322,7 @@ const layoutConfig: FormConfig<FL> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class LayoutHost {
-  readonly state = asRenderable(instantiateForm(layoutConfig));
+  readonly state = instantiateForm(layoutConfig);
 }
 
 describe('FormRenderer — layout overlay with a content block', () => {
@@ -375,7 +362,7 @@ const contentConfig: FormConfig<FC> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class ContentLayoutHost {
-  readonly state = asRenderable(instantiateForm(contentConfig));
+  readonly state = instantiateForm(contentConfig);
 }
 
 describe('FormRenderer - layout overlay with content', () => {
@@ -428,7 +415,7 @@ const placedConfig: FormConfig<Placed> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class PlacedHost {
-  readonly state = asRenderable(instantiateForm(placedConfig));
+  readonly state = instantiateForm(placedConfig);
 }
 
 describe('FormRenderer - placement under the default layout adapter', () => {
@@ -465,8 +452,8 @@ const labelled = (label: string): FormConfig<Swapped> => ({
   template: `<ngx-formad-form [state]="state()" />`,
 })
 class SwapHost {
-  private readonly first = asRenderable(instantiateForm(labelled('First form')));
-  private readonly second = asRenderable(instantiateForm(labelled('Second form')));
+  private readonly first = instantiateForm(labelled('First form'));
+  private readonly second = instantiateForm(labelled('Second form'));
   readonly state = signal(this.first);
 
   swap(): void {

@@ -1,26 +1,33 @@
 import { Component, input, model, output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl } from '@angular/forms/signals';
+import { CustomControlNode, customInputType, text } from 'formodel';
+import { asStepper, RuntimeStepper, StepperBuilder } from './builders/stepper-builder';
 import { FormConfig } from './form-config/form-config';
-import { FormRenderer } from './renderer/form-renderer';
-import { asRenderable, instantiateForm } from './renderer/instantiate-form';
 import { provideFormadSuite } from './provide';
+import { FormRenderer } from './renderer/form-renderer';
+import { instantiateForm } from './renderer/instantiate-form';
+import { StepperComponent } from './runtime/stepper.component';
 
-// A user-defined control: `value` is the field binding, `props` is the typed bag
-// the renderer forwards from the node (set via `customInputType` / a custom node).
+declare module 'formodel' {
+  interface CustomControlNodes {
+    stars: CustomControlNode<number, { max: number }>;
+    lookup: CustomControlNode<string, Record<string, never>>;
+  }
+}
+
+const stars = customInputType<CustomControlNode<number, { max: number }>>('stars');
+const lookup = customInputType<CustomControlNode<string, Record<string, never>>>('lookup');
+
 @Component({ selector: 'stars-control', template: `<span class="stars">max {{ props().max }}</span>` })
 class StarsControl implements FormValueControl<number> {
   value = model(0);
   props = input.required<{ max: number }>();
 }
 
-// A custom node (`type` is the registered kind, `props` the typed config). Built
-// inline so the test doesn't depend on formodel's `customInputType` being present.
 const config: FormConfig<{ rating: number }> = {
   model: () => ({ rating: 0 }),
-  ui: { rating: { type: 'stars', props: { max: 5 } } } as unknown as FormConfig<{
-    rating: number;
-  }>['ui'],
+  ui: { rating: stars({ max: 5 }) },
 };
 
 @Component({
@@ -28,11 +35,11 @@ const config: FormConfig<{ rating: number }> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class Host {
-  readonly state = asRenderable(instantiateForm(config));
+  readonly state = instantiateForm(config);
 }
 
 async function pump(fixture: ComponentFixture<unknown>): Promise<void> {
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     fixture.detectChanges();
     await fixture.whenStable();
   }
@@ -46,21 +53,14 @@ describe('Custom control kinds', () => {
     const fixture = TestBed.createComponent(Host);
     await pump(fixture);
 
-    const stars = fixture.nativeElement.querySelector('.stars') as HTMLElement;
-    expect(stars).toBeTruthy();
-    expect(stars.textContent).toContain('max 5');
+    const el = fixture.nativeElement.querySelector('.stars') as HTMLElement;
+    expect(el.textContent).toContain('max 5');
   });
 });
 
-// ── Per-stepper registration ──
-import { asStepper, RuntimeStepper, StepperBuilder } from './builders/stepper-builder';
-import { StepperComponent } from './runtime/stepper.component';
-
 const starForm: FormConfig<{ rating: number }> = {
   model: () => ({ rating: 0 }),
-  ui: { rating: { type: 'stars', props: { max: 7 } } } as unknown as FormConfig<{
-    rating: number;
-  }>['ui'],
+  ui: { rating: stars({ max: 7 }) },
 };
 
 @Component({
@@ -68,7 +68,6 @@ const starForm: FormConfig<{ rating: number }> = {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class StepperHost {
-  // 'stars' is registered ON THE STEPPER (no global provideFormadSuite for it).
   readonly stepper: RuntimeStepper = asStepper(
     new StepperBuilder()
       .addControlType('stars', StarsControl)
@@ -81,31 +80,26 @@ class StepperHost {
 describe('Per-stepper control types', () => {
   it('resolves a wizard-scoped kind through the merged adapter', async () => {
     const fixture = TestBed.createComponent(StepperHost);
-    for (let i = 0; i < 5; i++) {
-      fixture.detectChanges();
-      await fixture.whenStable();
-    }
-    const stars = fixture.nativeElement.querySelector('.stars') as HTMLElement | null;
-    expect(stars?.textContent).toContain('max 7');
+    await pump(fixture);
+
+    const el = fixture.nativeElement.querySelector('.stars') as HTMLElement | null;
+    expect(el?.textContent).toContain('max 7');
   });
 });
 
-// ── addForm effects (control output → sibling-field patch) ──
 @Component({
   selector: 'lookup-control',
   template: `<button class="lookup" type="button" (click)="resolved.emit('Acme')">go</button>`,
 })
 class LookupControl implements FormValueControl<string> {
   value = model('');
+  props = input<Record<string, never>>({});
   resolved = output<string>();
 }
 
 const lookupForm: FormConfig<{ taxId: string; company: string }> = {
   model: () => ({ taxId: '', company: '' }),
-  ui: {
-    taxId: { type: 'lookup' },
-    company: { type: 'text', label: 'Company' },
-  } as unknown as FormConfig<{ taxId: string; company: string }>['ui'],
+  ui: { taxId: lookup({}), company: text('Company') },
 };
 
 @Component({
@@ -121,11 +115,10 @@ class EffectHost {
         s.createPage({ options: { heading: '1' } }, (p) =>
           p.addForm((f) => f.f, {
             effects: (e) =>
-              e.on(
-                (m) => m.taxId,
-                'resolved',
-                (payload: string, model) => model.update((m) => ({ ...m, company: payload })),
-              ),
+              e.on((m) => m.taxId, {
+                output: 'resolved',
+                handler: (payload: string, model) => model.update((m) => ({ ...m, company: payload })),
+              }),
           }),
         ),
       )
@@ -136,18 +129,11 @@ class EffectHost {
 describe('addForm effects', () => {
   it('wires a control output to patch a sibling field', async () => {
     const fixture = TestBed.createComponent(EffectHost);
-    for (let i = 0; i < 5; i++) {
-      fixture.detectChanges();
-      await fixture.whenStable();
-    }
+    await pump(fixture);
 
     (fixture.nativeElement.querySelector('.lookup') as HTMLButtonElement).click();
-    for (let i = 0; i < 3; i++) {
-      fixture.detectChanges();
-      await fixture.whenStable();
-    }
+    await pump(fixture);
 
-    // The 'company' text field was patched by the lookup control's `resolved` output.
     const company = fixture.nativeElement.querySelector('input') as HTMLInputElement;
     expect(company.value).toBe('Acme');
   });

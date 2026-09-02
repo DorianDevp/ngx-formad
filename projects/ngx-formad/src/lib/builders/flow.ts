@@ -6,82 +6,51 @@ import { SequenceNodeKind, StepNode } from './nodes';
 import {
   AnyFormProvider,
   DeferTrigger,
+  ErasedRecord,
   RuntimeResultResolver,
   RuntimeStepCondition,
   RuntimeStepContext,
 } from './step-context';
-import { FlowPort } from './flow-port';
 
-// A flow is the runtime shape both abstractions share: a linear `Stepper` and a
-// `RecurrentStepper` (a ring around a dock) are each "a sequence with its own form
-// pool and its own shared store". Either can be the root handed to
-// `<ngx-formad-stepper>`, and either can occupy ONE slot of another flow's
-// sequence (a `FlowStepNode`) — the recursion the controller drives with one
-// child controller per flow step, all rendered by the single root chrome.
-
-/** The erased runtime shape of any flow — what the controller consumes. A built
- *  `Stepper`, erased with `asStepper`, satisfies this structurally. */
+/** The erased runtime shape of a flow: its sequence, form templates, shared store, control kinds and providers. */
 export interface FlowDefinition {
   readonly steps: readonly SequenceNode[];
 
   readonly forms: Record<string, AnyFormProvider>;
 
-  readonly shared: SharedState<Record<string, unknown>>;
+  readonly shared: SharedState<ErasedRecord>;
 
   readonly controlTypes: ControlTypeMap;
 
-  /** The flow's declared dependencies: its own injection environment is created
-   *  from these (inheriting the parent flow's, up to the application's), so the
-   *  flow's components and author callbacks `inject(...)` them directly. */
   readonly providers: readonly Provider[];
 
-  /** Set by `fork` on a root stepper; nested flows have no fork. */
   readonly resolveResult?: RuntimeResultResolver;
 }
 
-/** A recurrent flow: pass steps authored first, the dock last. State is the
- *  flow's own — the collection accumulates by a pure fold from each finished
- *  pass, and nothing outside the flow mutates it. Generic in its collection;
- *  the runtime consumes the one erased instantiation, {@link RuntimeFlow}. */
+/** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state. */
 export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition {
   readonly recurrent: true;
 
-  /** Index of the dock in `steps`. */
   readonly dockAt: number;
 
-  /** A fresh collection — the accumulator's starting value. */
-  readonly seed: () => C;
+  readonly initial: () => C;
 
-  /** Pure: (collection so far, the finished pass's context) → new collection.
-   *  The context carries the pass's committed `value(...)` reads and its shared
-   *  snapshot, so one signature covers a one-item pass and a many-item pass. */
-  readonly fold?: (collection: C, pass: RuntimeStepContext) => C;
+  readonly fold?: (state: C, pass: RuntimeStepContext) => C;
 
-  /** True when the collection is non-empty — entry lands on the dock, and Back on
-   *  the pass's first step returns to the dock instead of leaving the flow. */
-  readonly hasAny: (collection: C) => boolean;
+  readonly dockReachable?: (state: C) => boolean;
 
-  /** The flow's validity, derived from the collection and nothing else. */
-  readonly complete?: (collection: C) => boolean;
+  readonly complete?: (state: C) => boolean;
 
   readonly incompleteMessage?: string;
-
-  /** The authoring-time handle components read the collection through. Bound to
-   *  the live runtime by the controller. */
-  readonly port: FlowPort<C>;
 }
 
-/** Any flow the runtime can drive. The single, named place a recurrent flow's
- *  collection type is erased. */
+/** Any flow the runtime drives; the ring's state type is erased here. */
 export type RuntimeFlow = FlowDefinition | RecurrentFlowDefinition;
 
-/** A nested flow occupying one slot of a sequence. It has no pages of its own —
- *  what renders is the flow's active leaf, through a child controller. */
+/** A nested flow occupying one slot of a sequence; its egress reaches successors under `name`. */
 export interface FlowStepNode {
   readonly kind: SequenceNodeKind.Flow;
 
-  /** The pool name the flow's value commits under in the PARENT's committed map:
-   *  a recurrent flow's collection, a linear sub-flow's committed record. */
   readonly name: string;
 
   readonly flow: RuntimeFlow;
@@ -92,24 +61,25 @@ export interface FlowStepNode {
 
   readonly defer?: DeferTrigger;
 
-  /** Mirrors the flow's own completeness — the parent-side gate for a host that
-   *  navigates past the flow without going through its dock. */
   readonly completeWhen?: RuntimeStepCondition;
 
   readonly incompleteMessage?: string;
 }
 
-/** One slot of a flow's sequence: a leaf step, or a nested flow. */
+/** One slot of a sequence: a leaf step or a nested flow. */
 export type SequenceNode = StepNode | FlowStepNode;
 
+/** Narrows a sequence node to a nested flow. */
 export function isFlowStep(node: SequenceNode): node is FlowStepNode {
   return node.kind === SequenceNodeKind.Flow;
 }
 
+/** Narrows a runtime flow to a ring. */
 export function isRecurrent(flow: RuntimeFlow): flow is RecurrentFlowDefinition {
   return 'recurrent' in flow && flow.recurrent;
 }
 
+/** Narrows a sequence node to a leaf step. */
 export function isStepNode(node: SequenceNode): node is StepNode {
   return node.kind === SequenceNodeKind.Step;
 }

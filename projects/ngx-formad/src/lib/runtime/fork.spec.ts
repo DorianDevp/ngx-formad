@@ -48,7 +48,7 @@ function ctx(values: Record<string, unknown>): RuntimeStepContext {
   const shared: Record<string, Signal<unknown>> = {};
   for (const [key, value] of Object.entries(values)) shared[key] = signal(value);
 
-  return { steps: {}, shared, parent: undefined };
+  return { steps: {}, shared, flow: undefined, parent: undefined };
 }
 
 describe('fork', () => {

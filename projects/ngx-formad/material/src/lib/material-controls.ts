@@ -1,55 +1,41 @@
 import { Component, effect, input, model, Signal, viewChild } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
-import { ErrorStateMatcher } from '@angular/material/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { ErrorStateMatcher } from '@angular/material/core';
 import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInput, MatInputModule } from '@angular/material/input';
 import { MatOption, MatSelect } from '@angular/material/select';
-
-// Angular Material controls for ngx-formad. Each implements the native
-// `FormValueControl` contract exactly like the plain-HTML defaults — a two-way
-// `value` plus the field-state inputs — so the renderer drives them the same way;
-// only the markup is Material.
-//
-// Material shows errors off its own control's `errorState`, which a signal-forms
-// field does not feed. The bridge is a tiny `ErrorStateMatcher` per control that
-// reports error state straight from our `touched()` + `errors()` signals, so
-// `<mat-error>` lights up exactly when the field is touched and invalid.
+import { ControlOption } from 'ngx-formad';
 
 type Errors = readonly ValidationError.WithOptionalFieldTree[];
 
-/** An option as the select control consumes it (from the formodel node). */
-export interface ControlOption {
-  readonly value: unknown;
-  readonly label: string;
-}
-
-// Reports error state from arbitrary signals rather than a Material/Ng control.
 class SignalErrorStateMatcher implements ErrorStateMatcher {
   constructor(private readonly inError: () => boolean) {}
+
   isErrorState(): boolean {
     return this.inError();
   }
 }
 
-// Material recomputes `errorState` in its own `ngDoCheck`, which our *external*
-// `touched`/`errors` signals don't trigger — so the invalid outline would never
-// light up. This pokes the Material control's `updateErrorState()` whenever those
-// signals change, keeping the red outline in sync with the field's validity. Call
-// it from a control's constructor (an injection context).
-function syncMatErrorState(
-  field: Signal<{ updateErrorState(): void } | undefined>,
-  track: () => void,
-): void {
+interface ErrorStateHost {
+  updateErrorState(): void;
+}
+
+function syncMatErrorState(field: Signal<ErrorStateHost | undefined>, track: () => void): void {
   effect(() => {
-    track(); // read touched()/errors() so the effect re-runs when they change
+    track();
     field()?.updateErrorState();
   });
 }
 
+function inputValue(e: Event): string {
+  return (e.target as HTMLInputElement).value;
+}
+
+/** The Material single-line text control; `type` selects the native input type. */
 @Component({
   selector: 'mat-formad-text',
   imports: [MatFormFieldModule, MatInputModule],
@@ -64,7 +50,7 @@ function syncMatErrorState(
         [required]="required()"
         [placeholder]="placeholder()"
         [errorStateMatcher]="matcher"
-        (input)="value.set($any($event.target).value)"
+        (input)="value.set(asString($event))"
         (blur)="touched.set(true)"
       />
       @if (touched() && errors().length) {
@@ -75,25 +61,38 @@ function syncMatErrorState(
 })
 export class MatTextControl implements FormValueControl<string> {
   value = model('');
+
   type = input<'text' | 'email' | 'password' | 'tel' | 'url'>('text');
+
   label = input('');
+
   placeholder = input('');
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
-  protected readonly matcher = new SignalErrorStateMatcher(
-    () => this.touched() && this.errors().length > 0,
-  );
+
+  readonly matcher = new SignalErrorStateMatcher(() => this.touched() && this.errors().length > 0);
+
   private readonly matInput = viewChild(MatInput);
+
   constructor() {
     syncMatErrorState(this.matInput, () => {
       this.touched();
       this.errors();
     });
   }
+
+  asString(e: Event): string {
+    return inputValue(e);
+  }
 }
 
+/** The Material textarea control. */
 @Component({
   selector: 'mat-formad-textarea',
   imports: [MatFormFieldModule, MatInputModule],
@@ -108,7 +107,7 @@ export class MatTextControl implements FormValueControl<string> {
         [rows]="rows()"
         [placeholder]="placeholder()"
         [errorStateMatcher]="matcher"
-        (input)="value.set($any($event.target).value)"
+        (input)="value.set(asString($event))"
         (blur)="touched.set(true)"
       ></textarea>
       @if (touched() && errors().length) {
@@ -119,25 +118,38 @@ export class MatTextControl implements FormValueControl<string> {
 })
 export class MatTextareaControl implements FormValueControl<string> {
   value = model('');
+
   label = input('');
+
   placeholder = input('');
+
   rows = input(3);
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
-  protected readonly matcher = new SignalErrorStateMatcher(
-    () => this.touched() && this.errors().length > 0,
-  );
+
+  readonly matcher = new SignalErrorStateMatcher(() => this.touched() && this.errors().length > 0);
+
   private readonly matInput = viewChild(MatInput);
+
   constructor() {
     syncMatErrorState(this.matInput, () => {
       this.touched();
       this.errors();
     });
   }
+
+  asString(e: Event): string {
+    return (e.target as HTMLTextAreaElement).value;
+  }
 }
 
+/** The Material number control; an empty box is `null`, not `0`. */
 @Component({
   selector: 'mat-formad-number',
   imports: [MatFormFieldModule, MatInputModule],
@@ -162,27 +174,36 @@ export class MatTextareaControl implements FormValueControl<string> {
 })
 export class MatNumberControl implements FormValueControl<number | null> {
   value = model<number | null>(null);
+
   label = input('');
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
-  protected readonly matcher = new SignalErrorStateMatcher(
-    () => this.touched() && this.errors().length > 0,
-  );
+
+  readonly matcher = new SignalErrorStateMatcher(() => this.touched() && this.errors().length > 0);
+
   private readonly matInput = viewChild(MatInput);
+
   constructor() {
     syncMatErrorState(this.matInput, () => {
       this.touched();
       this.errors();
     });
   }
-  protected asNumber(e: Event): number | null {
-    const raw = (e.target as HTMLInputElement).value;
+
+  asNumber(e: Event): number | null {
+    const raw = inputValue(e);
+
     return raw === '' ? null : Number(raw);
   }
 }
 
+/** The Material select control. */
 @Component({
   selector: 'mat-formad-select',
   imports: [MatFormFieldModule, MatSelect, MatOption],
@@ -207,18 +228,25 @@ export class MatNumberControl implements FormValueControl<number | null> {
     </mat-form-field>
   `,
 })
-export class MatSelectControl implements FormValueControl<unknown> {
-  value = model<unknown>(null);
+export class MatSelectControl implements FormValueControl<ControlOption['value']> {
+  value = model<ControlOption['value']>(null);
+
   label = input('');
+
   options = input<readonly ControlOption[]>([]);
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
-  protected readonly matcher = new SignalErrorStateMatcher(
-    () => this.touched() && this.errors().length > 0,
-  );
+
+  readonly matcher = new SignalErrorStateMatcher(() => this.touched() && this.errors().length > 0);
+
   private readonly matSelect = viewChild(MatSelect);
+
   constructor() {
     syncMatErrorState(this.matSelect, () => {
       this.touched();
@@ -227,6 +255,7 @@ export class MatSelectControl implements FormValueControl<unknown> {
   }
 }
 
+/** The Material checkbox control; `innerHTML` renders rich consent prose instead of the label. */
 @Component({
   selector: 'mat-formad-checkbox',
   imports: [MatCheckboxModule],
@@ -239,8 +268,6 @@ export class MatSelectControl implements FormValueControl<unknown> {
       (blur)="touched.set(true)"
     >
       @if (innerHTML()) {
-        <!-- Rich consent prose (links included); author-controlled config, not
-             user input, so binding it is safe. -->
         <span class="mat-formad-checkbox-label" [innerHTML]="innerHTML()"></span>
       } @else {
         {{ label() }}
@@ -253,14 +280,21 @@ export class MatSelectControl implements FormValueControl<unknown> {
 })
 export class MatCheckboxControl implements FormValueControl<boolean> {
   value = model(false);
+
   label = input('');
+
   innerHTML = input('');
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 }
 
+/** The Material date control; `minDate`/`maxDate` bound the picker. */
 @Component({
   selector: 'mat-formad-date',
   imports: [MatFormFieldModule, MatInputModule, MatDatepickerModule],
@@ -289,19 +323,25 @@ export class MatCheckboxControl implements FormValueControl<boolean> {
 })
 export class MatDateControl implements FormValueControl<Date | null> {
   value = model<Date | null>(null);
+
   label = input('');
+
   disabled = input(false);
-  // `min`/`max` are reserved by the control contract (numeric), so the date
-  // bounds use distinct names.
+
   minDate = input<Date | null>(null);
+
   maxDate = input<Date | null>(null);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
-  protected readonly matcher = new SignalErrorStateMatcher(
-    () => this.touched() && this.errors().length > 0,
-  );
+
+  readonly matcher = new SignalErrorStateMatcher(() => this.touched() && this.errors().length > 0);
+
   private readonly matInput = viewChild(MatInput);
+
   constructor() {
     syncMatErrorState(this.matInput, () => {
       this.touched();
@@ -310,6 +350,7 @@ export class MatDateControl implements FormValueControl<Date | null> {
   }
 }
 
+/** The Material file control; `maxFiles` caps the picked list. */
 @Component({
   selector: 'mat-formad-file',
   imports: [MatButtonModule, MatIconModule],
@@ -343,16 +384,24 @@ export class MatDateControl implements FormValueControl<Date | null> {
 })
 export class MatFileControl implements FormValueControl<readonly File[]> {
   value = model<readonly File[]>([]);
+
   label = input('');
+
   accept = input('');
+
   multiple = input(false);
+
   maxFiles = input<number | null>(null);
+
   disabled = input(false);
+
   touched = model(false);
+
   required = input(false);
+
   errors = input<Errors>([]);
 
-  protected pick(e: Event): void {
+  pick(e: Event): void {
     const picked = Array.from((e.target as HTMLInputElement).files ?? []);
     const cap = this.maxFiles();
     this.value.set(cap != null ? picked.slice(0, cap) : picked);

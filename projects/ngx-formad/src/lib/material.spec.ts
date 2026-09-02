@@ -2,7 +2,7 @@ import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { required } from '@angular/forms/signals';
 import { UiFormConfigBuilder, select, text } from 'formodel';
-import { asRenderable, FormConfig, FormRenderer, instantiateForm, provideFormadSuite } from 'ngx-formad';
+import { FormConfig, FormRenderer, instantiateForm, provideFormadSuite } from 'ngx-formad';
 import { materialControls } from 'ngx-formad/material';
 
 // Field-behaviour coverage for the Material adapter — the thing a form library
@@ -31,7 +31,7 @@ const config: FormConfig<Model> = {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class Host {
-  readonly state = asRenderable(instantiateForm(config));
+  readonly state = instantiateForm(config);
 }
 
 describe('Material adapter — field behaviour', () => {
@@ -59,8 +59,7 @@ describe('Material adapter — field behaviour', () => {
     input.dispatchEvent(new Event('input'));
     await pump(fixture);
 
-    const root = fixture.componentInstance.state.rootForm as unknown as Record<string, () => { value(): unknown }>;
-    expect(root['name']().value()).toBe('Ada');
+    expect(fixture.componentInstance.state.rootForm.name().value()).toBe('Ada');
   });
 
   it('shows the invalid outline once a required field is touched and empty', async () => {

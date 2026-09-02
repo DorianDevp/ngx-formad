@@ -9,7 +9,7 @@ import { StepPageView } from './step-page-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
 
-async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
+async function settle(fixture: ComponentFixture<object>): Promise<void> {
   for (let i = 0; i < 4; i++) {
     fixture.detectChanges();
     await fixture.whenStable();
@@ -25,8 +25,6 @@ const oneForm = (label: string): FormConfig<One> => ({
 
 const GREETING = new InjectionToken<string>('greeting');
 
-// A flow-scoped service with an observable lifetime: created inside the flow's
-// environment, destroyed with it.
 @Injectable()
 class FlowScoped {
   static alive = 0;
@@ -40,14 +38,12 @@ class FlowScoped {
   }
 }
 
-// A page component that stays clean: no inputs for dependencies — it injects
-// what the flow declared, the same way in every wizard that hosts it.
 @Component({
   selector: 'greeting-panel',
   template: `<span class="greeting">{{ greeting }}</span>`,
 })
 class GreetingPanel {
-  protected readonly greeting = inject(GREETING);
+  readonly greeting = inject(GREETING);
 }
 
 @Component({
@@ -59,7 +55,8 @@ class GreetingPanel {
   `,
 })
 class ProvDock {
-  protected readonly greeting = inject(GREETING);
+  readonly greeting = inject(GREETING);
+
   readonly count = input(0);
 }
 
@@ -97,21 +94,18 @@ class ProvHost {
           ),
         {
           label: 'Start',
-          // The router-guard idiom: an author callback injects a flow dependency.
           when: () => {
             this.whenSaw = inject(GREETING);
-            // Instantiates the flow-scoped service, so the destroy test below
-            // observes a real lifetime (class providers are lazy).
             inject(FlowScoped);
 
             return true;
           },
         },
       )
-      .createRecurrentStepper(
-        'items',
-        { collection: (): string[] => [], label: 'Items' },
-        (loop, view) =>
+      .createRecurrentStepper('items', {
+        initial: (): string[] => [],
+        label: 'Items',
+        build: (loop) =>
           loop
             .provide({ provide: GREETING, useValue: 'from the ring' })
             .createForm('name', oneForm('Name'))
@@ -119,15 +113,15 @@ class ProvHost {
               (s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm((f) => f.name)),
               { label: 'Name' },
             )
-            .fold((collected) => [...collected, 'x'])
+            .fold((state) => [...state, 'x'])
             .dock(
-              (s) =>
+              (s, ctx) =>
                 s.createPage({ options: { heading: 'Collected' } }, (p) =>
-                  p.addComponent(ProvDock, { inputs: { count: () => view.all().length } }),
+                  p.addComponent(ProvDock, { inputs: { count: () => ctx.flow.state().length } }),
                 ),
               { label: 'Dock' },
             ),
-      )
+      })
       .build(),
   );
 }
