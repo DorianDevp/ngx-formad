@@ -1,18 +1,22 @@
-import { Type } from '@angular/core';
+import { Signal, Type } from '@angular/core';
+import { FieldTree } from '@angular/forms/signals';
 import { FormConfig } from '../form-config/form-config';
+import { FormState } from '../renderer/instantiate-form';
 import { StandardSchemaOf } from './standard-schema';
 
-// The typed surface a step's `when` condition is written against, plus the lazy
-// form provider. Everything here is keyed on the same `TForms`/`TShared` the
-// `Stepper` carries, so the built wizard is the single source of truth: authoring
-// (`createStep` opts), the erased node the runtime stores, and any typed host all
-// use the *same* generic at different instantiations — never a parallel twin.
+// The typed surface a step's callbacks are written against. The pool (`TForms`)
+// holds TEMPLATES — a form config is instantiated by the step that places it, so
+// the same config in two steps is two independent instances. What a later step
+// reads is therefore keyed by STEP, never by form name: `ctx.steps.<name>` is the
+// named predecessor's live instances by pool name. Everything in the context is
+// reactive (signals), so a condition, a fold, a dynamic step or a component with
+// the context injected all read the same live tree — no snapshots.
 
 /** A pooled standalone value control (`createControl`): a `FormValueControl`
  *  component wrapped, at materialization, in an implicit single-value field tree.
- *  It lives in the same `TForms` map as the forms, so `value(...)`, step
- *  conditions, and commits treat it as one more named value — the runtime just
- *  discriminates on `control` instead of the config/loader shape. */
+ *  It lives in the same `TForms` map as the forms, so placement and instances
+ *  treat it as one more named entry — the runtime just discriminates on
+ *  `control` instead of the config/loader shape. */
 export interface ControlEntry<T, C = unknown> {
   /** Discriminates a pooled control from a pooled form provider. */
   readonly control: true;
@@ -25,10 +29,9 @@ export interface ControlEntry<T, C = unknown> {
   readonly label?: string;
 }
 
-/** A pooled nested flow (`createStepper` / `createRecurrentStepper`): the value it
- *  commits under its name — a recurrent flow's folded collection, or a linear
- *  sub-flow's committed record. Phantom-typed like `ForkArm`, so `value(...)` and
- *  later conditions read the exact collection type the flow declared. */
+/** A pooled nested flow (`createStepper` / `createRecurrentStepper`). Its value
+ *  reaches successors under the flow's name in `ctx.steps`: a recurrent flow's
+ *  folded collection, a linear sub-flow's committed record. */
 export interface FlowEntry<C> {
   readonly flow: true;
   /** Phantom — present only so `FormModel` can extract the flow's value type. */
@@ -52,8 +55,8 @@ export type ControlKeys<TForms> = {
   [K in keyof TForms]: TForms[K] extends ControlEntry<infer _T, infer _C> ? K : never;
 }[keyof TForms];
 
-/** The pool keys that are nested flows — addressable by `value(...)`, never by
- *  `addForm`/`addControl` (a flow renders through its own controller). */
+/** The pool keys that are nested flows — never placed by `addForm`/`addControl`
+ *  (a flow renders through its own controller). */
 export type FlowKeys<TForms> = {
   [K in keyof TForms]: TForms[K] extends FlowEntry<infer _C> ? K : never;
 }[keyof TForms];
@@ -68,45 +71,86 @@ export type ControlComponent<F> = F extends ControlEntry<infer _T, infer C> ? C 
  *  deferred rendering. Bring-your-own-UI hosts can read the hint and pick freely. */
 export type DeferTrigger = 'idle' | 'viewport' | 'interaction';
 
-/** What a step inside a recurrent flow knows about the ring it runs in: the
- *  collection folded so far, and whether a pass is currently open (the gate the
- *  pass steps and the dock are authored against). Erased here — the recurrent
- *  builder's own `fold`/`completeWhen` signatures carry the typed collection. */
-export interface FlowContext {
-  readonly collection: unknown;
-  readonly passOpen: boolean;
+// ── Instances ──
+
+/** A live standalone control as a step exposes it: its field tree and its value. */
+export interface LiveControlInstance<T> {
+  readonly field: FieldTree<T>;
+
+  value(): T;
 }
 
-/** The typed context a step condition reads. Both type params come from the built
- *  stepper (its form pool and shared-state shape), so `shared` and `value(...)`
- *  are checked against the exact wizard you declared. */
-export interface StepContext<TForms, TShared> {
-  /** The cross-step shared state, typed as declared by `withState`; reactive at
-   *  runtime. Inside a nested flow this is the parent's shared layered under the
-   *  flow's own — the flow reads outward, never the other way around. */
-  readonly shared: TShared;
-  /** The last-committed value of an earlier step's form (its model), standalone
-   *  control (its raw value), or nested flow (its collection / committed record),
-   *  keyed by pool name. `undefined` until that step has been left (committed) at
-   *  least once. */
-  value<K extends keyof TForms>(form: K): FormModel<TForms[K]> | undefined;
-  /** Present only for a step evaluated inside a recurrent flow. */
-  readonly flow?: FlowContext;
+/** The live instance behind one pooled entry. */
+export type InstanceOf<F> =
+  F extends ControlEntry<infer T, infer _C>
+    ? LiveControlInstance<T>
+    : F extends FormConfig<infer M>
+      ? FormState<M>
+      : never;
+
+/** What one step exposes to its successors: its live instances by pool name.
+ *  `P` is the record of names the step PLACED (`addForm`/`addControl`), inferred
+ *  from the step's build callback — a form placed on only some paths of a dynamic
+ *  step is absent from the type, as it may be absent at runtime. */
+export type StepInstance<TForms, P> = {
+  readonly [K in keyof P & keyof TForms]: InstanceOf<TForms[K]>;
+};
+
+// ── Context ──
+
+/** The cross-step shared store as signals — the GLOBAL state of a flow, one per
+ *  key, layered over the parent flow's. */
+export type SharedSignals<TShared> = { readonly [K in keyof TShared]: Signal<TShared[K]> };
+
+/** What a step inside a recurrent flow knows about its ring. */
+export interface FlowSignals<C = unknown> {
+  readonly collection: Signal<C>;
+
+  readonly passOpen: Signal<boolean>;
 }
 
-/** A step condition, typed against the forms pool and shared state. */
-export type StepCondition<TForms, TShared> = (ctx: StepContext<TForms, TShared>) => boolean;
+/** The context a step's callbacks read. `TSteps` is the accumulated record of
+ *  named predecessors ON THIS LEVEL (a step under `when` is `| undefined`);
+ *  `TParent` is the enclosing flow's context, or `undefined` at the root — a
+ *  nested flow has its own namespace of step names and reaches the level above
+ *  explicitly through `parent`. */
+export interface StepContext<TShared, TSteps, TParent = undefined> {
+  readonly steps: TSteps;
+
+  readonly shared: SharedSignals<TShared>;
+
+  /** Present inside a recurrent flow (own ring, or the nearest enclosing one). */
+  readonly flow?: FlowSignals;
+
+  readonly parent: TParent;
+}
+
+/** The context a GATE reads — `when`, `completeWhen`, a branch selector, a fork's
+ *  result. Gates are evaluated at any time for every step (the rail needs them),
+ *  so no predecessor is guaranteed to exist yet: every entry is optional here,
+ *  while the step's own build callback (entry-time) sees unconditional
+ *  predecessors as present. */
+export type GateContext<TShared, TSteps, TParent = undefined> = StepContext<
+  TShared,
+  { readonly [K in keyof TSteps]?: TSteps[K] },
+  TParent
+>;
+
+/** A step condition. */
+export type StepCondition<TShared, TSteps, TParent = undefined> = (
+  ctx: GateContext<TShared, TSteps, TParent>,
+) => boolean;
 
 /** A form supplied lazily — its config is fetched only when its step is reached. */
 export type FormLoader<M extends Record<string, unknown>> = () => Promise<FormConfig<M>>;
 
 /** A form supplied eagerly or lazily. Both narrow `TForms` to `FormConfig<M>`, so
- *  `addForm` / `bind` / `value()` typings are identical whichever you use. */
+ *  `addForm` / `bind` / instances are typed identically whichever you use. */
 export type FormProvider<M extends Record<string, unknown>> = FormConfig<M> | FormLoader<M>;
 
 // ── Erased instantiations the runtime stores and evaluates ──
-// These are the same generics applied to the erased pool/shared shapes, not new
-// definitions — exactly mirroring how `RuntimeStepper` erases `Stepper`.
+// These are the same shapes applied to erased pools, not new definitions —
+// exactly mirroring how `RuntimeStepper` erases `Stepper`.
 
 /** The erased pool entry the runtime walks: a config or a loader, keyed by name. */
 export type AnyFormProvider = FormProvider<Record<string, unknown>>;
@@ -114,15 +158,27 @@ export type AnyFormProvider = FormProvider<Record<string, unknown>>;
 /** The erased control entry the runtime materializes. */
 export type AnyControlEntry = ControlEntry<unknown, unknown>;
 
-/** The erased shared shape the runtime stores. Controls sit beside forms, so an
- *  erased `value(...)` read is `unknown` — precision lives on the authored side. */
-type ErasedForms = Record<string, FormConfig<Record<string, unknown>> | AnyControlEntry>;
-type ErasedShared = Record<string, unknown>;
+/** One step's instances as the runtime holds them: pool name → `FormState`,
+ *  `LiveControlInstance`, or (for a nested flow) its egress value. */
+export type RuntimeStepInstance = Readonly<Record<string, unknown>>;
 
-/** The erased step context the shell reconstructs at runtime. */
-export type RuntimeStepContext = StepContext<ErasedForms, ErasedShared>;
-/** The erased step condition stored on a `StepNode`. */
-export type RuntimeStepCondition = StepCondition<ErasedForms, ErasedShared>;
+/** The erased step context the runtime reconstructs. */
+export interface RuntimeStepContext {
+  readonly steps: Readonly<Record<string, RuntimeStepInstance | undefined>>;
+
+  readonly shared: Readonly<Record<string, Signal<unknown>>>;
+
+  readonly flow?: FlowSignals;
+
+  readonly parent: RuntimeStepContext | undefined;
+}
+
+/** The erased step condition stored on a node. */
+export type RuntimeStepCondition = (ctx: RuntimeStepContext) => boolean;
+
 /** The erased result resolver a fork stores on the `Stepper` — given the runtime
  *  context, returns the active arm's outcome (or undefined before one is chosen). */
 export type RuntimeResultResolver = (ctx: RuntimeStepContext) => unknown;
+
+/** The erased seed a form node carries: entry context → partial model. */
+export type RuntimeFormSeed = (ctx: RuntimeStepContext) => Partial<Record<string, unknown>>;

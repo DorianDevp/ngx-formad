@@ -1,7 +1,8 @@
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
 import { resolvePages } from './materialize-step';
-import { RuntimeStepContext } from '../builders/step-context';
+import { Signal, signal } from '@angular/core';
+import { RuntimeStepContext, RuntimeStepInstance } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from './effective-sequence';
@@ -26,24 +27,35 @@ const wizard = new StepperBuilder()
   .createForm('adminConfig', form('Advanced'))
   .createForm('userMeta', form('Settings'))
   .createForm('review', form('Review'))
-  .createStep((s) => s.createPage({ options: { heading: 'Basics' } }, (p) => p.addForm((f) => f.basics)))
+  .createStep((s) => s.createPage({ options: { heading: 'Basics' } }, (p) => p.addForm((f) => f.basics)), {
+    name: 'basics',
+  })
   .createStep((s) => s.createPage({ options: { heading: 'Advanced' } }, (p) => p.addForm((f) => f.adminConfig)), {
-    when: ({ shared }) => shared.accountType === 'admin',
+    when: ({ shared }) => shared.accountType() === 'admin',
   })
   .createStep((s) => s.createPage({ options: { heading: 'Settings' } }, (p) => p.addForm((f) => f.userMeta)), {
-    when: ({ value }) => value('basics')?.accountType !== 'admin',
+    // A predecessor's LIVE instance — `basics` is unconditional, but a gate may run
+    // before it exists, so it reads as optional here.
+    when: ({ steps }) => steps.basics?.basics.model().accountType !== 'admin',
   })
   .createStep((s) => s.createPage({ options: { heading: 'Review' } }, (p) => p.addForm((f) => f.review)))
   .build();
 
-function ctx(over: Partial<RuntimeStepContext> = {}): RuntimeStepContext {
-  return { shared: {}, value: () => undefined, ...over };
+
+// A hand-built runtime context, the shape a controller supplies: shared as signals,
+// predecessors' instances under `steps`.
+function ctx(over: { shared?: Record<string, unknown>; steps?: Record<string, RuntimeStepInstance> } = {}): RuntimeStepContext {
+  const shared: Record<string, Signal<unknown>> = {};
+  for (const [key, value] of Object.entries(over.shared ?? {})) shared[key] = signal(value);
+
+  return { steps: over.steps ?? {}, shared, parent: undefined };
 }
 
 describe('effectiveSteps', () => {
   it('keeps an unconditional step always', () => {
-    expect(effectiveSteps(wizard.steps, ctx()).includes(wizard.steps[0])).toBe(true);
-    expect(effectiveSteps(wizard.steps, ctx()).includes(wizard.steps[3])).toBe(true);
+    const plain = ctx({ shared: { accountType: 'user' } });
+    expect(effectiveSteps(wizard.steps, plain).includes(wizard.steps[0])).toBe(true);
+    expect(effectiveSteps(wizard.steps, plain).includes(wizard.steps[3])).toBe(true);
   });
 
   it('drops a step whose `when` reads false from shared state', () => {
@@ -56,9 +68,12 @@ describe('effectiveSteps', () => {
     expect(seq).toContain(wizard.steps[1]);
   });
 
-  it('evaluates `value(form)` against a prior step’s committed model', () => {
-    const asAdmin = ctx({ value: (n) => (n === 'basics' ? { accountType: 'admin' } : undefined) });
-    // Settings (gated on basics !== admin) is dropped once basics committed admin.
+  it('evaluates a predecessor’s live instance through `steps`', () => {
+    const asAdmin = ctx({
+      shared: { accountType: 'user' },
+      steps: { basics: { basics: { model: () => ({ accountType: 'admin' }) } } },
+    });
+    // Settings (gated on basics !== admin) is dropped once basics holds admin.
     expect(effectiveSteps(wizard.steps, asAdmin)).not.toContain(wizard.steps[2]);
   });
 
@@ -67,8 +82,8 @@ describe('effectiveSteps', () => {
     const user = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'user' } }));
     expect(headings(admin)).toEqual(['Basics', 'Advanced', 'Settings', 'Review']);
     expect(headings(user)).toEqual(['Basics', 'Settings', 'Review']);
-    // Advanced uses shared (admin only); Settings uses value() which is undefined
-    // here, so it stays — the two condition *sources* are exercised independently.
+    // Advanced uses shared (admin only); Settings reads a predecessor that does not
+    // exist here, so it stays — the two condition *sources* are exercised independently.
   });
 });
 
@@ -79,7 +94,7 @@ describe('effectiveSteps', () => {
 // resolves it the way the controller does.
 const headings = (steps: readonly SequenceNode[]) =>
   steps.filter(isStepNode).map((s) => {
-    const heading = resolvePages(s, { shared: {}, value: () => undefined })[0].options.heading;
+    const heading = resolvePages(s, ctx())[0].options.heading;
     return typeof heading === 'function' ? heading() : heading;
   });
 
@@ -91,13 +106,13 @@ const branched = new StepperBuilder()
   .createForm('free', form('Free'))
   .createForm('done', form('Done'))
   .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm((f) => f.start)))
-  .branch((ctx) => ctx.shared.plan, {
+  .branch((c) => c.shared.plan(), {
     pro: (b) =>
       b
         .step((s) => s.createPage({ options: { heading: 'Pro' } }, (p) => p.addForm((f) => f.pro)))
         // a step inside the branch with its own extra condition (ANDed with the guard)
         .step((s) => s.createPage({ options: { heading: 'Addons' } }, (p) => p.addForm((f) => f.addons)), {
-          when: ({ shared }) => shared.addons === true,
+          when: ({ shared }) => shared.addons() === true,
         }),
     free: (b) => b.step((s) => s.createPage({ options: { heading: 'Free' } }, (p) => p.addForm((f) => f.free))),
   })

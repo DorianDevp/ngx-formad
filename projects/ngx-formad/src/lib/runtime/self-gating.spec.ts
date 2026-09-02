@@ -62,7 +62,7 @@ class SelfGatingHost {
             }),
           ),
         // The step is dropped by the very value its own form writes.
-        { when: (ctx) => !ctx.shared.skip },
+        { when: (ctx) => !ctx.shared.skip() },
       )
       .createStep((s) =>
         s.createPage({ options: { heading: '3' } }, (p) => p.addForm((f) => f.last)),
@@ -118,26 +118,28 @@ class BranchOnOneStepHost {
       .withState({ city: '' })
       .createForm('personal', cityForm('Personal city'))
       .createForm('company', cityForm('Company city'))
-      .createStep((s) =>
-        s.createPage({ options: { heading: 'Where' } }, (p) =>
-          p
-            .addForm((f) => f.personal, {
-              visibleWhen: () => !isCompany(),
-              bind: (l) =>
-                l.link(
-                  (m) => m.city,
-                  (sh) => sh.city,
-                ),
-            })
-            .addForm((f) => f.company, {
-              visibleWhen: () => isCompany(),
-              bind: (l) =>
-                l.link(
-                  (m) => m.city,
-                  (sh) => sh.city,
-                ),
-            }),
-        ),
+      .createStep(
+        (s) =>
+          s.createPage({ options: { heading: 'Where' } }, (p) =>
+            p
+              .addForm((f) => f.personal, {
+                visibleWhen: () => !isCompany(),
+                bind: (l) =>
+                  l.link(
+                    (m) => m.city,
+                    (sh) => sh.city,
+                  ),
+              })
+              .addForm((f) => f.company, {
+                visibleWhen: () => isCompany(),
+                bind: (l) =>
+                  l.link(
+                    (m) => m.city,
+                    (sh) => sh.city,
+                  ),
+              }),
+          ),
+        { name: 'where' },
       )
       .createStep((s) =>
         s.createPage({ options: { heading: 'Done' } }, (p) => p.addContent((c) => c.p('ok'))),
@@ -160,11 +162,11 @@ describe('A hidden form on a step', () => {
     buttonByText(fixture, 'Next').click();
     await settle(fixture);
 
-    const committed = fixture.componentInstance.committed;
-    expect(committed['personal']).toEqual({ city: 'Warsaw' });
+    const where = fixture.componentInstance.committed['where'] as Record<string, unknown>;
+    expect(where['personal']).toEqual({ city: 'Warsaw' });
     // The company form was never on screen: no phantom blank model, and the
     // shared key it also binds is still what the visible form wrote.
-    expect(committed['company']).toBeUndefined();
+    expect(where['company']).toBeUndefined();
     expect(fixture.componentInstance.stepper.shared.snapshot()['city']).toBe('Warsaw');
   });
 });

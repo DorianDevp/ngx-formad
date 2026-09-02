@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { FieldTree } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
-import { AnyFormProvider } from '../builders/step-context';
+import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
 import { isStepNode, SequenceNode } from '../builders/flow';
 import { StepNode } from '../builders/nodes';
 import { StepperBuilder } from '../builders/stepper-builder';
@@ -65,7 +65,7 @@ describe('materializeStep', () => {
     const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
     // Enter step 1, type into the account email, commit on the way out.
-    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector);
+    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector, EMPTY_CONTEXT);
     const root1 = step1.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
     const accountEmail = root1['email'];
     accountEmail().value.set('alice@example.com');
@@ -73,7 +73,7 @@ describe('materializeStep', () => {
     step1.forms[0].commit();
 
     // Enter step 2: its email is pristine, so it picks up the shared value.
-    const step2 = materializeStep(pagesAt(stepper.steps, 1), pool, {}, shared, injector);
+    const step2 = materializeStep(pagesAt(stepper.steps, 1), pool, {}, shared, injector, EMPTY_CONTEXT);
     const root2 = step2.forms[0].state.rootForm as unknown as Record<string, FieldTree<unknown>>;
     const billingEmail = root2['email'];
     expect(billingEmail().value()).toBe('alice@example.com');
@@ -85,7 +85,7 @@ describe('materializeStep', () => {
     const pool = stepper.forms as unknown as Record<string, FormConfig<Record<string, unknown>>>;
     const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
-    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector);
+    const step1 = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector, EMPTY_CONTEXT);
     expect(step1.registry.live().length).toBe(1);
     // No schema on these forms, so they are valid and the step is complete.
     expect(step1.registry.completed()).toBe(true);
@@ -117,7 +117,7 @@ describe('materializeStep', () => {
     const shared = stepper.shared as unknown as SharedState<Record<string, unknown>>;
 
     shared.patch({ city: 'Oslo' });
-    const live = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector); // seeds on entry
+    const live = materializeStep(pagesAt(stepper.steps, 0), pool, {}, shared, injector, EMPTY_CONTEXT); // seeds on entry
     const root = live.forms[0].state.rootForm as unknown as {
       address: Record<string, FieldTree<unknown>>;
     };
@@ -160,6 +160,8 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
   return node;
 }
 
+const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, parent: undefined };
+
 function pagesAt(steps: readonly SequenceNode[], index: number) {
-  return resolvePages(leafAt(steps, index), { shared: {}, value: () => undefined });
+  return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);
 }

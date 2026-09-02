@@ -94,7 +94,7 @@ function deviceStepper(): RuntimeStepper {
             .createForm('name', oneForm('Name'))
             .createForm('details', oneForm('Details'))
             .createForm('bulk', oneForm('Bulk'))
-            .branch((c) => (c.shared.source === 'invoice' ? 'invoice' : 'manual'), {
+            .branch((c) => (c.shared.source() === 'invoice' ? 'invoice' : 'manual'), {
               manual: (b) =>
                 b
                   .step(
@@ -105,30 +105,31 @@ function deviceStepper(): RuntimeStepper {
                           { bind: (l) => l.link((m) => m.v, (sh) => sh.draftName) },
                         ),
                       ),
-                    { label: 'Name' },
+                    { name: 'name', label: 'Name' },
                   )
                   .step(
                     (s) =>
                       s.createPage({ options: { heading: 'Details' } }, (p) =>
                         p.addForm((f) => f.details),
                       ),
-                    { label: 'Details' },
+                    { name: 'details', label: 'Details' },
                   ),
               invoice: (b) =>
                 b.step(
                   (s) =>
                     s.createPage({ options: { heading: 'Bulk' } }, (p) => p.addForm((f) => f.bulk)),
-                  { label: 'Bulk' },
+                  { name: 'bulk', label: 'Bulk' },
                 ),
             })
+            // The pass's own steps as live instances; a branch step may be absent.
             .fold((collected, pass) => {
-              const bulk = pass.value('bulk');
+              const bulk = pass.steps.bulk?.bulk.model();
               if (bulk !== undefined) {
                 if (bulk.v === 'none') return collected;
                 return [...collected, { name: `${bulk.v}-1` }, { name: `${bulk.v}-2` }];
               }
 
-              return [...collected, { name: pass.shared.draftName }];
+              return [...collected, { name: pass.shared.draftName() }];
             })
             .completeWhen((items) => items.length > 0, 'Add at least one device')
             .dock(
@@ -141,7 +142,7 @@ function deviceStepper(): RuntimeStepper {
       )
       .createStep(
         (s) => s.createPage({ options: { heading: 'Final' } }, (p) => p.addForm((f) => f.final)),
-        { label: 'Final', when: (c) => (c.value('devices')?.length ?? 0) > 0 },
+        { label: 'Final', when: (c) => (c.steps.devices?.length ?? 0) > 0 },
       )
       .build(),
   );

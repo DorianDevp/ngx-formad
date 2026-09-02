@@ -14,7 +14,13 @@ import {
   validateStandardSchema,
   ValidationError,
 } from '@angular/forms/signals';
-import { AnyControlEntry, AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
+import {
+  AnyControlEntry,
+  AnyFormProvider,
+  LiveControlInstance,
+  RuntimeStepContext,
+  RuntimeStepInstance,
+} from '../builders/step-context';
 import { FormConfig } from '../form-config/form-config';
 import { readReactive } from '../form-config/reactive';
 import { FormState, instantiateForm } from '../renderer/instantiate-form';
@@ -64,20 +70,16 @@ export interface LiveForm {
 
 /** A live standalone control: a `FormValueControl` component's implicit
  *  single-value field tree, registered for completion and synced like a form. */
-export interface LiveControl {
+export interface LiveControl<T = unknown> extends LiveControlInstance<T> {
   readonly name: string;
   readonly component: Type<unknown>;
   /** Presentational bindings from `addControl`; the value binding is the
    *  renderer's (`FormField` on `field`). */
   readonly bindings: readonly Binding[];
   readonly layout?: string;
-  /** The implicit field tree holding the control's value. */
-  readonly field: FieldTree<unknown>;
   readonly label: string;
   readonly visible: Signal<boolean>;
   readonly issues: Signal<readonly StepIssue[]>;
-  /** The current raw value — what commits under the control's pool name. */
-  value(): unknown;
   seed(): void;
   commit(): void;
   touch(): void;
@@ -91,6 +93,9 @@ export interface LiveStep {
   /** The owning flow's injection environment — what the step's dynamically
    *  created components resolve their dependencies against. */
   readonly environment: EnvironmentInjector;
+  /** The step's instances by pool name — what successors read as
+   *  `ctx.steps.<name>` (a form's `FormState`, a control's field + value). */
+  readonly instances: RuntimeStepInstance;
   /** The step's page tree, retained so a chrome can render the full layout —
    *  forms *and* dynamic components, rows, and content slots — in place, not just
    *  the flat form list. Forms are resolved back to their live state by name. */
@@ -180,16 +185,22 @@ export function materializeStep(
   controlPool: Record<string, AnyControlEntry>,
   shared: SharedState<Record<string, unknown>>,
   environment: EnvironmentInjector,
+  entry: RuntimeStepContext,
 ): LiveStep {
   const registry = new InstanceRegistry();
   const forms: LiveForm[] = [];
   const controls: LiveControl[] = [];
+  const instances: Record<string, unknown> = {};
 
   for (const node of formNodes(pages)) {
-    const config = pool[node.name];
-    if (!config) continue;
+    const template = pool[node.name];
+    if (!template) continue;
 
+    // The form's `initial` seeds THIS instance from the entry context — a fresh
+    // model per materialization, so a rejected-and-re-entered step re-reads it.
+    const config = node.initial ? seeded(template, node.initial(entry)) : template;
     const state = runInInjectionContext(environment, () => instantiateForm(config));
+    instances[node.name] = state;
     const rootTree = state.rootForm as unknown as FieldTree<unknown>;
     const root = state.rootForm as unknown as Record<string, FieldTree<unknown>>;
 
@@ -255,6 +266,8 @@ export function materializeStep(
     const sync = fieldSync(field);
     const slot = node.sharedKey ? shared.slot(node.sharedKey) : undefined;
     const label = def.label ?? node.name;
+    const instance: LiveControlInstance<unknown> = { field, value: () => sync.read() };
+    instances[node.name] = instance;
     const issues = computed<readonly StepIssue[]>(() =>
       (field() as FieldState<unknown>)
         .errorSummary()
@@ -283,7 +296,16 @@ export function materializeStep(
     });
   }
 
-  return { registry, forms, controls, environment, pages };
+  return { registry, forms, controls, environment, instances, pages };
+}
+
+// A template with its model factory layered by a seed: the same config, a
+// different starting point for this one instance.
+function seeded(
+  template: FormConfig<Record<string, unknown>>,
+  seed: Partial<Record<string, unknown>>,
+): FormConfig<Record<string, unknown>> {
+  return { ...template, model: () => ({ ...template.model(), ...seed }) };
 }
 
 /**

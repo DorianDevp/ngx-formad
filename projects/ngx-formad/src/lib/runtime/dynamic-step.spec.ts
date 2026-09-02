@@ -73,8 +73,8 @@ class DynHost {
           // pages built from a given context are identical every time.
           this.builds = this.builds + 1;
 
-          return s.createPage({ options: { heading: `Details: ${ctx.shared.pick}` } }, (p) =>
-            p.addForm((f) => (ctx.shared.pick === 'fancy' ? f.fancy : f.cheap)),
+          return s.createPage({ options: { heading: `Details: ${ctx.shared.pick()}` } }, (p) =>
+            p.addForm((f) => (ctx.shared.pick() === 'fancy' ? f.fancy : f.cheap)),
           );
         },
         { label: 'Details' },

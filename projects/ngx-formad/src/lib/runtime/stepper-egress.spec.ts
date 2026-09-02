@@ -47,7 +47,12 @@ class EgressHost {
       .withState({})
       .createForm('a', oneForm)
       .createForm('b', oneForm)
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
+      .createStep(
+        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)),
+        {
+          name: 'first',
+        },
+      )
       .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.b)))
       .build(),
   );
@@ -63,11 +68,13 @@ describe('StepperComponent — stepCommitted egress', () => {
     input.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+    const buttons = fixture.nativeElement.querySelectorAll(
+      'button',
+    ) as NodeListOf<HTMLButtonElement>;
     buttons[buttons.length - 1].click(); // Next
     await settle(fixture);
 
-    expect(fixture.componentInstance.last).toEqual({ a: { v: 'typed' } });
+    expect(fixture.componentInstance.last).toEqual({ first: { a: { v: 'typed' } } });
   });
 });
 
@@ -139,7 +146,7 @@ describe('StepperController.reset', () => {
 class WizSummary {
   private readonly wiz = inject(FormadWizard, { optional: true });
   protected readonly value = computed(
-    () => (this.wiz?.committed()['a'] as { v?: string } | undefined)?.v ?? '',
+    () => (this.wiz?.committed()['first'] as { a?: { v?: string } } | undefined)?.a?.v ?? '',
   );
 }
 
@@ -152,8 +159,15 @@ class WizCtxHost {
     new StepperBuilder()
       .withState({})
       .createForm('a', oneForm)
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addComponent(WizSummary, {})))
+      .createStep(
+        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)),
+        {
+          name: 'first',
+        },
+      )
+      .createStep((s) =>
+        s.createPage({ options: { heading: '2' } }, (p) => p.addComponent(WizSummary, {})),
+      )
       .build(),
   );
 }
@@ -168,7 +182,9 @@ describe('FormadWizard — injectable context', () => {
     input.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+    const buttons = fixture.nativeElement.querySelectorAll(
+      'button',
+    ) as NodeListOf<HTMLButtonElement>;
     buttons[buttons.length - 1].click(); // Next → commits 'a', enters step 2
     await settle(fixture);
 

@@ -82,7 +82,7 @@ function rootRing(): RuntimeFlow {
           ),
         { label: 'Name' },
       )
-      .fold((collected, pass) => [...collected, { name: pass.shared.draft }])
+      .fold((collected, pass) => [...collected, { name: pass.shared.draft() }])
       .completeWhen((items) => items.length > 0, 'Add at least one')
       .dock(
         (s) =>
@@ -122,16 +122,17 @@ function ringWithLinearPass(): RuntimeStepper {
                 .createForm('b', oneForm('B'))
                 .createStep(
                   (s) => s.createPage({ options: { heading: 'A' } }, (p) => p.addForm((f) => f.a)),
-                  { label: 'A' },
+                  { name: 'a', label: 'A' },
                 )
                 .createStep(
                   (s) => s.createPage({ options: { heading: 'B' } }, (p) => p.addForm((f) => f.b)),
-                  { label: 'B' },
+                  { name: 'b', label: 'B' },
                 ),
             )
+            // The nested linear flow's egress: its named steps' values.
             .fold((collected, pass) => {
-              const unit = pass.value('unit');
-              return [...collected, { name: unit?.a?.v ?? '' }];
+              const unit = pass.steps.unit;
+              return [...collected, { name: unit?.a?.a.v ?? '' }];
             })
             .completeWhen((items) => items.length > 0)
             .dock(

@@ -1,4 +1,4 @@
-import { Component, input, output } from '@angular/core';
+import { Component, input, output, signal } from '@angular/core';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { ComponentNode, FormNode, StepNode } from './nodes';
@@ -135,7 +135,7 @@ describe('StepperBuilder', () => {
       .createStep((step) => step.createPage({ options: { heading: 'A' } }, (page) => page.addForm((f) => f.account)), {
         optional: true,
         defer: 'idle',
-        when: ({ shared }) => shared.email === 'go',
+        when: ({ shared }) => shared.email() === 'go',
       })
       .build();
 
@@ -143,8 +143,8 @@ describe('StepperBuilder', () => {
     expect(node.optional).toBe(true);
     expect(node.defer).toBe('idle');
     // The condition is stored erased but stays callable with a runtime context.
-    expect(node.when?.({ shared: { email: 'go' }, value: () => undefined })).toBe(true);
-    expect(node.when?.({ shared: { email: 'no' }, value: () => undefined })).toBe(false);
+    expect(node.when?.({ steps: {}, shared: { email: signal('go') }, parent: undefined })).toBe(true);
+    expect(node.when?.({ steps: {}, shared: { email: signal('no') }, parent: undefined })).toBe(false);
   });
 });
 
@@ -155,7 +155,7 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
   return node;
 }
 
-const EMPTY_CONTEXT: RuntimeStepContext = { shared: {}, value: () => undefined };
+const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, parent: undefined };
 
 function pagesAt(steps: readonly SequenceNode[], index: number) {
   return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);

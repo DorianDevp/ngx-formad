@@ -56,15 +56,15 @@ class JumpHost {
       .createForm('list', oneForm('List'))
       .createStep(
         (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.source)),
-        { label: 'Source' },
+        { name: 'source', label: 'Source' },
       )
       .createStep(
         (s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.device)),
-        { label: 'Device' },
+        { name: 'device', label: 'Device' },
       )
       .createStep(
         (s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm((f) => f.list)),
-        { label: 'List' },
+        { name: 'list', label: 'List' },
       )
       .build(),
   );
@@ -133,10 +133,11 @@ describe('StepperController.goTo', () => {
   it('commits the step it leaves, like every other move', async () => {
     await click('.again');
 
+    // Keyed by step, then by the pool name the step placed.
     expect(fixture.componentInstance.last).toEqual({
-      source: { v: 'from the source' },
-      device: { v: 'AB-1' },
-      list: { v: '' },
+      source: { source: { v: 'from the source' } },
+      device: { device: { v: 'AB-1' } },
+      list: { list: { v: '' } },
     });
   });
 

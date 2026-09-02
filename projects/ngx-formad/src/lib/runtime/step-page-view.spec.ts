@@ -110,7 +110,7 @@ class SharedGatedHost {
     .withState({ agreed: false })
     .createStep(
       (s) => s.createPage({ options: { heading: 'Consent' } }, (p) => p.addComponent(Banner, { inputs: { note: 'agree' } })),
-      { completeWhen: (ctx) => ctx.shared.agreed },
+      { completeWhen: (ctx) => ctx.shared.agreed() },
     )
     .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
     .build();

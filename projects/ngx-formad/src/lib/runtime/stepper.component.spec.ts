@@ -309,12 +309,12 @@ class ForkHost {
           p.addForm((f) => f.start, { bind: (l) => l.link((m) => m.kind, (sh) => sh.kind) }),
         ),
       )
-      .fork((c) => c.shared.kind, {
+      .fork((c) => c.shared.kind(), {
         business: (arm) =>
           arm
             .createForm('company', labelForm('Company'))
             .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm((f) => f.company)))
-            .result(({ shared }) => ({ kind: 'business', via: shared.kind })),
+            .result(({ shared }) => ({ kind: 'business', via: shared.kind() })),
         individual: (arm) =>
           arm
             .createForm('person', labelForm('Person'))

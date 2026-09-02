@@ -2,7 +2,12 @@ import { Binding, Type } from '@angular/core';
 import { ContentChild } from './content';
 import { Reactive } from './dynamic-component';
 import { LinkPair, OutputEffect } from './shared-link';
-import { DeferTrigger, RuntimeStepCondition, RuntimeStepContext } from './step-context';
+import {
+  DeferTrigger,
+  RuntimeFormSeed,
+  RuntimeStepCondition,
+  RuntimeStepContext,
+} from './step-context';
 
 // The builder runs once and emits this plain tree; the renderer walks it. Every
 // node is data — a "show this when" is a `visibleWhen` getter, never an `if` in
@@ -37,6 +42,10 @@ export interface FormNode {
   readonly visibleWhen?: () => boolean;
   readonly links: readonly LinkPair[];
   readonly effects: readonly OutputEffect[];
+  /** Starting values for THIS instance, read from the entry context when the
+   *  step materializes — the LOCAL channel from a predecessor's live instance
+   *  into this form (`bind` is the global one, through shared state). */
+  readonly initial?: RuntimeFormSeed;
 }
 
 /** A standalone value control drawn from the pool by name (`createControl` +
@@ -102,6 +111,10 @@ export type DynamicPages = (ctx: RuntimeStepContext) => readonly PageNode[];
  *  entry (see {@link DynamicPages}). Completion folds over the forms across them. */
 export interface StepNode {
   readonly kind: SequenceNodeKind.Step;
+  /** The key successors read this step's instances under (`ctx.steps.<name>`).
+   *  Unnamed steps are reachable by their authored index only — fragile under
+   *  reordering, so name any step another one reads. */
+  readonly name?: string;
   readonly pages: readonly PageNode[] | DynamicPages;
   /** The step's short name, for a chrome's progress rail. It belongs on the step
    *  (not on a page's `heading`, which titles one page of possibly several) and it

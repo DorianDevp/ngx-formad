@@ -8,7 +8,8 @@ import { StepperComponent } from './stepper.component';
 // `addControl` mounts a `FormValueControl` through the native `FormField`
 // directive, its Standard Schema folds into the completion gate, a blocked Next
 // *explains itself* through the chrome's blocker list, and the committed value
-// egresses raw under the control's pool name (and into its bound shared key).
+// egresses raw under its step, by the control's pool name (and into its bound
+// shared key).
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -17,7 +18,10 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   }
 }
 
-function buttonByText(fixture: ComponentFixture<unknown>, label: string): HTMLButtonElement | undefined {
+function buttonByText(
+  fixture: ComponentFixture<unknown>,
+  label: string,
+): HTMLButtonElement | undefined {
   return Array.from(
     fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>,
   ).find((b) => b.textContent?.trim() === label);
@@ -56,8 +60,12 @@ class ControlHost {
   readonly built = new StepperBuilder()
     .withState({ plan: null as string | null })
     .createControl('plan', PlanPicker, { initial: null, schema: planSchema, label: 'Plan' })
-    .createStep((s) =>
-      s.createPage({ options: { heading: 'Choose' } }, (p) => p.addControl((c) => c.plan, { bind: 'plan' })),
+    .createStep(
+      (s) =>
+        s.createPage({ options: { heading: 'Choose' } }, (p) =>
+          p.addControl((c) => c.plan, { bind: 'plan' }),
+        ),
+      { name: 'choose' },
     )
     .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addContent()))
     .build();
@@ -101,7 +109,7 @@ describe('addControl — standalone value controls', () => {
     expect(buttonByText(fixture, 'Finish')).toBeTruthy();
   });
 
-  it('commits the raw value under the pool name and into the bound shared key', async () => {
+  it('commits the raw value under its step and pool name, and into the bound shared key', async () => {
     const fixture = TestBed.createComponent(ControlHost);
     await settle(fixture);
 
@@ -111,7 +119,7 @@ describe('addControl — standalone value controls', () => {
     await settle(fixture);
 
     const host = fixture.componentInstance;
-    expect(host.committed?.['plan']).toBe('pro');
+    expect(host.committed?.['choose']).toEqual({ plan: 'pro' });
     expect(host.built.shared.get('plan')).toBe('pro');
   });
 });

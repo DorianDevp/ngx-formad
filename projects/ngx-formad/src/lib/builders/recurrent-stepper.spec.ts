@@ -2,7 +2,8 @@ import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { isFlowStep, isRecurrent } from './flow';
 import { SequenceNodeKind } from './nodes';
-import { FlowContext, RuntimeStepContext } from './step-context';
+import { Signal, signal } from '@angular/core';
+import { RuntimeStepContext, RuntimeStepInstance } from './step-context';
 import { RecurrentStepperBuilder, StepperBuilder } from './stepper-builder';
 import { effectiveSteps } from '../runtime/effective-sequence';
 
@@ -16,12 +17,22 @@ const form = (label: string): FormConfig<One> => ({
 type Item = { name: string };
 
 // A ring-context factory: the shape a recurrent controller supplies to its own
-// steps' conditions, hand-built the way the pure specs already build contexts.
-const ctx = (flow: FlowContext, shared: Record<string, unknown> = {}): RuntimeStepContext => ({
-  shared,
-  value: () => undefined,
-  flow,
-});
+// steps' conditions — shared and ring state as signals, hand-built.
+function ctx(
+  flow: { collection: unknown; passOpen: boolean },
+  values: Record<string, unknown> = {},
+  steps: Record<string, RuntimeStepInstance> = {},
+): RuntimeStepContext {
+  const shared: Record<string, Signal<unknown>> = {};
+  for (const [key, value] of Object.entries(values)) shared[key] = signal(value);
+
+  return {
+    steps,
+    shared,
+    flow: { collection: signal(flow.collection), passOpen: signal(flow.passOpen) },
+    parent: undefined,
+  };
+}
 
 type Source = 'invoice' | 'manual';
 
@@ -38,7 +49,7 @@ const built = new StepperBuilder()
         .createForm('name', form('Name'))
         .createForm('bulk', form('Bulk'))
         // The keys come straight from the shared field's type; null = no branch.
-        .branch((c) => c.shared.source, {
+        .branch((c) => c.shared.source(), {
           manual: (b) =>
             b.step((s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm((f) => f.name)), {
               label: 'Name',
@@ -79,8 +90,12 @@ describe('createRecurrentStepper - the emitted node', () => {
 
   it('mirrors the flow completeness onto the parent slot, seeded before any fold', () => {
     if (!isFlowStep(flowNode)) throw new Error('expected a flow step');
-    const empty: RuntimeStepContext = { shared: {}, value: () => undefined };
-    const one: RuntimeStepContext = { shared: {}, value: () => [{ name: 'a' }] };
+    const empty: RuntimeStepContext = { steps: {}, shared: {}, parent: undefined };
+    const one: RuntimeStepContext = {
+      steps: { devices: [{ name: 'a' }] as unknown as RuntimeStepInstance },
+      shared: {},
+      parent: undefined,
+    };
     expect(flowNode.completeWhen?.(empty)).toBe(false);
     expect(flowNode.completeWhen?.(one)).toBe(true);
   });
@@ -128,40 +143,48 @@ describe('Branching - the keys come from the type, absence is honest', () => {
 });
 
 describe('RecurrentStepperBuilder - authoring errors', () => {
-  it('refuses a pool name that is already taken, whatever kind claimed it', () => {
+  it('refuses a pool name or a step name that is already taken on its level', () => {
+    // Templates and steps are separate namespaces — but each is unique within itself.
+    expect(() =>
+      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
+        .createForm('name', form('A'))
+        .createForm('name', form('B')),
+    ).toThrow(/already taken/);
+
     expect(() =>
       new StepperBuilder()
-        .createForm('devices', form('A'))
+        .createForm('intro', form('A'))
+        .createStep((s) => s.createPage({ options: {} }, (p) => p.addForm((f) => f.intro)), {
+          name: 'devices',
+        })
         .createRecurrentStepper(
           'devices',
           { collection: (): Item[] => [] },
           (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
         ),
-    ).toThrow(/already taken/);
-
-    expect(() =>
-      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
-        .createForm('name', form('A'))
-        .createForm('name', form('B')),
     ).toThrow(/already taken/);
   });
 
 
-  it('refuses a pool name that is already taken, whatever kind claimed it', () => {
+  it('refuses a pool name or a step name that is already taken on its level', () => {
+    // Templates and steps are separate namespaces — but each is unique within itself.
+    expect(() =>
+      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
+        .createForm('name', form('A'))
+        .createForm('name', form('B')),
+    ).toThrow(/already taken/);
+
     expect(() =>
       new StepperBuilder()
-        .createForm('devices', form('A'))
+        .createForm('intro', form('A'))
+        .createStep((s) => s.createPage({ options: {} }, (p) => p.addForm((f) => f.intro)), {
+          name: 'devices',
+        })
         .createRecurrentStepper(
           'devices',
           { collection: (): Item[] => [] },
           (loop) => loop.dock((s) => s.createPage({ options: {} }, (p) => p.addContent())),
         ),
-    ).toThrow(/already taken/);
-
-    expect(() =>
-      new RecurrentStepperBuilder<{}, {}, Item[]>(() => [])
-        .createForm('name', form('A'))
-        .createForm('name', form('B')),
     ).toThrow(/already taken/);
   });
 

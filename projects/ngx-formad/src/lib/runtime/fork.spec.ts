@@ -1,6 +1,7 @@
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
 import { resolvePages } from './materialize-step';
+import { Signal, signal } from '@angular/core';
 import { RuntimeStepContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
@@ -16,7 +17,7 @@ const form = (label: string): FormConfig<One> => ({
 // resolves it the way the controller does.
 const headings = (steps: readonly SequenceNode[]) =>
   steps.filter(isStepNode).map((s) => {
-    const heading = resolvePages(s, { shared: {}, value: () => undefined })[0].options.heading;
+    const heading = resolvePages(s, ctx({}))[0].options.heading;
     return typeof heading === 'function' ? heading() : heading;
   });
 
@@ -26,25 +27,28 @@ const wizard = new StepperBuilder()
   .withState({ kind: '' as '' | 'individual' | 'business' })
   .createForm('start', form('Start'))
   .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm((f) => f.start)))
-  .fork((ctx) => ctx.shared.kind, {
+  .fork((c) => c.shared.kind(), {
     individual: (arm) =>
       arm
         .withState({ ssn: '' })
         .createForm('person', form('Person'))
         .createStep((s) => s.createPage({ options: { heading: 'Personal' } }, (p) => p.addForm((f) => f.person)))
-        .result(({ shared }) => ({ kind: 'individual' as const, ssn: shared.ssn })),
+        .result(({ shared }) => ({ kind: 'individual' as const, ssn: shared.ssn() })),
     business: (arm) =>
       arm
         .withState({ vat: '' })
         .createForm('company', form('Company'))
         .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm((f) => f.company)))
         .createStep((s) => s.createPage({ options: { heading: 'Seats' } }, (p) => p.addForm((f) => f.company)))
-        .result(({ shared }) => ({ kind: 'business' as const, vat: shared.vat })),
+        .result(({ shared }) => ({ kind: 'business' as const, vat: shared.vat() })),
   })
   .build();
 
-function ctx(shared: Record<string, unknown>): RuntimeStepContext {
-  return { shared, value: () => undefined };
+function ctx(values: Record<string, unknown>): RuntimeStepContext {
+  const shared: Record<string, Signal<unknown>> = {};
+  for (const [key, value] of Object.entries(values)) shared[key] = signal(value);
+
+  return { steps: {}, shared, parent: undefined };
 }
 
 describe('fork', () => {
