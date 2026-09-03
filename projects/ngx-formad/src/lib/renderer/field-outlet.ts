@@ -11,16 +11,10 @@ import {
   untracked,
   ViewContainerRef,
 } from '@angular/core';
-import { FieldTree, FormField } from '@angular/forms/signals';
-import { CUSTOM_FIELD } from 'formodel';
-import { ErasedValue } from '../builders/step-context';
-import {
-  FieldConfig,
-  FormLayoutContext,
-  extraInputsFor,
-  resolveControlInput,
-} from '../form-config/form-config';
-import { readReactive } from '../form-config/reactive';
+import { FormField } from '@angular/forms/signals';
+import { CUSTOM_FIELD, isGetter } from 'formodel';
+import { FieldConfig, FormLayoutContext, extraInputsFor } from '../form-config/form-config';
+import { FieldLeaf } from './instantiate-form';
 import { applyLayoutClasses } from '../layout/layout-adapter';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { FLOW_ENVIRONMENT } from './flow-environment';
@@ -29,7 +23,7 @@ import { BoundOutputEffect, samePath } from './output-effect';
 /** Mounts one field's control as the grid item itself, bound through `FormField` plus the node's presentational inputs. */
 @Directive({ selector: '[ngxFormadField]' })
 export class FieldOutlet {
-  readonly node = input.required<FieldTree<ErasedValue>>();
+  readonly node = input.required<FieldLeaf>();
 
   readonly config = input.required<FieldConfig>();
 
@@ -63,13 +57,14 @@ export class FieldOutlet {
 
     const effects = this.effects()
       .filter((effect) => samePath(effect.path, config.path))
-      .map((effect) => outputBinding(effect.output, (payload: ErasedValue) => effect.run(payload)));
+      .map((effect) => outputBinding(effect.output, (payload) => effect.run(payload)));
     const ref = this.vcr.createComponent(control, {
       directives: [{ type: FormField, bindings: [inputBinding('formField', () => this.node())] }],
       bindings: [...this.presentationalBindings(config), ...effects],
       environmentInjector: this.flowEnvironment?.() ?? undefined,
     });
-    applyLayoutClasses(ref.location.nativeElement as HTMLElement, this.layoutAdapter.item(config.layout ?? {}));
+    const host: HTMLElement = ref.location.nativeElement;
+    applyLayoutClasses(host, this.layoutAdapter.item(config.layout ?? {}));
 
     return ref;
   }
@@ -87,13 +82,13 @@ export class FieldOutlet {
 
   private presentationalBindings(config: FieldConfig): Binding[] {
     if (config.control) {
-      return Object.entries(config.control.inputs).map(([name, value]) =>
-        inputBinding(name, () => resolveControlInput(value, this.context())),
+      return Object.entries(config.control.inputs).map(([name, input]) =>
+        inputBinding(name, () => input.read(this.context())),
       );
     }
 
     return Object.entries(extraInputsFor(config.node)).map(([name, value]) =>
-      inputBinding(name, () => readReactive(value)),
+      inputBinding(name, () => (isGetter(value) ? value() : value)),
     );
   }
 }

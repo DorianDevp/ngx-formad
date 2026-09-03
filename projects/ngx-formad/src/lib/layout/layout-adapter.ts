@@ -4,14 +4,12 @@ export type Breakpoint = 'base' | 'sm' | 'md' | 'lg' | 'xl' | (string & {});
 /** A value constant across breakpoints, or varying per breakpoint (`{ base: 1, md: 2 }`). */
 export type Responsive<T> = T | Partial<Record<Breakpoint, T>>;
 
-/** Normalizes a `Responsive<T>` into `[breakpoint, value]` pairs, `base` first. */
-export function responsiveEntries<T>(value: Responsive<T> | null | undefined): [string, T][] {
+/** Normalizes a responsive number into `[breakpoint, value]` pairs, `base` first. */
+export function responsiveEntries(value: Responsive<number> | null | undefined): [string, number][] {
   if (value == null) return [];
-  if (typeof value !== 'object') return [['base', value]];
+  if (typeof value === 'number') return [['base', value]];
 
-  const entries = Object.entries(value as Partial<Record<string, T>>).filter(
-    (entry): entry is [string, T] => entry[1] != null,
-  );
+  const entries = Object.entries(value).filter((entry): entry is [string, number] => entry[1] != null);
 
   return entries.sort(([a], [b]) => (a === 'base' ? -1 : b === 'base' ? 1 : 0));
 }

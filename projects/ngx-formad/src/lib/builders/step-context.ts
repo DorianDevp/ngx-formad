@@ -1,21 +1,15 @@
 import { Signal } from '@angular/core';
-import { FormConfig } from '../form-config/form-config';
+import { FormConfig, RuntimeFormConfig } from '../form-config/form-config';
 import { FormState } from '../renderer/instantiate-form';
-
-/** The erased record shape the runtime walks by string key; the single erasure alias for models and stores. */
-export type ErasedRecord = Record<string, unknown>;
-
-/** The erased value shape at the runtime boundary; the single erasure alias for values. */
-export type ErasedValue = unknown;
 
 /** A compile-time refusal whose property name states the reason. */
 export type Rejected<Reason extends string> = { readonly 'ngx-formad': Reason };
 
 /** The model type of a pooled form template. */
-export type FormModel<F> = F extends FormConfig<infer M> ? M : never;
+export type FormModel<F> = F extends FormConfig<infer M extends Record<string, unknown>> ? M : never;
 
-/** The pool names `addForm` may select. */
-export type FormKeys<TForms> = keyof TForms;
+/** The pool names `addForm` may place. */
+export type FormKeys<TForms> = keyof TForms & string;
 
 /** Which native `@defer` trigger a step body renders under. */
 export enum DeferTrigger {
@@ -24,109 +18,101 @@ export enum DeferTrigger {
   Interaction = 'interaction',
 }
 
-/** The live instance a placed template becomes: its `FormState`. */
-export type InstanceOf<F> = F extends FormConfig<infer M> ? FormState<M> : never;
+/** The live instance a placed template becomes. */
+export type InstanceOf<F> = F extends FormConfig<infer M extends Record<string, unknown>> ? FormState<M> : never;
 
 /** One step's live instances by pool name, for the names `P` the step placed. */
 export type StepInstance<TForms, P> = {
   readonly [K in keyof P & keyof TForms]: InstanceOf<TForms[K]>;
 };
 
-/** The shared store as one read-only signal per key. */
-export type SharedSignals<TShared> = { readonly [K in keyof TShared]: Signal<TShared[K]> };
+/** A shared store as one read-only signal per key. */
+export type SharedSignals<TShared extends Record<string, unknown> = Record<string, unknown>> = {
+  readonly [K in keyof TShared]: Signal<TShared[K]>;
+};
 
-/** A recurrent flow's live state: the folded accumulator and whether a pass is open. */
+/** A ring's live state: the folded accumulator and whether a pass is open. */
 export interface RecurrentSignals<C = unknown> {
   readonly state: Signal<C>;
 
   readonly passOpen: Signal<boolean>;
 }
 
-/** What a step reads: named predecessors, the shared store, the enclosing ring, the parent flow. */
+/** What a step reads: named predecessors, the shared store, the enclosing ring and the parent flow. */
 export interface StepContext<
-  TShared = ErasedRecord,
-  TSteps = RuntimeSteps,
-  TParent = undefined,
-  TFlow = undefined,
+  TShared extends SharedSignals = SharedSignals,
+  TSteps extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>,
+  TParent extends RuntimeStepContext | undefined = RuntimeStepContext | undefined,
+  TFlow extends RecurrentSignals | undefined = RecurrentSignals | undefined,
 > {
   readonly steps: TSteps;
 
-  readonly shared: SharedSignals<TShared>;
+  readonly shared: TShared;
 
   readonly flow: TFlow;
 
   readonly parent: TParent;
-
-  readonly __shared?: TShared;
 }
 
-export type SharedOf<TCtx> = TCtx extends { readonly __shared?: infer S extends ErasedRecord }
-  ? S
-  : ErasedRecord;
+/** The context the runtime builds; every typed context is assignable to it. */
+export interface RuntimeStepContext extends StepContext {}
 
-export type StepsOf<TCtx> = TCtx extends { readonly steps: infer S } ? S : never;
-
-export type ParentOf<TCtx> = TCtx extends { readonly parent: infer P } ? P : never;
-
-export type FlowOf<TCtx> = TCtx extends { readonly flow: infer F } ? F : never;
+/** The context of a linear root: nothing before it, no shared keys, no ring. */
+export type RootContext = StepContext<SharedSignals<{}>, {}, undefined, undefined>;
 
 /** The context with a shared slice layered in. */
-export type WithShared<TCtx, S> = StepContext<
-  SharedOf<TCtx> & S,
-  StepsOf<TCtx>,
-  ParentOf<TCtx>,
-  FlowOf<TCtx>
+export type WithShared<TCtx extends RuntimeStepContext, S extends Record<string, unknown>> = StepContext<
+  TCtx['shared'] & SharedSignals<S>,
+  TCtx['steps'],
+  TCtx['parent'],
+  TCtx['flow']
 >;
 
 /** The context with a step entry added. */
-export type WithSteps<TCtx, E> = StepContext<
-  SharedOf<TCtx>,
-  StepsOf<TCtx> & E,
-  ParentOf<TCtx>,
-  FlowOf<TCtx>
+export type WithSteps<TCtx extends RuntimeStepContext, E> = StepContext<
+  TCtx['shared'],
+  TCtx['steps'] & E,
+  TCtx['parent'],
+  TCtx['flow']
 >;
 
 /** The context a gate reads: every predecessor optional, since a gate may run before it exists. */
-export type GateContext<TCtx> = StepContext<
-  SharedOf<TCtx>,
-  { readonly [K in keyof StepsOf<TCtx>]?: StepsOf<TCtx>[K] },
-  ParentOf<TCtx>,
-  FlowOf<TCtx>
+export type GateContext<TCtx extends RuntimeStepContext> = StepContext<
+  TCtx['shared'],
+  { readonly [K in keyof TCtx['steps']]?: TCtx['steps'][K] },
+  TCtx['parent'],
+  TCtx['flow']
 >;
 
 /** The context a nested linear flow starts from: its own step namespace, this level as `parent`. */
-export type ChildContext<TCtx> = StepContext<SharedOf<TCtx>, {}, TCtx, FlowOf<TCtx>>;
+export type ChildContext<TCtx extends RuntimeStepContext> = StepContext<
+  TCtx['shared'],
+  {},
+  TCtx,
+  TCtx['flow']
+>;
 
 /** The context a nested ring starts from: its own steps, this level as `parent`, its ring as `flow`. */
-export type RingContext<TCtx, C> = StepContext<SharedOf<TCtx>, {}, TCtx, RecurrentSignals<C>>;
+export type RingContext<TCtx extends RuntimeStepContext, C> = StepContext<
+  TCtx['shared'],
+  {},
+  TCtx,
+  RecurrentSignals<C>
+>;
 
-/** A reactive step gate. */
-export type StepCondition<TCtx> = (ctx: GateContext<TCtx>) => boolean;
+/** A reactive step gate as authored against a typed context. */
+export type StepCondition<TCtx extends RuntimeStepContext> = (ctx: GateContext<TCtx>) => boolean;
+
+/** A step gate as a node holds it; a typed `StepCondition` fits `when` because it is a method parameter. */
+export interface StepGate {
+  when(ctx: RuntimeStepContext): boolean;
+}
 
 /** A form config fetched when its step is reached. */
-export type FormLoader<M extends ErasedRecord> = () => Promise<FormConfig<M>>;
+export type FormLoader<M extends Record<string, unknown>> = () => Promise<FormConfig<M>>;
 
 /** A form template: the config itself or a loader for it. */
-export type FormProvider<M extends ErasedRecord> = FormConfig<M> | FormLoader<M>;
+export type FormProvider<M extends Record<string, unknown>> = FormConfig<M> | FormLoader<M>;
 
-/** The erased pool entry the runtime resolves by name. */
-export type AnyFormProvider = FormProvider<ErasedRecord>;
-
-/** One step's instances as the runtime holds them, by pool name. */
-export type RuntimeStepInstance = Readonly<ErasedRecord>;
-
-/** Every step's instances by step key, as the runtime holds them. */
-export type RuntimeSteps = Readonly<Record<string, ErasedValue>>;
-
-/** The erased context the runtime builds and hands to erased callbacks. */
-export interface RuntimeStepContext
-  extends StepContext<ErasedRecord, RuntimeSteps, RuntimeStepContext | undefined, RecurrentSignals | undefined> {}
-
-/** An erased gate, as a node stores it. */
-export type RuntimeStepCondition = (ctx: RuntimeStepContext) => boolean;
-
-/** An erased fork result resolver, as a stepper stores it. */
-export type RuntimeResultResolver = (ctx: RuntimeStepContext) => ErasedValue;
-
-/** An erased `initial` seed, as a form node stores it. */
-export type RuntimeFormSeed = (ctx: RuntimeStepContext) => Partial<ErasedRecord>;
+/** The pool entry the runtime resolves by name; every typed provider is assignable to it. */
+export type AnyFormProvider = RuntimeFormConfig | (() => Promise<RuntimeFormConfig>);

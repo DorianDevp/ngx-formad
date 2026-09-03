@@ -1,21 +1,12 @@
 import { computed, EnvironmentInjector, runInInjectionContext, Signal } from '@angular/core';
-import { FieldTree, ValidationError } from '@angular/forms/signals';
-import { CUSTOM_FIELD } from 'formodel';
-import { FormNode, LayoutNode, LayoutNodeKind, PageNode, StepNode } from '../builders/nodes';
-import {
-  AnyFormProvider,
-  ErasedRecord,
-  ErasedValue,
-  RuntimeStepContext,
-  RuntimeStepInstance,
-} from '../builders/step-context';
-import { FormConfig } from '../form-config/form-config';
-import { readReactive } from '../form-config/reactive';
-import { childOf, FieldLevel, FormState, instantiateForm } from '../renderer/instantiate-form';
+import { ValidationError } from '@angular/forms/signals';
+import { CUSTOM_FIELD, isGetter } from 'formodel';
+import { FormNode, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
+import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
+import { RuntimeFormConfig } from '../form-config/form-config';
+import { FieldLeaf, FieldLevel, FormState, instantiateRuntimeForm, isLevel } from '../renderer/instantiate-form';
 import { BoundOutputEffect } from '../renderer/output-effect';
 import { InstanceRegistry } from '../registry/instance-registry';
-import { commitToShared, seedFromShared } from '../sync/directional-sync';
-import { fieldSync } from '../sync/field-sync';
 import { SharedState } from '../sync/shared-state';
 
 /** One blocker shown when Next is refused: the field's label and the message. */
@@ -29,7 +20,7 @@ export interface StepIssue {
 export interface LiveForm {
   readonly name: string;
 
-  readonly state: FormState<ErasedRecord>;
+  readonly state: FormState;
 
   readonly effects: readonly BoundOutputEffect[];
 
@@ -52,28 +43,13 @@ export interface LiveStep {
 
   readonly environment: EnvironmentInjector;
 
-  readonly instances: RuntimeStepInstance;
+  readonly instances: Readonly<Record<string, FormState>>;
 
   readonly pages: readonly PageNode[];
 }
 
-/** Resolves a step's pages: static ones as declared, dynamic ones built from the entry context. */
-export function resolvePages(step: StepNode, ctx: RuntimeStepContext): readonly PageNode[] {
-  return typeof step.pages === 'function' ? step.pages(ctx) : step.pages;
-}
-
-/** The pool names the pages place, in order. */
-export function stepFormNames(pages: readonly PageNode[]): readonly string[] {
-  return formNodes(pages).map((node) => node.name);
-}
-
-function fieldAt(root: FieldLevel, path: readonly string[]): FieldTree<ErasedValue> {
-  const [head, ...rest] = path;
-
-  return rest.reduce((node, segment) => childOf(node as FieldLevel, segment), childOf(root, head));
-}
-
-function formNodes(pages: readonly PageNode[]): FormNode[] {
+/** The form nodes the pages place, in order, rows included. */
+export function formNodes(pages: readonly PageNode[]): FormNode[] {
   const walk = (nodes: readonly LayoutNode[]): FormNode[] =>
     nodes.flatMap((node) => {
       if (node.kind === LayoutNodeKind.Form) return [node];
@@ -84,25 +60,42 @@ function formNodes(pages: readonly PageNode[]): FormNode[] {
   return pages.flatMap((page) => walk(page.children));
 }
 
+function fieldAt(root: FieldLevel, path: readonly string[]): FieldLeaf {
+  let node: FieldLeaf = root;
+  for (const segment of path) {
+    if (!isLevel(node)) throw new Error(`ngx-formad: "${segment}" sits under a field that is not an object.`);
+
+    const child = node[segment];
+    if (child === undefined) throw new Error(`ngx-formad: the form model has no field "${segment}".`);
+
+    node = child;
+  }
+
+  return node;
+}
+
 function issueMessage(error: ValidationError): string {
   if (error.message) return error.message;
 
   return error.kind === 'required' ? 'This field is required.' : 'Invalid value.';
 }
 
-function issueLabel(error: ValidationError.WithFieldTree, state: FormState<ErasedRecord>): string {
+function issueLabel(error: ValidationError.WithFieldTree, state: FormState): string {
   const field = state.fields.find((candidate) => fieldAt(state.rootForm, candidate.path) === error.fieldTree);
   if (!field) return String(error.fieldTree().keyInParent());
   if ('props' in field.node || field.node.type === CUSTOM_FIELD) return field.key;
 
-  return readReactive(field.node.label) ?? field.key;
+  const label = field.node.label;
+  if (label === undefined) return field.key;
+
+  return isGetter(label) ? label() : label;
 }
 
 /** What a step materializes against: the resolved templates, the shared store, the flow environment and the entry context. */
 export interface MaterializeOptions {
-  readonly pool: Record<string, FormConfig<ErasedRecord>>;
+  readonly pool: Record<string, RuntimeFormConfig>;
 
-  readonly shared: SharedState<ErasedRecord>;
+  readonly shared: SharedState;
 
   readonly environment: EnvironmentInjector;
 
@@ -113,14 +106,15 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
   const template = options.pool[node.name];
   if (!template) return null;
 
-  const config = node.initial ? seeded(template, node.initial(options.entry)) : template;
-  const state = runInInjectionContext(options.environment, () => instantiateForm(config));
+  const seed = node.initial?.(options.entry);
+  const config = seed ? { ...template, model: () => ({ ...template.model(), ...seed }) } : template;
+  const state = runInInjectionContext(options.environment, () => instantiateRuntimeForm(config));
   const root = state.rootForm;
   const visible: Signal<boolean> = node.visibleWhen ? computed(node.visibleWhen) : computed(() => true);
   const effects: BoundOutputEffect[] = node.effects.map((effect) => ({
     path: effect.modelPath,
     output: effect.output,
-    run: (payload: ErasedValue) => effect.handler(payload, state.model),
+    run: (payload) => effect.handler(payload, state.model),
   }));
   const issues = computed<readonly StepIssue[]>(() =>
     root()
@@ -136,12 +130,16 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
     issues,
     seed: () => {
       for (const link of node.links) {
-        seedFromShared(fieldSync(fieldAt(root, link.modelPath)), options.shared.slot(link.sharedKey));
+        const field = fieldAt(root, link.modelPath)();
+        if (field.dirty()) continue;
+
+        field.value.set(options.shared.get(link.sharedKey));
       }
     },
     commit: () => {
       for (const link of node.links) {
-        commitToShared(fieldSync(fieldAt(root, link.modelPath)), options.shared.slot(link.sharedKey));
+        const field = fieldAt(root, link.modelPath)();
+        options.shared.patch({ [link.sharedKey]: field.value() });
       }
     },
     touch: () => {
@@ -172,15 +170,11 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
   };
 }
 
-function seeded(template: FormConfig<ErasedRecord>, seed: Partial<ErasedRecord>): FormConfig<ErasedRecord> {
-  return { ...template, model: () => ({ ...template.model(), ...seed }) };
-}
-
 /** Resolves the templates the pages place: loaders are awaited, configs pass through. */
 export async function resolveStepForms(
   pages: readonly PageNode[],
   pool: Record<string, AnyFormProvider>,
-): Promise<Record<string, FormConfig<ErasedRecord>>> {
+): Promise<Record<string, RuntimeFormConfig>> {
   const entries = await Promise.all(
     formNodes(pages).map(async (node) => {
       const entry = pool[node.name];

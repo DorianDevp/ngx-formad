@@ -1,8 +1,5 @@
 import { Binding, InputSignal, inputBinding, OutputEmitterRef, outputBinding } from '@angular/core';
-import { ErasedValue } from './step-context';
-
-/** A value that may be constant or a getter; normalized at the rendering edge. */
-export type Reactive<V> = V | (() => V);
+import { isGetter, Reactive } from 'formodel';
 
 /** The keys of `C` that are signal inputs. */
 export type InputKeys<C> = {
@@ -20,29 +17,44 @@ export type InputVal<C, K extends keyof C> = C[K] extends InputSignal<infer V> ?
 /** The event type of output `K` of `C`. */
 export type OutputVal<C, K extends keyof C> = C[K] extends OutputEmitterRef<infer V> ? V : never;
 
+/** The reactive inputs a dynamic component may receive. */
+export type ComponentInputs<C> = { readonly [K in InputKeys<C>]?: Reactive<InputVal<C, K>> };
+
+/** The output handlers a dynamic component may receive. */
+export type ComponentOutputs<C> = { readonly [K in OutputKeys<C>]?: (event: OutputVal<C, K>) => void };
+
 /** Reactive inputs, output handlers, visibility and layout class for one dynamic component. */
 export interface ComponentCfg<C> {
-  readonly inputs?: { [K in InputKeys<C>]?: Reactive<InputVal<C, K>> };
+  readonly inputs?: ComponentInputs<C>;
 
-  readonly outputs?: { [K in OutputKeys<C>]?: (event: OutputVal<C, K>) => void };
+  readonly outputs?: ComponentOutputs<C>;
 
   readonly visibleWhen?: () => boolean;
 
   readonly layout?: string;
 }
 
-/** Wraps a constant as a getter; passes a getter through. */
-export function toGetter<V>(value: Reactive<V>): () => V {
-  return typeof value === 'function' ? (value as () => V) : () => value;
-}
-
 /** Normalizes a component config into the bindings `createComponent` takes. */
-export function toBindings<C>(cfg: ComponentCfg<C>): Binding[] {
-  const inputs: Readonly<Partial<Record<string, Reactive<ErasedValue>>>> = cfg.inputs ?? {};
-  const outputs: Readonly<Partial<Record<string, (event: never) => void>>> = cfg.outputs ?? {};
+export function toBindings<C, I extends ComponentInputs<C>, O extends ComponentOutputs<C>>(
+  cfg: ComponentCfg<C> & { readonly inputs?: I; readonly outputs?: O },
+): Binding[] {
+  const bindings: Binding[] = [];
+  const inputs: I | undefined = cfg.inputs;
+  const outputs: O | undefined = cfg.outputs;
+  if (inputs) {
+    for (const name in inputs) {
+      const value = inputs[name];
+      if (value === undefined) continue;
 
-  return [
-    ...Object.entries(inputs).map(([name, value]) => inputBinding(name, toGetter(value))),
-    ...Object.entries(outputs).flatMap(([name, handler]) => (handler ? [outputBinding(name, handler)] : [])),
-  ];
+      bindings.push(inputBinding(name, isGetter(value) ? value : () => value));
+    }
+  }
+  if (outputs) {
+    for (const name in outputs) {
+      const handler = outputs[name];
+      if (handler !== undefined) bindings.push(outputBinding(name, handler));
+    }
+  }
+
+  return bindings;
 }

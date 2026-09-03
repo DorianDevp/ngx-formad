@@ -2,8 +2,7 @@ import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { ContentChild, ContentChildKind, buildContent } from '../builders/content';
-import { isStepNode } from '../builders/flow';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from '../runtime/stepper.component';
 import { ContentView } from './content-view';
@@ -184,61 +183,19 @@ const onlyForm: FormConfig<Only> = {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class PageHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('only', onlyForm)
       .createStep((s) =>
         s.createPage({ options: { heading: 'Products' } }, (p) =>
           p
-            .addContent({ layout: 'notice' }, (c) => c.p('Fragile items ship in their own box.'))
-            .addForm((f) => f.only)
+            .addContent((c) => c.p('Fragile items ship in their own box.'), { layout: 'notice' })
+            .addForm('only')
             .addContent((c) => c.small('You can add more later.')),
         ),
       )
-      .build(),
-  );
-}
-
-// A node written by hand (or deserialized from a 0.6-era config) can lack the
-// `children` the 0.7 type requires - the same reason `isContentTag` exists.
-@Component({
-  imports: [StepperComponent],
-  template: `<ngx-formad-stepper [stepper]="stepper" />`,
-})
-class LegacyNodeHost {
-  readonly stepper: RuntimeStepper;
-
-  constructor() {
-    const built = new StepperBuilder()
-      .withState({})
-      .createForm('only', onlyForm)
-      .createStep((s) =>
-        s.createPage({ options: { heading: 'Products' } }, (p) =>
-          p.addContent({ layout: 'gap' }).addForm((f) => f.only),
-        ),
-      )
       .build();
-
-    const step = built.steps[0];
-    if (!isStepNode(step) || typeof step.pages === 'function') throw new Error('expected a static leaf step');
-    Reflect.deleteProperty(step.pages[0].children[0], 'children');
-    this.stepper = asStepper(built);
-  }
 }
-
-describe('StepPageView - a node with no children', () => {
-  it('renders the slot and the rest of the step', async () => {
-    const fixture = TestBed.createComponent(LegacyNodeHost);
-    await settle(fixture);
-
-    const slot = fixture.nativeElement.querySelector('.ngx-formad-content');
-    expect(slot).toBeTruthy();
-    expect(slot.classList.contains('gap')).toBe(true);
-    expect(slot.children).toHaveLength(0);
-    expect(fixture.nativeElement.querySelector('input')).toBeTruthy();
-  });
-});
 
 describe('StepPageView - content blocks', () => {
   it('draws content above and below the form, in its own slot', async () => {

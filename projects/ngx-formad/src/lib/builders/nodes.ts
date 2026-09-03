@@ -1,13 +1,8 @@
 import { Binding, Type } from '@angular/core';
+import { Reactive } from 'formodel';
 import { ContentChild } from './content';
-import { Reactive } from './dynamic-component';
 import { LinkPair, OutputEffect } from './shared-link';
-import {
-  DeferTrigger,
-  RuntimeFormSeed,
-  RuntimeStepCondition,
-  RuntimeStepContext,
-} from './step-context';
+import { DeferTrigger, RuntimeStepContext } from './step-context';
 
 /** Discriminates what a page lays out. */
 export enum LayoutNodeKind {
@@ -42,7 +37,7 @@ export interface ComponentNode {
 }
 
 /** A pooled form placed by name, with its shared links, output effects and local `initial` seed. */
-export interface FormNode {
+export interface FormNode<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: LayoutNodeKind.Form;
 
   readonly name: string;
@@ -55,7 +50,7 @@ export interface FormNode {
 
   readonly effects: readonly OutputEffect[];
 
-  readonly initial?: RuntimeFormSeed;
+  initial?(ctx: RuntimeStepContext): Partial<M>;
 }
 
 /** A nested layout row. */
@@ -92,10 +87,12 @@ export enum SequenceNodeKind {
   Flow = 'flow',
 }
 
-/** A dynamic step's page factory, run with the live context when the step is entered; it must be pure. */
-export type DynamicPages = (ctx: RuntimeStepContext) => readonly PageNode[];
+/** Pages built on entry from the live context; the build must be pure. */
+export interface DynamicPages {
+  build(ctx: RuntimeStepContext): readonly PageNode[];
+}
 
-/** A leaf step: its pages (static, or built on entry), gate, label, defer hint and completion guard. */
+/** A leaf step: its pages (data, or built on entry), gate, label, defer hint and completion guard. */
 export interface StepNode {
   readonly kind: SequenceNodeKind.Step;
 
@@ -105,13 +102,13 @@ export interface StepNode {
 
   readonly label?: Reactive<string>;
 
-  readonly when?: RuntimeStepCondition;
+  when?(ctx: RuntimeStepContext): boolean;
 
   readonly optional?: boolean;
 
   readonly defer?: DeferTrigger;
 
-  readonly completeWhen?: RuntimeStepCondition;
+  completeWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly incompleteMessage?: string;
 }

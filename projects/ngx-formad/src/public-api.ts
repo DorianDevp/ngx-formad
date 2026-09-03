@@ -9,9 +9,9 @@ export * from './lib/controls/default-controls';
 export * from './lib/controls/default-control-adapter';
 
 export * from './lib/form-config/form-config';
-export * from './lib/form-config/reactive';
 export * from './lib/form-config/form-layout';
-export * from './lib/renderer/instantiate-form';
+export type { FieldItems, FieldLeaf, FieldLevel, FormState } from './lib/renderer/instantiate-form';
+export { instantiateForm, instantiateRuntimeForm } from './lib/renderer/instantiate-form';
 export * from './lib/renderer/output-effect';
 export * from './lib/renderer/field-outlet';
 export * from './lib/renderer/component-outlet';
@@ -39,6 +39,4 @@ export * from './lib/runtime/step-page-view';
 export * from './lib/runtime/default-stepper-chrome';
 export * from './lib/runtime/stepper.component';
 
-export * from './lib/sync/directional-sync';
 export * from './lib/sync/shared-state';
-export * from './lib/sync/field-sync';

@@ -1,12 +1,10 @@
-import { ErasedValue } from '../builders/step-context';
-
 /** One control output wired to a side effect, its handler already bound to the live form model. */
-export interface BoundOutputEffect {
+export interface BoundOutputEffect<P = unknown> {
   readonly path: readonly string[];
 
   readonly output: string;
 
-  readonly run: (payload: ErasedValue) => void;
+  run(payload: P): void;
 }
 
 /** Element-wise path equality, for matching a field to its effects. */

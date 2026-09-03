@@ -1,6 +1,5 @@
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
-import { resolvePages } from './materialize-step';
 import { Signal, signal } from '@angular/core';
 import { RuntimeStepContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
@@ -17,7 +16,8 @@ const form = (label: string): FormConfig<One> => ({
 // resolves it the way the controller does.
 const headings = (steps: readonly SequenceNode[]) =>
   steps.filter(isStepNode).map((s) => {
-    const heading = resolvePages(s, ctx({}))[0].options.heading;
+    const pages = 'build' in s.pages ? s.pages.build(ctx({})) : s.pages;
+    const heading = pages[0].options.heading;
     return typeof heading === 'function' ? heading() : heading;
   });
 
@@ -26,20 +26,20 @@ const headings = (steps: readonly SequenceNode[]) =>
 const wizard = new StepperBuilder()
   .withState({ kind: '' as '' | 'individual' | 'business' })
   .createForm('start', form('Start'))
-  .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm((f) => f.start)))
+  .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm('start')))
   .fork((c) => c.shared.kind(), {
     individual: (arm) =>
       arm
         .withState({ ssn: '' })
         .createForm('person', form('Person'))
-        .createStep((s) => s.createPage({ options: { heading: 'Personal' } }, (p) => p.addForm((f) => f.person)))
+        .createStep((s) => s.createPage({ options: { heading: 'Personal' } }, (p) => p.addForm('person')))
         .result(({ shared }) => ({ kind: 'individual' as const, ssn: shared.ssn() })),
     business: (arm) =>
       arm
         .withState({ vat: '' })
         .createForm('company', form('Company'))
-        .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm((f) => f.company)))
-        .createStep((s) => s.createPage({ options: { heading: 'Seats' } }, (p) => p.addForm((f) => f.company)))
+        .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm('company')))
+        .createStep((s) => s.createPage({ options: { heading: 'Seats' } }, (p) => p.addForm('company')))
         .result(({ shared }) => ({ kind: 'business' as const, vat: shared.vat() })),
   })
   .build();

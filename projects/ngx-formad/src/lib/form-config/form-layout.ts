@@ -2,14 +2,16 @@ import { Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { ContentBuild, buildContent } from '../builders/content';
 import { InputKeys, InputVal } from '../builders/dynamic-component';
-import { ErasedRecord, ErasedValue, Rejected } from '../builders/step-context';
+import { Rejected } from '../builders/step-context';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import {
   ControlInput,
+  ControlOverride,
   FormLayout,
   FormLayoutContext,
   FormLayoutItem,
   FormLayoutItemKind,
+  isContextual,
 } from './form-config';
 
 /** The value type a `FormValueControl` component binds. */
@@ -21,32 +23,30 @@ export type ValueFits<V, C> = V extends ControlValue<C>
   : Rejected<'the control value type does not fit the field type'>;
 
 /** The inputs `FormField` binds itself; `control()` refuses them. */
-export type FormFieldManaged = keyof FormValueControl<ErasedValue>;
+export type FormFieldManaged = keyof FormValueControl<never>;
 
 type PresentationalKeys<C> = InputKeys<Omit<C, FormFieldManaged>>;
 
 /** The inputs `control()` may bind: every presentational input, static or read from the layout context. */
-export type ControlInputsCfg<C, M extends ErasedRecord> = {
+export type ControlInputsCfg<C, M extends Record<string, unknown>> = {
   readonly [K in PresentationalKeys<C>]?: ControlInput<InputVal<C, K>, M>;
-} & {
-  readonly [K in Exclude<keyof C, PresentationalKeys<C>>]?: Rejected<'this input is bound by FormField, not by control()'>;
 };
 
 /** A control placed with its inputs and grid placement. */
-export interface FormControlCfg<C, M extends ErasedRecord> extends ItemSpec {
+export interface FormControlCfg<C, M extends Record<string, unknown>, I extends ControlInputsCfg<C, M>> extends ItemSpec {
   readonly component: Type<C>;
 
-  readonly inputs?: ControlInputsCfg<C, M>;
+  readonly inputs?: I;
 }
 
 /** What `control()` takes for a field of value `V`: the component class alone, or a config naming it. */
-export type FormControlSpec<V, C, M extends ErasedRecord> =
+export type FormControlSpec<V, C, M extends Record<string, unknown>, I extends ControlInputsCfg<C, M>> =
   | (Type<C> & ValueFits<V, C>)
-  | (FormControlCfg<C, M> & { readonly component: Type<C> & ValueFits<V, C> });
+  | (FormControlCfg<C, M, I> & { readonly component: Type<C> & ValueFits<V, C> });
 
 /** Placement of a content block: its grid span and a gate read from the layout context. */
-export interface FormContentCfg<M extends ErasedRecord> extends ItemSpec {
-  readonly visibleWhen?: (ctx: FormLayoutContext<M>) => boolean;
+export interface FormContentCfg<M extends Record<string, unknown>> extends ItemSpec {
+  visibleWhen?(ctx: FormLayoutContext<M>): boolean;
 }
 
 /** A row's own grid plus its placement in the parent grid. */
@@ -62,7 +62,7 @@ function itemOf(cfg: ItemSpec): ItemSpec | undefined {
 }
 
 /** Arranges a form's declared fields: grid, order, per-field controls, prose and nested rows. */
-export class FormLayoutBuilder<M extends ErasedRecord> {
+export class FormLayoutBuilder<M extends Record<string, unknown>> {
   private items: readonly FormLayoutItem<M>[] = [];
 
   private grid: LayoutSpec = {};
@@ -91,15 +91,27 @@ export class FormLayoutBuilder<M extends ErasedRecord> {
     return this;
   }
 
-  control<K extends keyof M & string, C extends object>(key: K, spec: FormControlSpec<M[K], C, M>): this {
-    const cfg = typeof spec === 'function' ? { component: spec } : spec;
-    const inputs: Readonly<Record<string, ControlInput<ErasedValue, M>>> = cfg.inputs ?? {};
+  control<K extends keyof M & string, C extends object, I extends ControlInputsCfg<C, M> = {}>(
+    key: K,
+    spec: FormControlSpec<M[K], C, M, I>,
+  ): this {
+    const cfg = typeof spec === 'function' ? { component: spec, inputs: undefined } : spec;
+    const inputs: I | undefined = cfg.inputs;
+    const reads: Record<string, ControlOverride<M>['inputs'][string]> = {};
+    if (inputs) {
+      for (const name in inputs) {
+        const input = inputs[name];
+        if (input === undefined) continue;
+
+        reads[name] = isContextual(input) ? { read: input } : { read: () => input };
+      }
+    }
     this.items = [
       ...this.items,
       {
         kind: FormLayoutItemKind.Control,
         key,
-        control: { component: cfg.component, inputs },
+        control: { component: cfg.component, inputs: reads },
         item: itemOf(cfg),
       },
     ];
@@ -142,6 +154,6 @@ export class FormLayoutBuilder<M extends ErasedRecord> {
 }
 
 /** Starts a layout overlay for model `M`; set the result on `FormConfig.layout`. */
-export function formLayout<M extends ErasedRecord>(): FormLayoutBuilder<M> {
+export function formLayout<M extends Record<string, unknown>>(): FormLayoutBuilder<M> {
   return new FormLayoutBuilder<M>();
 }

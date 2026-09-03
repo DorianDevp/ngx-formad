@@ -1,7 +1,6 @@
 import { Component, computed, input } from '@angular/core';
-import { ErasedRecord } from '../builders/step-context';
 import { LayoutSpec } from '../layout/layout-adapter';
-import { FieldLevel, FormState } from './instantiate-form';
+import { FormState } from './instantiate-form';
 import { NodesView } from './nodes-view';
 import { BoundOutputEffect } from './output-effect';
 
@@ -12,8 +11,8 @@ import { BoundOutputEffect } from './output-effect';
   host: { style: 'display: contents' },
   template: `<ngx-formad-nodes [nodes]="nodes()" [tree]="rootTree()" [layout]="grid()" [effects]="effects()" />`,
 })
-export class FormRenderer<M extends ErasedRecord = ErasedRecord> {
-  readonly state = input.required<FormState<M>>();
+export class FormRenderer {
+  readonly state = input.required<FormState>();
 
   readonly layout = input<LayoutSpec>({});
 
@@ -27,5 +26,5 @@ export class FormRenderer<M extends ErasedRecord = ErasedRecord> {
     return declared && Object.keys(declared).length > 0 ? declared : this.layout();
   });
 
-  readonly rootTree = computed<FieldLevel>(() => this.state().rootForm as FieldLevel);
+  readonly rootTree = computed(() => this.state().rootForm);
 }

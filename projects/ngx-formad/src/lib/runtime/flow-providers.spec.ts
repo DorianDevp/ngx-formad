@@ -1,7 +1,7 @@
 import { Component, inject, Injectable, InjectionToken, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { asStepper, StepperBuilder } from '../builders/stepper-builder';
+import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { FormadDockRestart } from './flow-dock';
@@ -82,15 +82,14 @@ class ProvChrome {
 class ProvHost {
   whenSaw = '';
 
-  readonly stepper = asStepper(
-    new StepperBuilder()
+  readonly stepper =     new StepperBuilder()
       .provide({ provide: GREETING, useValue: 'from the root flow' }, FlowScoped)
       .withState({})
       .createForm('start', oneForm('Start'))
       .createStep(
         (s) =>
           s.createPage({ options: { heading: 'Start' } }, (p) =>
-            p.addForm((f) => f.start).addComponent(GreetingPanel, {}),
+            p.addForm('start').addComponent(GreetingPanel, {}),
           ),
         {
           label: 'Start',
@@ -110,7 +109,7 @@ class ProvHost {
             .provide({ provide: GREETING, useValue: 'from the ring' })
             .createForm('name', oneForm('Name'))
             .createStep(
-              (s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm((f) => f.name)),
+              (s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm('name')),
               { label: 'Name' },
             )
             .fold((state) => [...state, 'x'])
@@ -122,8 +121,7 @@ class ProvHost {
               { label: 'Dock' },
             ),
       })
-      .build(),
-  );
+      .build();
 }
 
 describe('Flow providers - the wizard as its own injection environment', () => {

@@ -2,7 +2,7 @@ import { Component, input, model, output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl } from '@angular/forms/signals';
 import { CustomControlNode, customInputType, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from './builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from './builders/stepper-builder';
 import { FormConfig } from './form-config/form-config';
 import { provideFormadSuite } from './provide';
 import { FormRenderer } from './renderer/form-renderer';
@@ -68,13 +68,11 @@ const starForm: FormConfig<{ rating: number }> = {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class StepperHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .addControlType('stars', StarsControl)
       .createForm('f', starForm)
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.f)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('f')))
+      .build();
 }
 
 describe('Per-stepper control types', () => {
@@ -107,23 +105,24 @@ const lookupForm: FormConfig<{ taxId: string; company: string }> = {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class EffectHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .addControlType('lookup', LookupControl)
       .createForm('f', lookupForm)
       .createStep((s) =>
         s.createPage({ options: { heading: '1' } }, (p) =>
-          p.addForm((f) => f.f, {
-            effects: (e) =>
-              e.on((m) => m.taxId, {
-                output: 'resolved',
-                handler: (payload: string, model) => model.update((m) => ({ ...m, company: payload })),
-              }),
+          p.addForm('f', {
+            effects: {
+              taxId: [
+                {
+                  output: 'resolved',
+                  handler: (payload: string, model) => model.update((m) => ({ ...m, company: payload })),
+                },
+              ],
+            },
           }),
         ),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('addForm effects', () => {

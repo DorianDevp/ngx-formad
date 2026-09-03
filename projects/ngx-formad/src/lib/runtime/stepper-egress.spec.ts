@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { provideFormadSuite } from '../provide';
 import { SharedState } from '../sync/shared-state';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepFormsView } from './step-forms-view';
 import { StepperController } from './stepper-controller';
@@ -21,7 +21,7 @@ describe('SharedState.reset', () => {
   it('restores initial values, including mutated nested objects', () => {
     const shared = new SharedState({ name: '', addr: { city: '' } });
     shared.patch({ name: 'Ada' });
-    shared.slot('addr').write({ city: 'Kraków' });
+    shared.patch({ addr: { city: 'Kraków' } });
 
     shared.reset();
 
@@ -42,20 +42,18 @@ const oneForm: FormConfig<One> = {
 })
 class EgressHost {
   last: Record<string, unknown> | null = null;
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', oneForm)
       .createForm('b', oneForm)
       .createStep(
-        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)),
+        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')),
         {
           name: 'first',
         },
       )
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.b)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')))
+      .build();
 }
 
 describe('StepperComponent — stepCommitted egress', () => {
@@ -102,15 +100,13 @@ class ResetChrome {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class ResetHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', oneForm)
       .createForm('b', oneForm)
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.b)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')))
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')))
+      .build();
 }
 
 describe('StepperController.reset', () => {
@@ -155,12 +151,11 @@ class WizSummary {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class WizCtxHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', oneForm)
       .createStep(
-        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)),
+        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')),
         {
           name: 'first',
         },
@@ -168,8 +163,7 @@ class WizCtxHost {
       .createStep((s) =>
         s.createPage({ options: { heading: '2' } }, (p) => p.addComponent(WizSummary, {})),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('FormadWizard — injectable context', () => {

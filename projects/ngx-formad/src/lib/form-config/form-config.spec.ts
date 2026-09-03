@@ -1,6 +1,5 @@
-import { isSignal, Signal, signal } from '@angular/core';
-import { UiFormConfigBuilder, email, select, text } from 'formodel';
-import { ErasedRecord, ErasedValue } from '../builders/step-context';
+import { isSignal, signal } from '@angular/core';
+import { isGetter, UiFormConfigBuilder, UiFormControlNode, email, select, text } from 'formodel';
 import {
   buildLayoutNodes,
   buildNodes,
@@ -14,13 +13,8 @@ import {
   SelectOption,
 } from './form-config';
 import { formLayout } from './form-layout';
-import { reactive, ReactiveControlNode, readReactive } from './reactive';
 
 type Names = { first: string; last: string; password: string };
-
-function erasedItems(items: readonly FormLayoutItem<Names>[]): readonly FormLayoutItem<ErasedRecord>[] {
-  return items as readonly FormLayoutItem<ErasedRecord>[];
-}
 
 describe('flattenFields', () => {
   it('emits one field per top-level scalar control, in order', () => {
@@ -91,36 +85,31 @@ describe('extraInputsFor', () => {
 describe('extraInputsFor - reactive props', () => {
   it('maps signal-backed select options through a live computed', () => {
     const options = signal<SelectOption[]>([{ value: 'admin', description: 'Admin' }]);
-    const node: ReactiveControlNode = { type: 'select', label: 'Role', options };
+    const node: UiFormControlNode = { type: 'select', label: 'Role', options };
 
-    const mapped = extraInputsFor(node)['options'] as Signal<readonly { value: ErasedValue; label: string }[]>;
+    const mapped = extraInputsFor(node)['options'];
 
     expect(isSignal(mapped)).toBe(true);
-    expect(mapped()).toEqual([{ value: 'admin', label: 'Admin' }]);
+    expect(isGetter(mapped) ? mapped() : mapped).toEqual([{ value: 'admin', label: 'Admin' }]);
 
     options.set([
       { value: 'admin', description: 'Admin' },
       { value: 'user', description: 'User' },
     ]);
-    expect(mapped()).toEqual([
+    expect(isGetter(mapped) ? mapped() : mapped).toEqual([
       { value: 'admin', label: 'Admin' },
       { value: 'user', label: 'User' },
     ]);
   });
 
-  it('threads a signal through formodel builder helpers via reactive()', () => {
+  it('threads a signal through formodel builder helpers', () => {
     const options = signal<SelectOption[]>([{ value: 'a', description: 'A' }]);
-    const node = select('Role', reactive(options));
+    const node = select('Role', options);
 
     const mapped = extraInputsFor(node)['options'];
 
     expect(isSignal(mapped)).toBe(true);
-    expect(readReactive(mapped)).toEqual([{ value: 'a', label: 'A' }]);
-  });
-
-  it('readReactive unwraps a signal and passes a plain value through', () => {
-    expect(readReactive('x')).toBe('x');
-    expect(readReactive(signal('y'))).toBe('y');
+    expect(isGetter(mapped) ? mapped() : mapped).toEqual([{ value: 'a', label: 'A' }]);
   });
 });
 
@@ -133,7 +122,7 @@ describe('buildLayoutNodes', () => {
   it('resolves fields by key in overlay order, applying placement', () => {
     const { items } = formLayout<Names>().field('last').field('first', { colSpan: 2 }).build();
 
-    const nodes = buildLayoutNodes(ui, erasedItems(items));
+    const nodes = buildLayoutNodes(ui, items);
 
     expect(nodes.map((n) => n.key)).toEqual(['last', 'first']);
     expect(nodes[1]).toMatchObject({ kind: RenderNodeKind.Control, key: 'first', layout: { colSpan: 2 } });
@@ -142,7 +131,7 @@ describe('buildLayoutNodes', () => {
   it('skips a field key that has no matching ui entry', () => {
     const { items } = formLayout<Names & { missing: string }>().field('first').field('missing').build();
 
-    const nodes = buildLayoutNodes(ui, items as readonly FormLayoutItem<ErasedRecord>[]);
+    const nodes = buildLayoutNodes(ui, items);
 
     expect(nodes.map((n) => n.key)).toEqual(['first']);
   });
@@ -152,7 +141,7 @@ describe('buildLayoutNodes', () => {
       .row((row) => row.field('first').field('last'), { cols: 2 })
       .build();
 
-    const nodes = buildLayoutNodes(ui, erasedItems(items));
+    const nodes = buildLayoutNodes(ui, items);
     const row = nodes[0] as FormRowNode;
 
     expect(row.kind).toBe(RenderNodeKind.Row);

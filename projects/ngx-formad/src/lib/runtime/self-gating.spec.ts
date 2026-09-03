@@ -1,7 +1,7 @@
 import { Component, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, checkbox, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from './stepper.component';
 
@@ -41,34 +41,28 @@ const only = (label: string): FormConfig<Only> => ({
 class SelfGatingHost {
   finished = false;
 
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({ skip: false })
       .createForm('first', only('First'))
       .createForm('gate', gateForm)
       .createForm('last', only('Last'))
       .createStep((s) =>
-        s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.first)),
+        s.createPage({ options: { heading: '1' } }, (p) => p.addForm('first')),
       )
       .createStep(
         (s) =>
           s.createPage({ options: { heading: '2' } }, (p) =>
-            p.addForm((f) => f.gate, {
-              bind: (l) =>
-                l.link(
-                  (m) => m.skip,
-                  (sh) => sh.skip,
-                ),
+            p.addForm('gate', {
+              bind: { skip: 'skip' },
             }),
           ),
         // The step is dropped by the very value its own form writes.
         { when: (ctx) => !ctx.shared.skip() },
       )
       .createStep((s) =>
-        s.createPage({ options: { heading: '3' } }, (p) => p.addForm((f) => f.last)),
+        s.createPage({ options: { heading: '3' } }, (p) => p.addForm('last')),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('A step that gates itself off', () => {
@@ -113,8 +107,7 @@ const cityForm = (label: string): FormConfig<City> => ({
 class BranchOnOneStepHost {
   committed: Record<string, unknown> = {};
 
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({ city: '' })
       .createForm('personal', cityForm('Personal city'))
       .createForm('company', cityForm('Company city'))
@@ -122,21 +115,13 @@ class BranchOnOneStepHost {
         (s) =>
           s.createPage({ options: { heading: 'Where' } }, (p) =>
             p
-              .addForm((f) => f.personal, {
+              .addForm('personal', {
                 visibleWhen: () => !isCompany(),
-                bind: (l) =>
-                  l.link(
-                    (m) => m.city,
-                    (sh) => sh.city,
-                  ),
+                bind: { city: 'city' },
               })
-              .addForm((f) => f.company, {
+              .addForm('company', {
                 visibleWhen: () => isCompany(),
-                bind: (l) =>
-                  l.link(
-                    (m) => m.city,
-                    (sh) => sh.city,
-                  ),
+                bind: { city: 'city' },
               }),
           ),
         { name: 'where' },
@@ -144,8 +129,7 @@ class BranchOnOneStepHost {
       .createStep((s) =>
         s.createPage({ options: { heading: 'Done' } }, (p) => p.addContent((c) => c.p('ok'))),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('A hidden form on a step', () => {

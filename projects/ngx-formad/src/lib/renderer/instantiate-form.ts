@@ -1,40 +1,47 @@
-import { signal, WritableSignal } from '@angular/core';
+import { signal, untracked, WritableSignal } from '@angular/core';
 import { FieldTree, form } from '@angular/forms/signals';
-import { ErasedRecord, ErasedValue } from '../builders/step-context';
+import { UiFormGroupConfig } from 'formodel';
 import {
   buildLayoutNodes,
   buildNodes,
+  ErasedUi,
   FieldConfig,
   FormConfig,
-  FormLayoutItem,
   flattenFields,
   RenderNode,
+  RuntimeFormConfig,
 } from '../form-config/form-config';
-import { ReactiveUiConfig } from '../form-config/reactive';
 import { LayoutSpec } from '../layout/layout-adapter';
 
-/** A field tree viewed as one level of children by model key. */
-export type FieldLevel = FieldTree<ErasedRecord>;
+/** A field tree over an object value: its children are reachable by model key. */
+export type FieldLevel<M extends Record<string, unknown> = Record<string, unknown>> = FieldTree<M>;
 
-/** A field tree viewed as a repeating group's items by index. */
-export type FieldItems = FieldTree<ErasedValue[]>;
+/** A field tree over one value, as the renderer hands it to a control. */
+export type FieldLeaf<V = unknown> = FieldTree<V>;
 
-/** Reads one child of a field level; throws when the model has no such key. */
-export function childOf(level: FieldLevel, key: string): FieldTree<ErasedValue> {
-  const child = level[key];
-  if (child === undefined) throw new Error(`ngx-formad: the form model has no field "${key}".`);
+/** A field tree over an array value: its items are reachable by index. */
+export type FieldItems<V = unknown> = FieldTree<V[]>;
 
-  return child;
+/** Narrows a field tree to an object level from its current value, read outside any reactive context. */
+export function isLevel(tree: FieldLeaf): tree is FieldLevel {
+  const value = untracked(() => tree().value());
+
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A form turned live: its model signal, native field tree, authored ui, render tree and scalar leaves. */
+/** Narrows a field tree to a repeating group's items from its current value, read outside any reactive context. */
+export function isItems(tree: FieldLeaf): tree is FieldItems {
+  return Array.isArray(untracked(() => tree().value()));
+}
+
+/** A live form: its model signal, the erased field tree the renderer walks, the authored ui, render tree and leaves. */
 export interface FormState<
-  M extends ErasedRecord,
-  U extends ReactiveUiConfig<M> = ReactiveUiConfig<M>,
+  M extends Record<string, unknown> = Record<string, unknown>,
+  U extends ErasedUi = ErasedUi,
 > {
   readonly model: WritableSignal<M>;
 
-  readonly rootForm: FieldTree<M>;
+  readonly rootForm: FieldLevel;
 
   readonly ui: U;
 
@@ -45,21 +52,31 @@ export interface FormState<
   readonly grid?: LayoutSpec;
 }
 
-/** Builds live form state from a config; must run inside an injection context. */
-export function instantiateForm<
-  M extends ErasedRecord,
-  U extends ReactiveUiConfig<M> = ReactiveUiConfig<M>,
->(config: FormConfig<M, U>): FormState<M, U> {
-  const model = signal(config.model());
-  const rootForm = config.schema ? form(model, config.schema) : form(model);
-  const items = config.layout?.items as readonly FormLayoutItem<ErasedRecord>[] | undefined;
+function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'fields' | 'grid'> {
+  const items = config.layout?.items;
 
   return {
-    model,
-    rootForm,
-    ui: config.ui,
     nodes: items ? buildLayoutNodes(config.ui, items) : buildNodes(config.ui),
     fields: flattenFields(config.ui),
     grid: config.layout?.grid,
   };
+}
+
+/** Builds live form state from a typed config; must run inside an injection context. */
+export function instantiateForm<M extends Record<string, unknown>, U extends UiFormGroupConfig<M> & ErasedUi>(
+  config: FormConfig<M, U> & RuntimeFormConfig,
+): FormState<M, U> {
+  const model = signal(config.model());
+  const erased: FormState['model'] = model;
+  const schema = config.schema;
+
+  return { model, rootForm: schema ? form(erased, schema) : form(erased), ui: config.ui, ...renderTree(config) };
+}
+
+/** Builds live form state from a runtime template; must run inside an injection context. */
+export function instantiateRuntimeForm(config: RuntimeFormConfig): FormState {
+  const model = signal(config.model());
+  const schema = config.schema;
+
+  return { model, rootForm: schema ? form(model, schema) : form(model), ui: config.ui, ...renderTree(config) };
 }

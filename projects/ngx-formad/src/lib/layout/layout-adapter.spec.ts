@@ -3,7 +3,7 @@ import { responsiveEntries } from './layout-adapter';
 describe('responsiveEntries', () => {
   it('returns nothing for a null/undefined value', () => {
     expect(responsiveEntries(undefined)).toEqual([]);
-    expect(responsiveEntries<number>(null)).toEqual([]);
+    expect(responsiveEntries(null)).toEqual([]);
   });
 
   it('treats a bare value as the base breakpoint', () => {

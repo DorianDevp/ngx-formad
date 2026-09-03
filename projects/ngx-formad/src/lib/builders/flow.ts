@@ -1,51 +1,44 @@
 import { Provider } from '@angular/core';
+import { Reactive } from 'formodel';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
-import { Reactive } from './dynamic-component';
 import { SequenceNodeKind, StepNode } from './nodes';
-import {
-  AnyFormProvider,
-  DeferTrigger,
-  ErasedRecord,
-  RuntimeResultResolver,
-  RuntimeStepCondition,
-  RuntimeStepContext,
-} from './step-context';
+import { AnyFormProvider, DeferTrigger, RuntimeStepContext } from './step-context';
 
 /** The erased runtime shape of a flow: its sequence, form templates, shared store, control kinds and providers. */
-export interface FlowDefinition {
+export interface FlowDefinition<TResult = unknown> {
   readonly steps: readonly SequenceNode[];
 
   readonly forms: Record<string, AnyFormProvider>;
 
-  readonly shared: SharedState<ErasedRecord>;
+  readonly shared: SharedState;
 
   readonly controlTypes: ControlTypeMap;
 
   readonly providers: readonly Provider[];
 
-  readonly resolveResult?: RuntimeResultResolver;
+  resolveResult?(ctx: RuntimeStepContext): TResult;
 }
 
-/** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state. */
-export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition {
+/** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state, which is also its result. */
+export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> {
   readonly recurrent: true;
 
   readonly dockAt: number;
 
   readonly initial: () => C;
 
-  readonly fold?: (state: C, pass: RuntimeStepContext) => C;
+  fold?(state: C, pass: RuntimeStepContext): C;
 
-  readonly dockReachable?: (state: C) => boolean;
+  dockReachable?(state: C): boolean;
 
-  readonly complete?: (state: C) => boolean;
+  complete?(state: C): boolean;
 
   readonly incompleteMessage?: string;
 }
 
-/** Any flow the runtime drives; the ring's state type is erased here. */
-export type RuntimeFlow = FlowDefinition | RecurrentFlowDefinition;
+/** Any flow the runtime drives. */
+export type RuntimeFlow<TResult = unknown> = FlowDefinition<TResult> | RecurrentFlowDefinition<TResult>;
 
 /** A nested flow occupying one slot of a sequence; its egress reaches successors under `name`. */
 export interface FlowStepNode {
@@ -57,11 +50,11 @@ export interface FlowStepNode {
 
   readonly label?: Reactive<string>;
 
-  readonly when?: RuntimeStepCondition;
+  when?(ctx: RuntimeStepContext): boolean;
 
   readonly defer?: DeferTrigger;
 
-  readonly completeWhen?: RuntimeStepCondition;
+  completeWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly incompleteMessage?: string;
 }
@@ -75,7 +68,7 @@ export function isFlowStep(node: SequenceNode): node is FlowStepNode {
 }
 
 /** Narrows a runtime flow to a ring. */
-export function isRecurrent(flow: RuntimeFlow): flow is RecurrentFlowDefinition {
+export function isRecurrent<TResult>(flow: RuntimeFlow<TResult>): flow is RecurrentFlowDefinition<TResult> {
   return 'recurrent' in flow && flow.recurrent;
 }
 

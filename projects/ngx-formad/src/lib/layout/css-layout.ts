@@ -1,9 +1,9 @@
 import { ItemSpec, LayoutAdapter, LayoutSpec, Responsive } from './layout-adapter';
 
-function baseOf<T>(value: Responsive<T> | null | undefined): T | undefined {
+function baseOf(value: Responsive<number> | null | undefined): number | undefined {
   if (value == null) return undefined;
 
-  return typeof value === 'object' ? (value as Partial<Record<'base', T>>).base : value;
+  return typeof value === 'number' ? value : value.base;
 }
 
 /** The zero-dependency layout adapter: inline CSS grid styles resolving the `base` value of each spec. */

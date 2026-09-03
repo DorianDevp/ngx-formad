@@ -1,67 +1,52 @@
-import { ErasedRecord, ErasedValue } from './step-context';
+import { Signal } from '@angular/core';
 
-/** A phantom handle to a field: its leaf key `K`, its value `V` and the path from the model root. */
-export interface FieldRef<K, V> {
-  readonly __key: K;
+type SameValue<A, B> = [A, B] extends [B, A] ? true : false;
 
-  readonly __path: readonly string[];
+/** The shared keys whose signal carries exactly `V`. */
+export type SharedKeyFor<TShared, V> = {
+  [K in keyof TShared]: TShared[K] extends Signal<infer X>
+    ? SameValue<X, V> extends true
+      ? K
+      : never
+    : never;
+}[keyof TShared] &
+  string;
 
-  readonly __value?: V;
+/** Model fields linked to shared keys of the same value type; a nested group links through a nested record. */
+export type SharedLinks<M, TShared> = {
+  readonly [K in keyof M]?: M[K] extends readonly unknown[]
+    ? SharedKeyFor<TShared, M[K]>
+    : M[K] extends Record<string, unknown>
+      ? SharedLinks<M[K], TShared> | SharedKeyFor<TShared, M[K]>
+      : SharedKeyFor<TShared, M[K]>;
+};
+
+/** A `bind` record as the recorder walks it: shared keys at the leaves, records for nested groups. */
+export interface LinkRecord {
+  readonly [key: string]: string | LinkRecord | undefined;
 }
 
-type FieldRefOf<V, K> = [V] extends [ErasedRecord] ? FieldRef<K, V> & FieldRefs<V> : FieldRef<K, V>;
-
-/** Every field of `T` as a selectable ref; object-valued keys are navigable further. */
-export type FieldRefs<T> = { [K in keyof T]: FieldRefOf<T[K], K> };
-
-/** Records model-field to shared-key links for one placed form; both sides must carry the same value type. */
-export interface SharedLink<M, S> {
-  link<V>(
-    model: (m: FieldRefs<M>) => FieldRef<PropertyKey, V>,
-    shared: (s: FieldRefs<S>) => FieldRef<keyof S, V>,
-  ): SharedLink<M, S>;
-}
-
-/** One recorded link: the model path and the shared key it syncs with. */
+/** One recorded link: the path to the model field and the shared key it syncs with. */
 export interface LinkPair {
   readonly modelPath: readonly string[];
 
   readonly sharedKey: string;
 }
 
-function fieldRefs<T>(path: readonly string[] = []): FieldRefs<T> {
-  const handler: ProxyHandler<object> = {
-    get: (_target, prop) => {
-      if (prop === '__path') return path;
-      if (prop === '__key') return path[path.length - 1];
-
-      return fieldRefs([...path, String(prop)]);
-    },
-  };
-
-  return new Proxy({}, handler) as FieldRefs<T>;
-}
-
-/** Runs a `bind` callback and returns the links it declared. */
-export function recordLinks<M, S>(configure: (link: SharedLink<M, S>) => void): LinkPair[] {
+/** Turns a `bind` record into link pairs, one per leaf. */
+export function recordLinks(links: LinkRecord, path: readonly string[] = []): LinkPair[] {
   const pairs: LinkPair[] = [];
-  const recorder: SharedLink<M, S> = {
-    link(modelSelect, sharedSelect) {
-      const modelRef = modelSelect(fieldRefs<M>());
-      const sharedRef = sharedSelect(fieldRefs<S>());
-      pairs.push({ modelPath: [...modelRef.__path], sharedKey: String(sharedRef.__key) });
+  for (const key in links) {
+    const target = links[key];
+    if (target === undefined) continue;
 
-      return recorder;
-    },
-  };
-  configure(recorder);
+    const modelPath = [...path, key];
+    typeof target === 'string'
+      ? pairs.push({ modelPath, sharedKey: target })
+      : pairs.push(...recordLinks(target, modelPath));
+  }
 
   return pairs;
-}
-
-/** Reads the selected key out of a pool selector such as `forms => forms.account`. */
-export function selectedKey<T>(select: (refs: FieldRefs<T>) => FieldRef<keyof T, ErasedValue>): string {
-  return String(select(fieldRefs<T>()).__key);
 }
 
 /** The writable model surface an output handler receives. */
@@ -73,49 +58,52 @@ export interface WritableModel<M> {
   update(updater: (current: M) => M): void;
 }
 
-/** Patches the form model in response to a control output's payload. */
-export type OutputHandler<M, P> = (payload: P, model: WritableModel<M>) => void;
-
-/** One control output wired to a model patch: the output's public name and its handler. */
-export interface OutputEffectCfg<M, P> {
+/** One control output wired to a model patch. */
+export interface OutputEffectCfg<M extends Record<string, unknown> = Record<string, unknown>, P = unknown> {
   readonly output: string;
 
-  readonly handler: OutputHandler<M, P>;
+  handler(payload: P, model: WritableModel<M>): void;
 }
 
-/** Records control-output effects for one placed form. */
-export interface FormEffects<M> {
-  on<P>(
-    field: (m: FieldRefs<M>) => FieldRef<PropertyKey, ErasedValue>,
-    effect: OutputEffectCfg<M, P>,
-  ): FormEffects<M>;
+/** Control-output effects by the emitting field; a nested group nests the record, handlers patch the root model. */
+export type FormEffects<M extends Record<string, unknown>, Root extends Record<string, unknown> = M> = {
+  readonly [K in keyof M]?: M[K] extends readonly unknown[]
+    ? readonly OutputEffectCfg<Root>[]
+    : M[K] extends Record<string, unknown>
+      ? FormEffects<M[K], Root> | readonly OutputEffectCfg<Root>[]
+      : readonly OutputEffectCfg<Root>[];
+};
+
+/** An `effects` record as the recorder walks it: effect lists at the leaves, records for nested groups. */
+export interface EffectRecord {
+  readonly [key: string]: readonly OutputEffectCfg[] | EffectRecord | undefined;
 }
 
-/** One recorded effect: the emitting field's path, the output name and the erased handler. */
-export interface OutputEffect {
+/** One recorded effect: the path to the emitting field, the output name and the handler. */
+export interface OutputEffect<M extends Record<string, unknown> = Record<string, unknown>, P = unknown> {
   readonly modelPath: readonly string[];
 
   readonly output: string;
 
-  readonly handler: OutputHandler<ErasedRecord, ErasedValue>;
+  handler(payload: P, model: WritableModel<M>): void;
 }
 
-/** Runs an `effects` callback and returns the effects it declared. */
-export function recordEffects<M>(configure: (effects: FormEffects<M>) => void): OutputEffect[] {
-  const effects: OutputEffect[] = [];
-  const recorder: FormEffects<M> = {
-    on(field, effect) {
-      const ref = field(fieldRefs<M>());
-      effects.push({
-        modelPath: [...ref.__path],
-        output: effect.output,
-        handler: effect.handler as OutputHandler<ErasedRecord, ErasedValue>,
-      });
+/** Turns an `effects` record into recorded effects, one per declared output. */
+export function recordEffects(effects: EffectRecord, path: readonly string[] = []): OutputEffect[] {
+  const recorded: OutputEffect[] = [];
+  for (const key in effects) {
+    const target = effects[key];
+    if (target === undefined) continue;
 
-      return recorder;
-    },
-  };
-  configure(recorder);
+    const modelPath = [...path, key];
+    if (!(Symbol.iterator in target)) {
+      recorded.push(...recordEffects(target, modelPath));
+      continue;
+    }
+    for (const effect of target) {
+      recorded.push({ modelPath, output: effect.output, handler: effect.handler });
+    }
+  }
 
-  return effects;
+  return recorded;
 }

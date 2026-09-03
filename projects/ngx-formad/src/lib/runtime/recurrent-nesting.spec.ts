@@ -2,8 +2,6 @@ import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import {
-  asRecurrentStepper,
-  asStepper,
   RecurrentStepperBuilder,
   RuntimeStepper,
   StepperBuilder,
@@ -63,16 +61,14 @@ class NestChrome {
 }
 
 function rootRing(): RuntimeFlow {
-  return asRecurrentStepper(
-    new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] })
+  return new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] })
       .withState({ draft: '' })
       .createForm('name', oneForm('Name'))
       .createStep(
         (s) =>
           s.createPage({ options: { heading: 'Name' } }, (p) =>
-            p.addForm(
-              (f) => f.name,
-              { bind: (l) => l.link((m) => m.v, (sh) => sh.draft) },
+            p.addForm('name',
+              { bind: { v: 'draft' } },
             ),
           ),
         { label: 'Name' },
@@ -86,8 +82,7 @@ function rootRing(): RuntimeFlow {
           ),
         { label: 'Dock' },
       )
-      .build(),
-  );
+      .build();
 }
 
 @Component({
@@ -101,8 +96,7 @@ class RootRingHost {
 }
 
 function ringWithLinearPass(): RuntimeStepper {
-  return asStepper(
-    new StepperBuilder()
+  return new StepperBuilder()
       .withState({})
       .createRecurrentStepper('items', {
         initial: (): Item[] => [],
@@ -116,11 +110,11 @@ function ringWithLinearPass(): RuntimeStepper {
                   .createForm('a', oneForm('A'))
                   .createForm('b', oneForm('B'))
                   .createStep(
-                    (s) => s.createPage({ options: { heading: 'A' } }, (p) => p.addForm((f) => f.a)),
+                    (s) => s.createPage({ options: { heading: 'A' } }, (p) => p.addForm('a')),
                     { name: 'a', label: 'A' },
                   )
                   .createStep(
-                    (s) => s.createPage({ options: { heading: 'B' } }, (p) => p.addForm((f) => f.b)),
+                    (s) => s.createPage({ options: { heading: 'B' } }, (p) => p.addForm('b')),
                     { name: 'b', label: 'B' },
                   ),
             })
@@ -134,8 +128,7 @@ function ringWithLinearPass(): RuntimeStepper {
               { label: 'Dock' },
             ),
       })
-      .build(),
-  );
+      .build();
 }
 
 @Component({

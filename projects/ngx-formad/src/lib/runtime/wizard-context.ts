@@ -1,5 +1,5 @@
 import { computed, Injectable, signal, Signal } from '@angular/core';
-import { ErasedRecord } from '../builders/step-context';
+import { RuntimeStepContext } from '../builders/step-context';
 import { SharedState } from '../sync/shared-state';
 import { StepperController } from './stepper-controller';
 
@@ -8,23 +8,23 @@ import { StepperController } from './stepper-controller';
 export class FormadWizard {
   private readonly _controller = signal<StepperController | null>(null);
 
-  private _shared: SharedState<ErasedRecord> | null = null;
+  private _shared: SharedState | null = null;
 
   readonly controller: Signal<StepperController | null> = this._controller.asReadonly();
 
-  readonly committed = computed<ErasedRecord>(() => this._controller()?.committed() ?? {});
+  readonly committed = computed<RuntimeStepContext['steps']>(() => this._controller()?.committed() ?? {});
 
-  get shared(): SharedState<ErasedRecord> {
+  get shared(): SharedState {
     if (!this._shared) throw new Error('FormadWizard is not initialized yet.');
 
     return this._shared;
   }
 
-  sharedOrNull(): SharedState<ErasedRecord> | null {
+  sharedOrNull(): SharedState | null {
     return this._shared;
   }
 
-  _init(controller: StepperController, shared: SharedState<ErasedRecord>): void {
+  _init(controller: StepperController, shared: SharedState): void {
     this._shared = shared;
     this._controller.set(controller);
   }

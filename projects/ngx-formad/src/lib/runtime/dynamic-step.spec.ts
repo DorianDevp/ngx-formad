@@ -2,7 +2,7 @@ import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode } from '../builders/flow';
-import { asStepper, StepperBuilder } from '../builders/stepper-builder';
+import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { StepFormsView } from './step-forms-view';
@@ -51,8 +51,7 @@ class DynChrome {
 class DynHost {
   builds = 0;
 
-  readonly stepper = asStepper(
-    new StepperBuilder()
+  readonly stepper =     new StepperBuilder()
       .withState({ pick: '' })
       .createForm('pick', oneForm('Pick'))
       .createForm('cheap', oneForm('Cheap details'))
@@ -60,9 +59,8 @@ class DynHost {
       .createStep(
         (s) =>
           s.createPage({ options: { heading: 'Pick' } }, (p) =>
-            p.addForm(
-              (f) => f.pick,
-              { bind: (l) => l.link((m) => m.v, (sh) => sh.pick) },
+            p.addForm('pick',
+              { bind: { v: 'pick' } },
             ),
           ),
         { label: 'Pick' },
@@ -74,13 +72,12 @@ class DynHost {
           this.builds = this.builds + 1;
 
           return s.createPage({ options: { heading: `Details: ${ctx.shared.pick()}` } }, (p) =>
-            p.addForm((f) => (ctx.shared.pick() === 'fancy' ? f.fancy : f.cheap)),
+            p.addForm(ctx.shared.pick() === 'fancy' ? 'fancy' : 'cheap'),
           );
         },
         { label: 'Details' },
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('Dynamic steps - the step callback with the live context', () => {
@@ -110,8 +107,8 @@ describe('Dynamic steps - the step callback with the live context', () => {
   it('keeps a one-parameter callback plain data, and defers a two-parameter one', () => {
     const steps = fixture.componentInstance.stepper.steps.filter(isStepNode);
 
-    expect(typeof steps[0].pages).not.toBe('function');
-    expect(typeof steps[1].pages).toBe('function');
+    expect('build' in steps[0].pages).toBe(false);
+    expect('build' in steps[1].pages).toBe(true);
     // Authoring ran no dynamic build; only reaching the step does.
     expect(fixture.componentInstance.builds).toBe(0);
   });

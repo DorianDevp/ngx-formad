@@ -1,4 +1,4 @@
-import { Reactive } from './dynamic-component';
+import { Reactive } from 'formodel';
 
 /** The tags a content block may draw: structure, text, lists, links, images, a button. */
 export const CONTENT_TAGS = [
@@ -38,7 +38,7 @@ export type ContentTag = (typeof CONTENT_TAGS)[number];
 
 /** Narrows a tag name to a drawable content tag; the renderer's guard against trees that did not come from the builder. */
 export function isContentTag(tag: string): tag is ContentTag {
-  return (CONTENT_TAGS as readonly string[]).includes(tag);
+  return CONTENT_TAGS.some((known) => known === tag);
 }
 
 /** What an attribute may hold; `null`/`undefined`/`false` remove it, `true` writes it empty. */
@@ -167,10 +167,15 @@ function childrenFrom(source: ContentBuild | ContentText): ContentChild[] {
   const returned = source(nested);
   const nodes = nested.drain();
   if (nodes.length) return nodes;
+  if (typeof returned !== 'string' && typeof returned !== 'number') return nodes;
 
-  return typeof returned === 'string' || typeof returned === 'number'
-    ? [{ kind: ContentChildKind.Text, value: source as ContentText }]
-    : nodes;
+  const text = (): string | number => {
+    const read = source(nested);
+
+    return typeof read === 'string' || typeof read === 'number' ? read : returned;
+  };
+
+  return [{ kind: ContentChildKind.Text, value: text }];
 }
 
 function classify<O extends ContentOptions>(args: TagArgsOf<O>): TagParts<O> {

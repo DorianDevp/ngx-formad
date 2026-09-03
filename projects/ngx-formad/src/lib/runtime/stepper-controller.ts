@@ -18,27 +18,18 @@ import {
   RuntimeFlow,
   SequenceNode,
 } from '../builders/flow';
-import { Reactive, toGetter } from '../builders/dynamic-component';
-import {
-  DeferTrigger,
-  ErasedRecord,
-  ErasedValue,
-  RecurrentSignals,
-  RuntimeStepContext,
-  RuntimeStepInstance,
-  RuntimeSteps,
-  SharedSignals,
-} from '../builders/step-context';
-import { FormConfig } from '../form-config/form-config';
+import { isGetter, Reactive } from 'formodel';
+import { DeferTrigger, RecurrentSignals, RuntimeStepContext, SharedSignals } from '../builders/step-context';
+import { RuntimeFormConfig } from '../form-config/form-config';
+import { FormState } from '../renderer/instantiate-form';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
 import {
   LiveStep,
-  materializeStep,
-  resolvePages,
-  resolveStepForms,
   StepIssue,
-  stepFormNames,
+  formNodes,
+  materializeStep,
+  resolveStepForms,
 } from './materialize-step';
 
 /** Options of `goTo`; `fresh` drops the target and everything after it before entering. */
@@ -109,7 +100,7 @@ export interface StepperProgress {
 export interface FlowOutlet {
   context(): RuntimeStepContext;
 
-  shared(): SharedSignals<ErasedRecord>;
+  shared(): SharedSignals;
 
   flow(): RecurrentSignals | undefined;
 
@@ -123,18 +114,18 @@ export interface FlowOutlet {
 }
 
 /** What a controller is hosted by: its parent environment, completion and commit callbacks, or a parent outlet. */
-export interface ControllerHost {
+export interface ControllerHost<TResult = unknown> {
   readonly environment: EnvironmentInjector;
 
-  readonly onComplete?: (result: ErasedValue) => void;
+  readonly onComplete?: (result: TResult | null) => void;
 
-  readonly onStep?: (values: ErasedRecord) => void;
+  readonly onStep?: (values: RuntimeStepContext['steps']) => void;
 
   readonly outlet?: FlowOutlet;
 }
 
 /** The headless stepper engine a chrome renders: leaf state, navigation, progress and egress. */
-export interface StepperController {
+export interface StepperController<TResult = unknown> {
   readonly step: Signal<LiveStep | null>;
 
   readonly loading: Signal<boolean>;
@@ -169,9 +160,9 @@ export interface StepperController {
 
   readonly deferTrigger: Signal<DeferTrigger | null>;
 
-  readonly result: Signal<ErasedValue>;
+  readonly result: Signal<TResult | null>;
 
-  readonly committed: Signal<ErasedRecord>;
+  readonly committed: Signal<RuntimeStepContext['steps']>;
 
   next(): void;
 
@@ -189,10 +180,12 @@ export interface StepperController {
 }
 
 function resolveText(value: Reactive<string> | undefined): string {
-  return toGetter(value ?? '')();
+  if (value === undefined) return '';
+
+  return isGetter(value) ? value() : value;
 }
 
-type ResolvedForms = Record<string, FormConfig<ErasedRecord>>;
+type ResolvedForms = Record<string, RuntimeFormConfig>;
 
 type StepMemo = ReadonlyMap<StepNode, LiveStep>;
 
@@ -204,14 +197,14 @@ interface LazyStep {
   readonly configs: ResolvedForms;
 }
 
-export class FormadStepperController implements StepperController {
+export class FormadStepperController<TResult = unknown> implements StepperController<TResult> {
   private readonly cursor = signal<SequenceNode | null>(null);
 
   private readonly attemptedNext = signal(false);
 
-  private readonly ring: FlowRing | null;
+  private readonly ring: FlowRing<TResult> | null;
 
-  private readonly recurrentFlow: RecurrentFlowDefinition | null;
+  private readonly recurrentFlow: RecurrentFlowDefinition<TResult> | null;
 
   private readonly children: ReadonlyMap<FlowStepNode, FormadStepperController>;
 
@@ -223,19 +216,19 @@ export class FormadStepperController implements StepperController {
 
   readonly environment: EnvironmentInjector;
 
-  private readonly contextShared: SharedSignals<ErasedRecord>;
+  private readonly contextShared: SharedSignals;
 
   private readonly contextFlow: RecurrentSignals | undefined;
 
   private readonly outlet: FlowOutlet | undefined;
 
-  private readonly onComplete: ((result: ErasedValue) => void) | undefined;
+  private readonly onComplete: ((result: TResult | null) => void) | undefined;
 
-  private readonly onStep: ((values: ErasedRecord) => void) | undefined;
+  private readonly onStep: ((values: RuntimeStepContext['steps']) => void) | undefined;
 
   constructor(
-    private readonly flow: RuntimeFlow,
-    host: ControllerHost,
+    private readonly flow: RuntimeFlow<TResult>,
+    host: ControllerHost<TResult>,
   ) {
     this.outlet = host.outlet;
     this.onComplete = host.onComplete;
@@ -243,7 +236,7 @@ export class FormadStepperController implements StepperController {
     this.environment = createEnvironmentInjector([...flow.providers], host.environment, 'formad-flow');
     this.recurrentFlow = isRecurrent(flow) ? flow : null;
     this.ring = this.recurrentFlow ? new FlowRing(this.recurrentFlow) : null;
-    this.contextShared = { ...(host.outlet?.shared() ?? {}), ...sharedSignalsOf(flow) };
+    this.contextShared = { ...(host.outlet?.shared() ?? {}), ...flow.shared.signals() };
     this.contextFlow = this.ring
       ? { state: this.ring.state, passOpen: this.ring.passOpen }
       : host.outlet?.flow();
@@ -263,7 +256,7 @@ export class FormadStepperController implements StepperController {
     return runInInjectionContext(this.environment, compute);
   }
 
-  private readonly stepsView = computed<RuntimeSteps>(() => {
+  private readonly stepsView = computed<RuntimeStepContext['steps']>(() => {
     const memo = this.memo();
 
     return Object.fromEntries(
@@ -367,20 +360,18 @@ export class FormadStepperController implements StepperController {
     return this.current() !== null && this.ownStep() === null;
   });
 
-  readonly committed: Signal<ErasedRecord> = computed(() => {
+  readonly committed: Signal<RuntimeStepContext['steps']> = computed(() => {
     const memo = this.memo();
-    const values: Record<string, ErasedValue> = {};
-    this.flow.steps.forEach((node, index) => {
-      if (isFlowStep(node)) {
-        values[stepKey(node, index)] = this.children.get(node)?.egress();
-        return;
-      }
 
-      const live = memo.get(node);
-      if (live) values[stepKey(node, index)] = valuesOf(live);
-    });
+    return Object.fromEntries(
+      this.flow.steps.flatMap((node, index) => {
+        if (isFlowStep(node)) return [[stepKey(node, index), this.children.get(node)?.egress()]];
 
-    return values;
+        const live = memo.get(node);
+
+        return live ? [[stepKey(node, index), valuesOf(live)]] : [];
+      }),
+    );
   });
 
   readonly index = this.position;
@@ -496,7 +487,7 @@ export class FormadStepperController implements StepperController {
     return child ? child.isLast() : true;
   });
 
-  readonly result = computed<ErasedValue>(() => {
+  readonly result = computed<TResult | null>(() => {
     if (this.ring) return this.ring.state();
 
     const resolve = this.flow.resolveResult;
@@ -563,7 +554,15 @@ export class FormadStepperController implements StepperController {
   }
 
   dockRestart(): void {
-    this.dockController()?.restartPass();
+    const child = this.child();
+    if (child) {
+      child.dockRestart();
+
+      return;
+    }
+
+    const flow = this.recurrentFlow;
+    if (flow && this.current() === this.flow.steps[flow.dockAt]) this.restartPass();
   }
 
   destroy(): void {
@@ -708,15 +707,6 @@ export class FormadStepperController implements StepperController {
     if (first) this.enter(first);
   }
 
-  private dockController(): FormadStepperController | null {
-    const child = this.child();
-    if (child) return child.dockController();
-
-    const flow = this.recurrentFlow;
-    if (!flow) return null;
-    return this.current() === this.flow.steps[flow.dockAt] ? this : null;
-  }
-
   private enter(node: SequenceNode): void {
     this.cursor.set(node);
     this.attemptedNext.set(false);
@@ -767,7 +757,7 @@ export class FormadStepperController implements StepperController {
     this.notifyCommitted();
   }
 
-  private egress(): ErasedValue {
+  private egress(): TResult | RuntimeStepContext['steps'] {
     return this.ring ? this.ring.state() : this.committed();
   }
 
@@ -804,22 +794,23 @@ export class FormadStepperController implements StepperController {
   }
 
   private pagesFor(node: StepNode): readonly PageNode[] {
-    if (typeof node.pages !== 'function') return node.pages;
+    const pages = node.pages;
+    if (!('build' in pages)) return pages;
 
-    return this.inContext(() => resolvePages(node, this.entryContext(node)));
+    return this.inContext(() => pages.build(this.entryContext(node)));
   }
 
   private hasLazyForms(pages: readonly PageNode[]): boolean {
     const pool = this.flow.forms;
-    return stepFormNames(pages).some((name) => typeof pool[name] === 'function');
+    return formNodes(pages).some((node) => typeof pool[node.name] === 'function');
   }
 
   private eagerConfigs(pages: readonly PageNode[]): ResolvedForms {
     const pool = this.flow.forms;
     const resolved: ResolvedForms = {};
-    for (const name of stepFormNames(pages)) {
-      const entry = pool[name];
-      if (entry && typeof entry !== 'function') resolved[name] = entry;
+    for (const node of formNodes(pages)) {
+      const entry = pool[node.name];
+      if (entry && typeof entry !== 'function') resolved[node.name] = entry;
     }
 
     return resolved;
@@ -875,9 +866,8 @@ function stepKey(node: SequenceNode, index: number): string {
   return node.name ?? String(index);
 }
 
-function valuesOf(live: LiveStep): ErasedRecord {
-  const values: Record<string, ErasedValue> = {};
-
+function valuesOf(live: LiveStep): Readonly<Record<string, ReturnType<FormState['model']>>> {
+  const values: Record<string, ReturnType<FormState['model']>> = {};
   for (const form of live.forms) {
     if (form.visible()) values[form.name] = form.state.model();
   }
@@ -894,12 +884,6 @@ function without(memo: StepMemo, nodes: readonly SequenceNode[]): StepMemo {
   return next;
 }
 
-function sharedSignalsOf(flow: RuntimeFlow): SharedSignals<ErasedRecord> {
-  const signals: Record<string, Signal<ErasedValue>> = {};
-  for (const key of Object.keys(flow.shared.snapshot())) signals[key] = flow.shared.select(key);
-
-  return signals;
-}
 
 function linearLevel(steps: readonly SequenceNode[], at: number): LinearProgressLevel {
   return {

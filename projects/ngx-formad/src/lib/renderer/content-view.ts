@@ -10,7 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { ContentAttr, ContentChild, ContentChildKind, ContentTagChild, isContentTag } from '../builders/content';
-import { Reactive } from '../builders/dynamic-component';
+import { isGetter, Reactive } from 'formodel';
 
 const BOOLEAN_ATTRS = new Set([
   'autofocus',
@@ -109,7 +109,7 @@ export class ContentView {
     }
     if (!isContentTag(child.tag)) return;
 
-    const el = this.renderer.createElement(child.tag) as HTMLElement;
+    const el: HTMLElement = this.renderer.createElement(child.tag);
     if (child.className !== undefined) {
       this.bind(child.className, (value) => this.renderer.setAttribute(el, 'class', value));
     }
@@ -164,13 +164,12 @@ export class ContentView {
   }
 
   private bind<V>(source: Reactive<V>, apply: (value: V) => void): void {
-    if (typeof source !== 'function') {
+    if (!isGetter(source)) {
       apply(source);
 
       return;
     }
-    const get = source as () => V;
-    apply(untracked(get));
-    this.bindings = [...this.bindings, effect(() => apply(get()), { injector: this.injector })];
+    apply(untracked(source));
+    this.bindings = [...this.bindings, effect(() => apply(source()), { injector: this.injector })];
   }
 }

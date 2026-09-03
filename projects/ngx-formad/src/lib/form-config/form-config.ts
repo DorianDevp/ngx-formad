@@ -1,14 +1,28 @@
-import { Type } from '@angular/core';
-import { SchemaOrSchemaFn } from '@angular/forms/signals';
-import { CUSTOM_FIELD, RepeatingGroupNode, SelectFormControlNode } from 'formodel';
+import { computed, Type } from '@angular/core';
+import { SchemaPathTree } from '@angular/forms/signals';
+import {
+  CUSTOM_FIELD,
+  isGetter,
+  Reactive,
+  RepeatingGroupNode,
+  SelectFormControlNode,
+  UiFormControlNode,
+  UiFormGroupConfig,
+} from 'formodel';
 import { ContentChild } from '../builders/content';
-import { ErasedRecord, ErasedValue } from '../builders/step-context';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
-import { mapReactive, ReactiveControlNode, ReactiveUiConfig, ReactiveValue } from './reactive';
 
-/** One option of a `select`/`radio`/`multiselect` field, as formodel declares it. */
-export type SelectOption = SelectFormControlNode['options'][number];
+/** One option of a `select`/`multiselect` field, as formodel declares it. */
+export type SelectOption =
+  SelectFormControlNode['options'] extends Reactive<readonly (infer O)[]> ? O : never;
+
+/** An option as the select and radio controls consume it. */
+export interface ControlOption {
+  readonly value: SelectOption['value'];
+
+  readonly label: string;
+}
 
 /** A group node as the structural walk sees it: label, columns and erased children. */
 export interface ErasedGroupNode {
@@ -20,19 +34,20 @@ export interface ErasedGroupNode {
 }
 
 /** A repeating group as the structural walk sees it: array options and an erased item config. */
-export interface ErasedArrayNode extends Omit<RepeatingGroupNode<ErasedValue>, 'itemConfig'> {
+export interface ErasedArrayNode<TItem extends Record<string, unknown> = Record<string, unknown>>
+  extends Omit<RepeatingGroupNode<TItem>, 'itemConfig'> {
   readonly itemConfig: ErasedUi;
 }
 
 /** A registered custom control node as the renderer sees it: its kind and its typed props bag. */
-export interface CustomKindNode {
+export interface CustomKindNode<P extends Record<string, unknown> = Record<string, unknown>> {
   readonly type: string;
 
-  readonly props: ReactiveValue<ErasedRecord>;
+  readonly props: Reactive<P>;
 }
 
 /** A scalar field's node: a formodel control node, or a registered custom kind. */
-export type FieldNode = ReactiveControlNode | CustomKindNode;
+export type FieldNode = UiFormControlNode | CustomKindNode;
 
 /** One node of the erased ui: a scalar field, a group or a repeating group. */
 export type ErasedUiNode = FieldNode | ErasedGroupNode | ErasedArrayNode;
@@ -41,28 +56,33 @@ export type ErasedUiNode = FieldNode | ErasedGroupNode | ErasedArrayNode;
 export type ErasedUi = Readonly<Record<string, ErasedUiNode>>;
 
 /** What a layout gate or control input reads: the live model and, inside a wizard, the shared store. */
-export interface FormLayoutContext<M extends ErasedRecord = ErasedRecord> {
+export interface FormLayoutContext<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly model: M;
 
-  readonly shared: SharedState<ErasedRecord> | null;
+  readonly shared: SharedState | null;
 }
 
-/** A control's presentational input as authored: a value, or a read of the layout context. */
-export type ControlInput<V, M extends ErasedRecord> = V | ((ctx: FormLayoutContext<M>) => V);
+/** A control input read from the layout context; a signal fits too, since it ignores the argument. */
+export type ContextualInput<V, M extends Record<string, unknown>> = (ctx: FormLayoutContext<M>) => V;
 
-/** Resolves one authored input against the layout context. */
-export function resolveControlInput<M extends ErasedRecord>(
-  input: ControlInput<ErasedValue, M>,
-  ctx: FormLayoutContext<M>,
-): ErasedValue {
-  return typeof input === 'function' ? (input as (ctx: FormLayoutContext<M>) => ErasedValue)(ctx) : input;
+/** A control's presentational input as authored: a value, or a read of the layout context. */
+export type ControlInput<V, M extends Record<string, unknown>> = V | ContextualInput<V, M>;
+
+/** Narrows an authored input to a read of the layout context. */
+export function isContextual<V, M extends Record<string, unknown>>(input: ControlInput<V, M>): input is ContextualInput<V, M> {
+  return typeof input === 'function';
+}
+
+/** One control input as a layout item holds it: read against the layout context whenever the outlet binds. */
+export interface ControlInputRead<V = unknown, M extends Record<string, unknown> = Record<string, unknown>> {
+  read(ctx: FormLayoutContext<M>): V;
 }
 
 /** A control placed on a field by `formLayout().control()`: the component and its inputs. */
-export interface ControlOverride<M extends ErasedRecord> {
+export interface ControlOverride<M extends Record<string, unknown> = Record<string, unknown>, V = unknown> {
   readonly component: Type<object>;
 
-  readonly inputs: Readonly<Record<string, ControlInput<ErasedValue, M>>>;
+  readonly inputs: Readonly<Record<string, ControlInputRead<V, M>>>;
 }
 
 /** Discriminates the nodes of the render tree. */
@@ -84,7 +104,7 @@ export interface FieldConfig {
 
   readonly layout?: ItemSpec;
 
-  readonly control?: ControlOverride<ErasedRecord>;
+  readonly control?: ControlOverride;
 }
 
 /** A scalar control in the render tree. */
@@ -134,7 +154,7 @@ export interface FormContentNode {
 
   readonly children: readonly ContentChild[];
 
-  readonly visibleWhen?: (ctx: FormLayoutContext) => boolean;
+  visibleWhen?(ctx: FormLayoutContext): boolean;
 
   readonly layout?: ItemSpec;
 }
@@ -166,19 +186,19 @@ export enum FormLayoutItemKind {
 }
 
 /** A field placed by its model key. */
-export interface FormFieldItem<M extends ErasedRecord> {
+export interface FormFieldItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Field;
 
-  readonly key: keyof M & string;
+  readonly key: string;
 
   readonly item?: ItemSpec;
 }
 
 /** A field drawn by a chosen control. */
-export interface FormControlItem<M extends ErasedRecord> {
+export interface FormControlItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Control;
 
-  readonly key: keyof M & string;
+  readonly key: string;
 
   readonly control: ControlOverride<M>;
 
@@ -186,18 +206,18 @@ export interface FormControlItem<M extends ErasedRecord> {
 }
 
 /** A content block with its gate and placement. */
-export interface FormContentSpec<M extends ErasedRecord> {
+export interface FormContentSpec<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Content;
 
   readonly children: readonly ContentChild[];
 
-  readonly visibleWhen?: (ctx: FormLayoutContext<M>) => boolean;
+  visibleWhen?(ctx: FormLayoutContext<M>): boolean;
 
   readonly item?: ItemSpec;
 }
 
 /** A nested row of items with its own grid. */
-export interface FormRowItem<M extends ErasedRecord> {
+export interface FormRowItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Row;
 
   readonly grid?: LayoutSpec;
@@ -208,35 +228,40 @@ export interface FormRowItem<M extends ErasedRecord> {
 }
 
 /** One entry of a layout overlay. */
-export type FormLayoutItem<M extends ErasedRecord> =
+export type FormLayoutItem<M extends Record<string, unknown> = Record<string, unknown>> =
   | FormFieldItem<M>
   | FormControlItem<M>
   | FormContentSpec<M>
   | FormRowItem<M>;
 
 /** A form's layout overlay: the container grid and the ordered items; built with `formLayout()`. */
-export interface FormLayout<M extends ErasedRecord> {
+export interface FormLayout<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly grid?: LayoutSpec;
 
   readonly items: readonly FormLayoutItem<M>[];
 }
 
-/** One form as renderable data: a fresh-model factory, the ui config, an optional schema and layout overlay. */
-export interface FormConfig<
-  M extends ErasedRecord,
-  U extends ReactiveUiConfig<M> = ReactiveUiConfig<M>,
-> {
-  readonly model: () => M;
+/** A form template as the runtime holds it: a fresh-model factory, the ui by structure, an optional schema and layout overlay. */
+export interface RuntimeFormConfig<M extends Record<string, unknown> = Record<string, unknown>> {
+  model(): M;
 
-  readonly ui: U;
+  readonly ui: ErasedUi;
 
-  readonly schema?: SchemaOrSchemaFn<M>;
+  schema?(p: SchemaPathTree<M>): void;
 
   readonly layout?: FormLayout<M>;
 }
 
+/** One form as authored: the template with its ui type kept, so live props come back as declared. */
+export interface FormConfig<
+  M extends Record<string, unknown>,
+  U extends UiFormGroupConfig<M> & ErasedUi = UiFormGroupConfig<M> & ErasedUi,
+> extends RuntimeFormConfig<M> {
+  readonly ui: U;
+}
+
 /** Declares a form config while keeping the authored `ui` type, so live props come back writable. */
-export function defineForm<M extends ErasedRecord, U extends ReactiveUiConfig<M>>(
+export function defineForm<M extends Record<string, unknown>, U extends UiFormGroupConfig<M> & ErasedUi>(
   config: FormConfig<M, U>,
 ): FormConfig<M, U> {
   return config;
@@ -279,7 +304,7 @@ interface LayoutSlot extends LayoutWalk {
   readonly index: number;
 }
 
-function contentNode(item: FormContentSpec<ErasedRecord>, slot: LayoutSlot): FormContentNode {
+function contentNode(item: FormContentSpec, slot: LayoutSlot): FormContentNode {
   const key = `@content:${slot.index}`;
 
   return {
@@ -292,7 +317,7 @@ function contentNode(item: FormContentSpec<ErasedRecord>, slot: LayoutSlot): For
   };
 }
 
-function rowNode(item: FormRowItem<ErasedRecord>, slot: LayoutSlot): FormRowNode {
+function rowNode(item: FormRowItem, slot: LayoutSlot): FormRowNode {
   const key = `@row:${slot.index}`;
 
   return {
@@ -305,7 +330,7 @@ function rowNode(item: FormRowItem<ErasedRecord>, slot: LayoutSlot): FormRowNode
   };
 }
 
-function controlNode(item: FormControlItem<ErasedRecord>, slot: LayoutSlot): ControlNode | null {
+function controlNode(item: FormControlItem, slot: LayoutSlot): ControlNode | null {
   const node = slot.ui[item.key];
   if (node === undefined) return null;
   if ('controlsConfig' in node || 'itemConfig' in node) {
@@ -322,7 +347,7 @@ function controlNode(item: FormControlItem<ErasedRecord>, slot: LayoutSlot): Con
   };
 }
 
-function fieldNode(item: FormFieldItem<ErasedRecord>, slot: LayoutSlot): RenderNode | null {
+function fieldNode(item: FormFieldItem, slot: LayoutSlot): RenderNode | null {
   const node = slot.ui[item.key];
 
   return node === undefined
@@ -330,7 +355,7 @@ function fieldNode(item: FormFieldItem<ErasedRecord>, slot: LayoutSlot): RenderN
     : buildFieldNode(node, { key: item.key, path: [...slot.path, item.key], layout: item.item });
 }
 
-function layoutNode(item: FormLayoutItem<ErasedRecord>, slot: LayoutSlot): RenderNode | null {
+function layoutNode(item: FormLayoutItem, slot: LayoutSlot): RenderNode | null {
   switch (item.kind) {
     case FormLayoutItemKind.Content:
       return contentNode(item, slot);
@@ -343,7 +368,7 @@ function layoutNode(item: FormLayoutItem<ErasedRecord>, slot: LayoutSlot): Rende
   }
 }
 
-function layoutNodes(items: readonly FormLayoutItem<ErasedRecord>[], walk: LayoutWalk): RenderNode[] {
+function layoutNodes(items: readonly FormLayoutItem[], walk: LayoutWalk): RenderNode[] {
   return items.flatMap((item, index) => {
     const node = layoutNode(item, { ...walk, index });
 
@@ -352,7 +377,7 @@ function layoutNodes(items: readonly FormLayoutItem<ErasedRecord>[], walk: Layou
 }
 
 /** Builds the render tree from a layout overlay, resolving field keys against the erased ui. */
-export function buildLayoutNodes(ui: ErasedUi, items: readonly FormLayoutItem<ErasedRecord>[]): RenderNode[] {
+export function buildLayoutNodes(ui: ErasedUi, items: readonly FormLayoutItem[]): RenderNode[] {
   return layoutNodes(items, { ui, path: [] });
 }
 
@@ -370,9 +395,15 @@ export function flattenFields(ui: ErasedUi): FieldConfig[] {
 }
 
 /** The presentational inputs a control receives beyond the field binding, each possibly live. */
-export type ControlInputs = Readonly<Record<string, ReactiveValue<ErasedValue>>>;
+export type ControlInputs<V = unknown> = Readonly<Record<string, Reactive<V>>>;
 
-type PresentationalNode = Exclude<ReactiveControlNode, { readonly type: typeof CUSTOM_FIELD }>;
+function mapReactive<T, R>(value: Reactive<T>, map: (value: T) => R): Reactive<R> {
+  if (!isGetter(value)) return map(value);
+
+  return computed(() => map(value()));
+}
+
+type PresentationalNode = Exclude<UiFormControlNode, { readonly type: typeof CUSTOM_FIELD }>;
 
 function kindInputs(node: PresentationalNode): ControlInputs {
   switch (node.type) {
@@ -386,21 +417,21 @@ function kindInputs(node: PresentationalNode): ControlInputs {
       return node.rows != null ? { rows: node.rows } : {};
     case 'select':
       return {
-        options: mapReactive(node.options, (options) =>
+        options: mapReactive(node.options, (options): ControlOption[] =>
           options.map((option) => ({ value: option.value, label: option.description })),
         ),
       };
     case 'radio':
       return {
-        options: mapReactive(node.options, (options) =>
+        options: mapReactive(node.options, (options): ControlOption[] =>
           options.map((option) => ({ value: option.value, label: option.label })),
         ),
       };
     case 'date':
       return node.limit
         ? {
-            minDate: mapReactive(node.limit, (limit) => limit?.min ?? null),
-            maxDate: mapReactive(node.limit, (limit) => limit?.max ?? null),
+            minDate: mapReactive(node.limit, (limit) => limit.min),
+            maxDate: mapReactive(node.limit, (limit) => limit.max),
           }
         : {};
     case 'file':

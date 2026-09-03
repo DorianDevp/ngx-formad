@@ -4,7 +4,6 @@ import { FormConfig } from '../form-config/form-config';
 import { ComponentNode, FormNode, LayoutNodeKind, StepNode } from './nodes';
 import { isStepNode, SequenceNode } from './flow';
 import { DeferTrigger, RuntimeStepContext } from './step-context';
-import { resolvePages } from '../runtime/materialize-step';
 import { StepperBuilder } from './stepper-builder';
 
 type Account = { email: string; password: string };
@@ -40,24 +39,16 @@ describe('StepperBuilder', () => {
         step.createPage({ options: { heading: 'Account' } }, (page) =>
           page
             .addComponent(Banner, { inputs: { tone: 'info' }, outputs: { dismissed: () => {} } })
-            .addForm((f) => f.account, {
+            .addForm('account', {
               submitLabel: 'Next',
-              bind: (l) =>
-                l.link(
-                  (m) => m.email,
-                  (s) => s.email,
-                ),
+              bind: { email: 'email' },
             }),
         ),
       )
       .createStep((step) =>
         step.createPage({ options: { heading: 'Billing' } }, (page) =>
-          page.addForm((f) => f.billing, {
-            bind: (l) =>
-              l.link(
-                (m) => m.email,
-                (s) => s.email,
-              ),
+          page.addForm('billing', {
+            bind: { email: 'email' },
           }),
         ),
       )
@@ -96,12 +87,8 @@ describe('StepperBuilder', () => {
       .createForm('billing', billing)
       .createStep((step) =>
         step.createPage({ options: { heading: 'Billing' } }, (page) =>
-          page.addForm((f) => f.billing, {
-            bind: (l) =>
-              l.link(
-                (m) => m.vat,
-                (s) => s.vat,
-              ),
+          page.addForm('billing', {
+            bind: { vat: 'vat' },
           }),
         ),
       )
@@ -132,7 +119,7 @@ describe('StepperBuilder', () => {
     const stepper = new StepperBuilder()
       .withState({ email: '' })
       .createForm('account', account)
-      .createStep((step) => step.createPage({ options: { heading: 'A' } }, (page) => page.addForm((f) => f.account)), {
+      .createStep((step) => step.createPage({ options: { heading: 'A' } }, (page) => page.addForm('account')), {
         optional: true,
         defer: DeferTrigger.Idle,
         when: ({ shared }) => shared.email() === 'go',
@@ -158,5 +145,7 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
 const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
 function pagesAt(steps: readonly SequenceNode[], index: number) {
-  return resolvePages(leafAt(steps, index), EMPTY_CONTEXT);
+  const step = leafAt(steps, index);
+
+  return 'build' in step.pages ? step.pages.build(EMPTY_CONTEXT) : step.pages;
 }

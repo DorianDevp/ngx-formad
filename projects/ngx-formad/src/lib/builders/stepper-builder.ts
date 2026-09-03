@@ -1,10 +1,12 @@
 import { Provider, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
+import { Reactive } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { ControlTypeMap } from '../provide';
+import { FormState } from '../renderer/instantiate-form';
 import { SharedState } from '../sync/shared-state';
 import { ContentBuild, buildContent } from './content';
-import { ComponentCfg, Reactive, toBindings } from './dynamic-component';
+import { ComponentCfg, toBindings } from './dynamic-component';
 import {
   FlowDefinition,
   FlowStepNode,
@@ -13,41 +15,37 @@ import {
   RuntimeFlow,
   SequenceNode,
 } from './flow';
-import { DynamicPages, LayoutNode, LayoutNodeKind, PageNode, PageOptions, SequenceNodeKind } from './nodes';
 import {
-  FieldRef,
-  FieldRefs,
-  FormEffects,
-  recordEffects,
-  recordLinks,
-  selectedKey,
-  SharedLink,
-} from './shared-link';
+  DynamicPages,
+  LayoutNode,
+  LayoutNodeKind,
+  PageNode,
+  PageOptions,
+  SequenceNodeKind,
+  StepNode,
+} from './nodes';
+import { FormEffects, recordEffects, recordLinks, SharedLinks } from './shared-link';
 import {
   AnyFormProvider,
   ChildContext,
   DeferTrigger,
-  ErasedRecord,
-  ErasedValue,
   FormKeys,
   FormModel,
   FormProvider,
   GateContext,
+  RecurrentSignals,
   Rejected,
   RingContext,
-  RuntimeFormSeed,
-  RuntimeResultResolver,
-  RuntimeStepCondition,
+  RootContext,
   RuntimeStepContext,
-  SharedOf,
+  SharedSignals,
   StepCondition,
   StepContext,
+  StepGate,
   StepInstance,
-  StepsOf,
   WithShared,
   WithSteps,
 } from './step-context';
-import { FormState } from '../renderer/instantiate-form';
 
 /** The control kinds every stepper starts with; `addControlType` refuses to redeclare one. */
 export type BuiltInControlKind =
@@ -64,18 +62,16 @@ export type BuiltInControlKind =
   | 'date'
   | 'file';
 
-type AnyForm = FormConfig<ErasedRecord>;
-
 type UnionToIntersection<U> = (U extends U ? (k: U) => void : never) extends (k: infer I) => void
   ? I
   : never;
 
-/** `K` when it is a new kind; a refusal naming the clash when `TKinds` already has it. */
+/** `string` when `K` is a new kind; a refusal naming the clash when `TKinds` already has it. */
 export type UnregisteredKind<TKinds extends string, K extends string> = K extends TKinds
   ? Rejected<`kind '${K}' is already registered; use overrideControlType`>
   : string;
 
-/** Accepts a `FormValueControl` component class; refuses anything else by name. */
+/** `object` for a `FormValueControl` component class; a refusal naming the problem otherwise. */
 export type ControlComponent<Cmp> = Cmp extends FormValueControl<infer _V>
   ? object
   : Rejected<'a control kind must be a FormValueControl component'>;
@@ -85,7 +81,7 @@ export type StepEntry<N extends string, Inst, O> = [N] extends [never]
   ? {}
   : Record<N, O extends { readonly when: infer _W } ? Inst | undefined : Inst>;
 
-/** What an always-gated step (branch, pass) adds: its instances or `undefined`. */
+/** What an always-gated step adds: its instances or `undefined`. */
 export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Record<N, Inst | undefined>;
 
 /** The values behind one step's instances: each form's model. */
@@ -100,7 +96,7 @@ export type StepsCommitted<TSteps> = { readonly [K in keyof TSteps]?: StepValues
 
 /** The egress shape of a built stepper, for narrowing `stepCommitted` once at the boundary. */
 export type CommittedOf<S> =
-  S extends Stepper<infer _F, infer TCtx, infer _R> ? StepsCommitted<StepsOf<TCtx>> : never;
+  S extends Stepper<infer _F, infer TCtx, infer _R> ? StepsCommitted<TCtx['steps']> : never;
 
 /** Placement options for a page content block. */
 export interface ContentCfg {
@@ -110,147 +106,105 @@ export interface ContentCfg {
 }
 
 /** Placement options for a pooled form: shared links, output effects and the local `initial` seed. */
-export interface FormCfg<M, TCtx> {
+export interface FormCfg<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> {
   readonly submitLabel?: string;
 
   readonly visibleWhen?: () => boolean;
 
-  readonly bind?: (link: SharedLink<M, SharedOf<TCtx>>) => void;
+  readonly bind?: SharedLinks<M, TCtx['shared']>;
 
-  readonly effects?: (e: FormEffects<M>) => void;
+  readonly effects?: FormEffects<M>;
 
   readonly initial?: (ctx: TCtx) => Partial<M>;
 }
 
-type ErasedStepBuild = (step: never, ctx: never) => ErasedValue;
-
-type RuntimeStepBuild = (
-  step: StepBuilder<ErasedRecord, RuntimeStepContext>,
-  ctx: RuntimeStepContext | undefined,
-) => ErasedValue;
-
-interface ErasedStepOptions {
-  readonly name?: string;
-
-  readonly label?: Reactive<string>;
-
-  readonly when?: (ctx: never) => boolean;
-
-  readonly optional?: boolean;
-
-  readonly defer?: DeferTrigger;
-
-  readonly completeWhen?: (ctx: never) => boolean;
-
-  readonly incompleteMessage?: string;
-}
-
-interface StepAppend {
-  readonly build: ErasedStepBuild;
-
-  readonly opts: ErasedStepOptions;
-
-  readonly guard?: RuntimeStepCondition;
-}
-
-type PushStep = (append: StepAppend) => void;
-
 /** Builds one page: content, components and pooled forms; `P` accumulates the placed pool names. */
-export class PageBuilder<TForms, TCtx, P = {}> {
+export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
   readonly __placed?: P;
 
-  private readonly children: LayoutNode[] = [];
+  constructor(readonly nodes: readonly LayoutNode[] = []) {}
 
-  addContent(build: ContentBuild, cfg?: ContentCfg): this;
-  addContent(cfg?: ContentCfg, build?: ContentBuild): this;
-  addContent(first?: ContentCfg | ContentBuild, second?: ContentCfg | ContentBuild): this {
-    const cfg = typeof first === 'function' ? (second as ContentCfg | undefined) : first;
-    const build = typeof first === 'function' ? first : (second as ContentBuild | undefined);
-    this.children.push({
+  addContent(build?: ContentBuild, cfg: ContentCfg = {}): PageBuilder<TForms, TCtx, P> {
+    return this.with({
       kind: LayoutNodeKind.Content,
-      layout: cfg?.layout,
-      visibleWhen: cfg?.visibleWhen,
+      layout: cfg.layout,
+      visibleWhen: cfg.visibleWhen,
       children: build ? buildContent(build) : [],
     });
-
-    return this;
   }
 
-  addComponent<C extends object>(component: Type<C>, cfg: ComponentCfg<C>): this {
-    this.children.push({
+  addComponent<C extends object>(component: Type<C>, cfg: ComponentCfg<C>): PageBuilder<TForms, TCtx, P> {
+    return this.with({
       kind: LayoutNodeKind.Component,
       component,
       bindings: toBindings(cfg),
       visibleWhen: cfg.visibleWhen,
       layout: cfg.layout,
     });
-
-    return this;
   }
 
   insertRow<P2>(
     layout: string,
     build: (row: PageBuilder<TForms, TCtx, {}>) => PageBuilder<TForms, TCtx, P2>,
   ): PageBuilder<TForms, TCtx, P & P2> {
-    const row = new PageBuilder<TForms, TCtx, {}>();
-    build(row);
-    this.children.push({ kind: LayoutNodeKind.Row, layout, children: row.drain() });
+    const row = build(new PageBuilder<TForms, TCtx, {}>());
 
-    return this;
+    return new PageBuilder<TForms, TCtx, P & P2>([
+      ...this.nodes,
+      { kind: LayoutNodeKind.Row, layout, children: row.nodes },
+    ]);
   }
 
-  addForm<K extends FormKeys<TForms> & string>(
-    select: (forms: FieldRefs<TForms>) => FieldRef<K, ErasedValue>,
+  addForm<K extends FormKeys<TForms>>(
+    name: K,
     opts: FormCfg<FormModel<TForms[K]>, TCtx> = {},
   ): PageBuilder<TForms, TCtx, P & Record<K, true>> {
-    this.children.push({
-      kind: LayoutNodeKind.Form,
-      name: selectedKey<TForms>(select),
-      submitLabel: opts.submitLabel,
-      visibleWhen: opts.visibleWhen,
-      links: opts.bind ? recordLinks(opts.bind) : [],
-      effects: opts.effects ? recordEffects(opts.effects) : [],
-      initial: opts.initial ? eraseSeed(opts.initial) : undefined,
-    });
-
-    return this;
+    return new PageBuilder<TForms, TCtx, P & Record<K, true>>([
+      ...this.nodes,
+      {
+        kind: LayoutNodeKind.Form,
+        name,
+        submitLabel: opts.submitLabel,
+        visibleWhen: opts.visibleWhen,
+        links: opts.bind ? recordLinks(opts.bind) : [],
+        effects: opts.effects ? recordEffects(opts.effects) : [],
+        initial: opts.initial,
+      },
+    ]);
   }
 
-  drain(): LayoutNode[] {
-    return this.children;
+  private with(node: LayoutNode): PageBuilder<TForms, TCtx, P> {
+    return new PageBuilder<TForms, TCtx, P>([...this.nodes, node]);
   }
 }
 
 /** Builds one step out of pages; `P` accumulates what the pages placed. */
-export class StepBuilder<TForms, TCtx, P = {}> {
+export class StepBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
   readonly __placed?: P;
 
-  private readonly pages: PageNode[] = [];
+  constructor(readonly pages: readonly PageNode[] = []) {}
 
   createPage<P2>(
     meta: { options: PageOptions },
     build: (page: PageBuilder<TForms, TCtx, {}>) => PageBuilder<TForms, TCtx, P2>,
   ): StepBuilder<TForms, TCtx, P & P2> {
-    const page = new PageBuilder<TForms, TCtx, {}>();
-    build(page);
-    this.pages.push({ options: meta.options, children: page.drain() });
+    const page = build(new PageBuilder<TForms, TCtx, {}>());
 
-    return this;
-  }
-
-  drainPages(): readonly PageNode[] {
-    return this.pages;
+    return new StepBuilder<TForms, TCtx, P & P2>([
+      ...this.pages,
+      { options: meta.options, children: page.nodes },
+    ]);
   }
 }
 
-/** A step's build callback; declaring `ctx` makes the step dynamic (pages built on entry). */
-export type StepBuild<TForms, TCtx, P> = (
+/** A step's build callback; one that declares the context parameter runs on entry, with the live context. */
+export type StepBuild<TForms, TCtx extends RuntimeStepContext, P> = (
   step: StepBuilder<TForms, TCtx, {}>,
   ctx: TCtx,
 ) => StepBuilder<TForms, TCtx, P>;
 
 /** Per-step options; `name` is the key successors read the step under. */
-export interface StepOptions<TCtx, N extends string = never> {
+export interface StepOptions<TCtx extends RuntimeStepContext, N extends string = never> {
   readonly name?: N;
 
   readonly label?: Reactive<string>;
@@ -266,226 +220,225 @@ export interface StepOptions<TCtx, N extends string = never> {
   readonly incompleteMessage?: string;
 }
 
-/** A branch selector: the branch key, or null/undefined while undecided (no branch in the sequence). */
-export type BranchSelect<TCtx, K extends string> = (ctx: GateContext<TCtx>) => K | null | undefined;
+/** A branch selector: the branch key, or null/undefined while undecided. */
+export type BranchSelect<TCtx extends RuntimeStepContext, K extends string> = (
+  ctx: GateContext<TCtx>,
+) => K | null | undefined;
 
 /** The entries every arm of a `branch` adds, merged. */
 export type BranchAdded<B> = UnionToIntersection<
   { [K in keyof B]: B[K] extends (b: never) => { __added?: infer A } ? A : never }[keyof B]
 >;
 
+type PushStep = (node: SequenceNode) => void;
+
+interface StepSpec<TCtx extends RuntimeStepContext> {
+  readonly pages: readonly PageNode[] | DynamicPages;
+
+  readonly opts: StepOptions<TCtx, string>;
+
+  readonly gate?: StepGate;
+}
+
+const AUTHORING_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
+
+function pagesOf<TForms, TCtx extends RuntimeStepContext, P>(
+  build: StepBuild<TForms, TCtx, P>,
+): readonly PageNode[] | DynamicPages {
+  const dynamic: DynamicPages = { build: (ctx: TCtx) => build(new StepBuilder<TForms, TCtx, {}>(), ctx).pages };
+
+  return build.length < 2 ? dynamic.build(AUTHORING_CONTEXT) : dynamic;
+}
+
+function guardedBy(gate: StepGate, node: SequenceNode): SequenceNode {
+  const own = node.when;
+
+  return { ...node, when: (ctx) => gate.when(ctx) && (own ? own(ctx) : true) };
+}
+
+function stepNode<TCtx extends RuntimeStepContext>(spec: StepSpec<TCtx>): SequenceNode {
+  const { pages, opts, gate } = spec;
+  const node: StepNode = {
+    kind: SequenceNodeKind.Step,
+    name: opts.name,
+    pages,
+    label: opts.label,
+    when: opts.when,
+    optional: opts.optional,
+    defer: opts.defer,
+    completeWhen: opts.completeWhen,
+    incompleteMessage: opts.incompleteMessage,
+  };
+
+  return gate ? guardedBy(gate, node) : node;
+}
+
+function claimName(name: string, taken: object): void {
+  if (name in taken) throw new Error(`The name '${name}' is already taken.`);
+}
+
 /** Authors the steps of one branch; each is guarded by the branch condition. */
-export class BranchBuilder<TForms, TCtx, TAdded = {}> {
+export class BranchBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}> {
   readonly __added?: TAdded;
 
   constructor(
     private readonly push: PushStep,
-    private readonly guard: RuntimeStepCondition,
+    private readonly gate: StepGate,
   ) {}
 
   step<N extends string = never, P = {}>(
     build: StepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
-    opts: StepOptions<WithSteps<TCtx, TAdded>, N> = {},
+    opts: StepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
-    this.push({ build, opts, guard: this.guard });
+    this.push(stepNode({ pages: pagesOf(build), opts, gate: this.gate }));
 
-    return this;
+    return new BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>(
+      this.push,
+      this.gate,
+    );
   }
 
   branch<
     K extends string,
-    B extends Record<
-      K,
-      (b: BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>) => { __added?: ErasedValue }
-    >,
+    B extends Record<K, (b: BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>) => { __added?: unknown }>,
   >(
     select: BranchSelect<WithSteps<TCtx, TAdded>, K>,
     branches: B,
   ): BranchBuilder<TForms, TCtx, TAdded & BranchAdded<B>> {
-    const erased = eraseSelect(select);
-    for (const key of Object.keys(branches) as K[]) {
-      const nested: RuntimeStepCondition = (ctx) => this.guard(ctx) && erased(ctx) === key;
+    for (const key in branches) {
+      const nested: StepGate = {
+        when: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
+          if (!this.gate.when(ctx)) return false;
+
+          const selected: string | null | undefined = select(ctx);
+
+          return selected === key;
+        },
+      };
       branches[key](new BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>(this.push, nested));
     }
 
-    return this;
+    return new BranchBuilder<TForms, TCtx, TAdded & BranchAdded<B>>(this.push, this.gate);
   }
 }
 
-function claimName(name: string, pools: readonly Record<string, ErasedValue>[]): void {
-  for (const pool of pools) {
-    if (name in pool) throw new Error(`The name '${name}' is already taken.`);
-  }
-}
+interface ArmState {
+  readonly forms: Readonly<Record<string, AnyFormProvider>>;
 
-function combineConditions(
-  guard: RuntimeStepCondition | undefined,
-  own: RuntimeStepCondition | undefined,
-): RuntimeStepCondition | undefined {
-  if (guard && own) return (ctx) => guard(ctx) && own(ctx);
-
-  return guard ?? own;
-}
-
-function appendStep(target: SequenceNode[], append: StepAppend): void {
-  const { build, opts, guard } = append;
-  target.push({
-    kind: SequenceNodeKind.Step,
-    name: opts.name,
-    pages: pagesOf(build),
-    label: opts.label,
-    when: combineConditions(guard, opts.when ? eraseGate(opts.when) : undefined),
-    optional: opts.optional,
-    defer: opts.defer,
-    completeWhen: opts.completeWhen ? eraseGate(opts.completeWhen) : undefined,
-    incompleteMessage: opts.incompleteMessage,
-  });
-}
-
-function pagesOf(build: ErasedStepBuild): readonly PageNode[] | DynamicPages {
-  const run = eraseBuild(build);
-  if (build.length >= 2) {
-    return (ctx) => {
-      const step = new StepBuilder<ErasedRecord, RuntimeStepContext>();
-      run(step, ctx);
-      return step.drainPages();
-    };
-  }
-
-  const step = new StepBuilder<ErasedRecord, RuntimeStepContext>();
-  run(step, undefined);
-  return step.drainPages();
-}
-
-interface ForkArmDef {
-  readonly forms: Record<string, AnyFormProvider>;
-
-  readonly sharedInit: ErasedRecord;
+  readonly shared: SharedState;
 
   readonly steps: readonly SequenceNode[];
-
-  readonly resolve: RuntimeResultResolver;
 }
 
-/** One finished fork arm, carrying its result type for `fork` to union. */
-export interface ForkArm<R> {
+/** One finished fork arm: its pool, state slice, steps and typed result resolver. */
+export interface ForkArm<R = unknown> extends ArmState {
   readonly __result?: R;
 
-  readonly _def: ForkArmDef;
+  resolve(ctx: RuntimeStepContext): R;
 }
 
+const EMPTY_ARM: ArmState = { forms: {}, shared: new SharedState({}), steps: [] };
+
 /** Authors one fork arm: its own state, forms and steps, ending in `result`. */
-export class ForkArmBuilder<TForms, TCtx, TAdded = {}> {
-  private forms: Record<string, AnyFormProvider> = {};
+export class ForkArmBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}> {
+  constructor(private readonly arm: ArmState = EMPTY_ARM) {}
 
-  private sharedInit: ErasedRecord = {};
-
-  private readonly steps: SequenceNode[] = [];
-
-  withState<S extends ErasedRecord>(initial: S): ForkArmBuilder<TForms, WithShared<TCtx, S>, TAdded> {
-    this.sharedInit = { ...this.sharedInit, ...initial };
-
-    return this;
+  withState<S extends Record<string, unknown>>(initial: S): ForkArmBuilder<TForms, WithShared<TCtx, S>, TAdded> {
+    return new ForkArmBuilder<TForms, WithShared<TCtx, S>, TAdded>({
+      ...this.arm,
+      shared: new SharedState({ ...this.arm.shared.snapshot(), ...initial }),
+    });
   }
 
-  createForm<K extends string, M extends ErasedRecord>(
+  createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    provider: FormProvider<M>,
+    provider: FormProvider<M> & AnyFormProvider,
   ): ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TCtx, TAdded> {
-    claimName(name, [this.forms]);
-    this.forms = { ...this.forms, [name]: eraseProvider(provider) };
+    claimName(name, this.arm.forms);
 
-    return this;
+    return new ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TCtx, TAdded>({
+      ...this.arm,
+      forms: { ...this.arm.forms, [name]: provider },
+    });
   }
 
   createStep<N extends string = never, P = {}>(
     build: StepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
-    opts: StepOptions<WithSteps<TCtx, TAdded>, N> = {},
+    opts: StepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
-    appendStep(this.steps, { build, opts });
-
-    return this;
+    return new ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>({
+      ...this.arm,
+      steps: [...this.arm.steps, stepNode({ pages: pagesOf(build), opts })],
+    });
   }
 
   branch<
     K extends string,
-    B extends Record<
-      K,
-      (b: BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>) => { __added?: ErasedValue }
-    >,
+    B extends Record<K, (b: BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>) => { __added?: unknown }>,
   >(
     select: BranchSelect<WithSteps<TCtx, TAdded>, K>,
     branches: B,
   ): ForkArmBuilder<TForms, TCtx, TAdded & BranchAdded<B>> {
-    const erased = eraseSelect(select);
-    for (const key of Object.keys(branches) as K[]) {
-      const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
-      branches[key](
-        new BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>(
-          (append) => appendStep(this.steps, append),
-          guard,
-        ),
-      );
+    const steps: SequenceNode[] = [];
+    for (const key in branches) {
+      const gate: StepGate = {
+        when: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
+          const selected: string | null | undefined = select(ctx);
+
+          return selected === key;
+        },
+      };
+      branches[key](new BranchBuilder<TForms, WithSteps<TCtx, TAdded>, {}>((node) => steps.push(node), gate));
     }
 
-    return this;
+    return new ForkArmBuilder<TForms, TCtx, TAdded & BranchAdded<B>>({
+      ...this.arm,
+      steps: [...this.arm.steps, ...steps],
+    });
   }
 
   result<R>(resolve: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => R): ForkArm<R> {
-    return {
-      _def: {
-        forms: this.forms,
-        sharedInit: this.sharedInit,
-        steps: this.steps,
-        resolve: eraseResolver(resolve),
-      },
-    };
+    return { ...this.arm, resolve };
   }
 }
 
 /** A forked chain: nothing may follow, only `build()`. */
-export interface TerminalForkBuilder<TForms, TCtx, TResult> {
+export interface TerminalForkBuilder<TForms, TCtx extends RuntimeStepContext, TResult> {
   build(): Stepper<TForms, TCtx, TResult>;
 }
 
-type ForkArms<TForms, TCtx> = Record<string, (arm: ForkArmBuilder<TForms, TCtx>) => ForkArm<ErasedValue>>;
+type ForkArms<TForms, TCtx extends RuntimeStepContext> = Record<
+  string,
+  (arm: ForkArmBuilder<TForms, TCtx>) => ForkArm
+>;
 
 type ArmResult<A> = {
   [P in keyof A]: A[P] extends (arm: never) => ForkArm<infer R> ? R : never;
 }[keyof A];
 
-/** Everything a built linear flow is made of; the runtime reads it through `asStepper`. */
-export interface StepperDefinition<TForms, TShared extends ErasedRecord> {
-  readonly forms: TForms;
+/** A built linear flow: the runtime shape plus the authoring types it was built with. */
+export class Stepper<TForms = {}, TCtx extends RuntimeStepContext = RuntimeStepContext, TResult = unknown>
+  implements FlowDefinition
+{
+  readonly __forms?: TForms;
 
-  readonly steps: readonly SequenceNode[];
+  readonly __context?: TCtx;
 
-  readonly shared: SharedState<TShared>;
-
-  readonly resolveResult?: RuntimeResultResolver;
-
-  readonly controlTypes: ControlTypeMap;
-
-  readonly providers: readonly Provider[];
-}
-
-/** A built linear flow: typed pool, sequence, shared store, control kinds, providers and fork result. */
-export class Stepper<TForms, TCtx, TResult = never> {
   readonly __result?: TResult;
 
-  readonly forms: TForms;
+  readonly forms: Readonly<Record<string, AnyFormProvider>>;
 
   readonly steps: readonly SequenceNode[];
 
-  readonly shared: SharedState<SharedOf<TCtx>>;
+  readonly shared: SharedState;
 
-  readonly resolveResult?: RuntimeResultResolver;
+  readonly resolveResult?: FlowDefinition['resolveResult'];
 
   readonly controlTypes: ControlTypeMap;
 
   readonly providers: readonly Provider[];
 
-  constructor(definition: StepperDefinition<TForms, SharedOf<TCtx>>) {
+  constructor(definition: FlowDefinition) {
     this.forms = definition.forms;
     this.steps = definition.steps;
     this.shared = definition.shared;
@@ -496,17 +449,10 @@ export class Stepper<TForms, TCtx, TResult = never> {
 }
 
 /** A linear flow with its authoring types erased, as `<ngx-formad-stepper>` takes it. */
-export type RuntimeStepper = Stepper<Record<string, AnyForm>, RuntimeStepContext, ErasedValue>;
-
-/** The single erasure point from a typed linear flow to the runtime shape. */
-export function asStepper<TForms, TCtx, TResult>(
-  stepper: Stepper<TForms, TCtx, TResult>,
-): RuntimeStepper {
-  return stepper as unknown as RuntimeStepper;
-}
+export type RuntimeStepper = Stepper;
 
 /** The parent-side options of a nested flow slot. */
-export interface FlowStepOptions<TCtx> {
+export interface FlowStepOptions<TCtx extends RuntimeStepContext> {
   readonly label?: Reactive<string>;
 
   readonly when?: StepCondition<TCtx>;
@@ -518,428 +464,491 @@ export interface FlowStepOptions<TCtx> {
 export interface RingCfg<C> {
   readonly initial: () => C;
 
-  readonly dockReachable?: (state: C) => boolean;
+  dockReachable?(state: C): boolean;
 }
 
 /** A nested linear flow: slot options plus the callback authoring the sub-flow. */
-export type LinearFlowStep<TKinds extends string, TCtx, TBuilt> = FlowStepOptions<TCtx> & {
+export type LinearFlowStep<TKinds extends string, TCtx extends RuntimeStepContext, TBuilt> = FlowStepOptions<TCtx> & {
   readonly build: (sub: StepperBuilder<{}, TKinds, ChildContext<TCtx>>) => TBuilt;
 };
 
-/** A nested ring: slot options, its accumulator and the callback authoring the ring (ending in `dock`). */
-export type RecurrentFlowStep<C, TKinds extends string, TCtx, TTerminal> = FlowStepOptions<TCtx> &
+/** A nested ring: slot options, its accumulator and the callback authoring the ring, ending in `dock`. */
+export type RecurrentFlowStep<C, TKinds extends string, TCtx extends RuntimeStepContext, TTerminal> = FlowStepOptions<TCtx> &
   RingCfg<C> & {
     readonly build: (loop: RecurrentStepperBuilder<{}, C, TKinds, RingContext<TCtx, C>>) => TTerminal;
   };
+
+interface FlowSlot<TCtx extends RuntimeStepContext> {
+  readonly name: string;
+
+  readonly flow: RuntimeFlow;
+
+  readonly opts: FlowStepOptions<TCtx>;
+}
+
+function flowStepNode<TCtx extends RuntimeStepContext>(slot: FlowSlot<TCtx>): FlowStepNode {
+  const ring = isRecurrent(slot.flow) ? slot.flow : null;
+  const complete = ring?.complete;
+
+  return {
+    kind: SequenceNodeKind.Flow,
+    name: slot.name,
+    flow: slot.flow,
+    label: slot.opts.label,
+    when: slot.opts.when,
+    defer: slot.opts.defer,
+    completeWhen: ring && complete ? (ctx) => complete(ctx.steps[slot.name] ?? ring.initial()) : undefined,
+    incompleteMessage: ring?.incompleteMessage,
+  };
+}
+
+interface ChainState {
+  readonly forms: Readonly<Record<string, AnyFormProvider>>;
+
+  readonly shared: SharedState;
+
+  readonly steps: readonly SequenceNode[];
+
+  readonly controlTypes: ControlTypeMap;
+
+  readonly providers: readonly Provider[];
+
+  readonly stepNames: Readonly<Record<string, true>>;
+}
+
+const EMPTY_CHAIN: ChainState = {
+  forms: {},
+  shared: new SharedState({}),
+  steps: [],
+  controlTypes: {},
+  providers: [],
+  stepNames: {},
+};
+
+function claimedStep(taken: Readonly<Record<string, true>>, node: SequenceNode): Readonly<Record<string, true>> {
+  if (node.name === undefined) return taken;
+  claimName(node.name, taken);
+
+  return { ...taken, [node.name]: true };
+}
 
 /** The root of a linear chain; `build()` freezes it into a `Stepper`. */
 export class StepperBuilder<
   TForms = {},
   TKinds extends string = BuiltInControlKind,
-  TCtx = StepContext<{}, {}, undefined, undefined>,
+  TCtx extends RuntimeStepContext = RootContext,
 > {
+  readonly __forms?: TForms;
+
   readonly __context?: TCtx;
 
-  private forms: Record<string, AnyFormProvider> = {};
-
-  private sharedInit: ErasedRecord = {};
-
-  private readonly steps: SequenceNode[] = [];
-
-  private resultResolver?: RuntimeResultResolver;
-
-  private controlTypes: ControlTypeMap = {};
-
-  private readonly providers: Provider[] = [];
-
-  private readonly stepNames: Record<string, true> = {};
+  constructor(private readonly chain: ChainState = EMPTY_CHAIN) {}
 
   addControlType<K extends string, Cmp extends object>(
     kind: K & UnregisteredKind<TKinds, K>,
     component: Type<Cmp> & ControlComponent<Cmp>,
   ): StepperBuilder<TForms, TKinds | K, TCtx> {
-    this.controlTypes = { ...this.controlTypes, [kind]: component };
-
-    return this;
+    return new StepperBuilder<TForms, TKinds | K, TCtx>({
+      ...this.chain,
+      controlTypes: { ...this.chain.controlTypes, [kind]: component },
+    });
   }
 
   overrideControlType<K extends TKinds, Cmp extends object>(
     kind: K,
     component: Type<Cmp> & ControlComponent<Cmp>,
-  ): this {
-    this.controlTypes = { ...this.controlTypes, [kind]: component };
-
-    return this;
+  ): StepperBuilder<TForms, TKinds, TCtx> {
+    return new StepperBuilder<TForms, TKinds, TCtx>({
+      ...this.chain,
+      controlTypes: { ...this.chain.controlTypes, [kind]: component },
+    });
   }
 
-  provide(...providers: Provider[]): this {
-    this.providers.push(...providers);
-
-    return this;
+  provide(...providers: Provider[]): StepperBuilder<TForms, TKinds, TCtx> {
+    return new StepperBuilder<TForms, TKinds, TCtx>({
+      ...this.chain,
+      providers: [...this.chain.providers, ...providers],
+    });
   }
 
-  withState<S extends ErasedRecord>(initial: S): StepperBuilder<TForms, TKinds, WithShared<TCtx, S>> {
-    this.sharedInit = { ...this.sharedInit, ...initial };
-
-    return this;
+  withState<S extends Record<string, unknown>>(initial: S): StepperBuilder<TForms, TKinds, WithShared<TCtx, S>> {
+    return new StepperBuilder<TForms, TKinds, WithShared<TCtx, S>>({
+      ...this.chain,
+      shared: new SharedState({ ...this.chain.shared.snapshot(), ...initial }),
+    });
   }
 
-  createForm<K extends string, M extends ErasedRecord>(
+  createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    provider: FormProvider<M>,
+    provider: FormProvider<M> & AnyFormProvider,
   ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TKinds, TCtx> {
-    claimName(name, [this.forms]);
-    this.forms = { ...this.forms, [name]: eraseProvider(provider) };
+    claimName(name, this.chain.forms);
 
-    return this;
+    return new StepperBuilder<TForms & Record<K, FormConfig<M>>, TKinds, TCtx>({
+      ...this.chain,
+      forms: { ...this.chain.forms, [name]: provider },
+    });
   }
 
-  createStep<N extends string = never, P = {}, O extends StepOptions<TCtx, N> = StepOptions<TCtx, N>>(
+  createStep<
+    N extends string = never,
+    P = {},
+    O extends StepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StepOptions<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+      N
+    >,
+  >(
     build: StepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>> {
-    this.pushStep({ build, opts: opts ?? {} });
-
-    return this;
+    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>>(
+      this.appended([stepNode({ pages: pagesOf(build), opts: opts ?? {} })]),
+    );
   }
 
   branch<
     K extends string,
-    B extends Record<K, (b: BranchBuilder<TForms, TCtx, {}>) => { __added?: ErasedValue }>,
+    B extends Record<K, (b: BranchBuilder<TForms, TCtx, {}>) => { __added?: unknown }>,
   >(
     select: BranchSelect<TCtx, K>,
     branches: B,
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, BranchAdded<B>>> {
-    const erased = eraseSelect(select);
-    for (const key of Object.keys(branches) as K[]) {
-      const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
-      branches[key](new BranchBuilder<TForms, TCtx, {}>((append) => this.pushStep(append), guard));
+    const steps: SequenceNode[] = [];
+    for (const key in branches) {
+      const gate: StepGate = {
+        when: (ctx: GateContext<TCtx>) => {
+          const selected: string | null | undefined = select(ctx);
+
+          return selected === key;
+        },
+      };
+      branches[key](new BranchBuilder<TForms, TCtx, {}>((node) => steps.push(node), gate));
     }
 
-    return this;
+    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, BranchAdded<B>>>(this.appended(steps));
   }
 
   fork<A extends ForkArms<TForms, TCtx>>(
     select: (ctx: GateContext<TCtx>) => string,
     arms: A,
   ): TerminalForkBuilder<TForms, TCtx, ArmResult<A>> {
-    const erased = eraseSelect(select);
-    const resolvers: Record<string, RuntimeResultResolver> = {};
-    for (const key of Object.keys(arms) as (keyof A & string)[]) {
-      const def = arms[key](new ForkArmBuilder<TForms, TCtx>())._def;
-      this.forms = { ...this.forms, ...def.forms };
-      this.sharedInit = { ...this.sharedInit, ...def.sharedInit };
-      const guard: RuntimeStepCondition = (ctx) => erased(ctx) === key;
-      for (const node of def.steps) {
-        this.steps.push({ ...node, when: combineConditions(guard, node.when) });
-      }
-      resolvers[key] = def.resolve;
-    }
-    this.resultResolver = (ctx) => resolvers[erased(ctx) ?? '']?.(ctx);
+    const built = Object.entries(arms).map(([key, arm]) => [key, arm(new ForkArmBuilder<TForms, TCtx>())] as const);
+    const forms = built.reduce((pool, [, arm]) => ({ ...pool, ...arm.forms }), this.chain.forms);
+    const sharedInit = built.reduce(
+      (state, [, arm]) => ({ ...state, ...arm.shared.snapshot() }),
+      this.chain.shared.snapshot(),
+    );
+    const steps = built.flatMap(([key, arm]) => {
+      const gate: StepGate = { when: (ctx: GateContext<TCtx>) => select(ctx) === key };
 
-    return this;
+      return arm.steps.map((node) => guardedBy(gate, node));
+    });
+    const resolvers: Readonly<Record<string, ForkArm>> = Object.fromEntries(built);
+    const definition: FlowDefinition = {
+      forms,
+      steps: [...this.chain.steps, ...steps],
+      shared: new SharedState(sharedInit),
+      resolveResult: (ctx: GateContext<TCtx>) => resolvers[select(ctx)]?.resolve(ctx),
+      controlTypes: this.chain.controlTypes,
+      providers: this.chain.providers,
+    };
+
+    return { build: () => new Stepper<TForms, TCtx, ArmResult<A>>(definition) };
   }
 
-  createStepper<N extends string, F2, TK2 extends string, TCtx2, O extends FlowStepOptions<TCtx>>(
+  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepContext, O extends FlowStepOptions<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<StepsOf<TCtx2>>, O>>> {
-    claimName(name, [this.stepNames]);
-    this.stepNames[name] = true;
-    const sub = new StepperBuilder<{}, TKinds, ChildContext<TCtx>>();
-    this.steps.push(flowStepNode({ name, flow: erasedFlow(flow.build(sub).build()) }, flow));
+  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<TCtx2['steps']>, O>>> {
+    const built = flow.build(new StepperBuilder<{}, TKinds, ChildContext<TCtx>>()).build();
 
-    return this;
+    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<TCtx2['steps']>, O>>>(
+      this.appended([flowStepNode({ name, flow: built, opts: flow })]),
+    );
   }
 
-  createRecurrentStepper<N extends string, C, F2, TCtx2, O extends FlowStepOptions<TCtx>>(
+  createRecurrentStepper<N extends string, C, F2, TCtx2 extends RingRuntimeContext<C>, O extends FlowStepOptions<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C, TKinds, TCtx, RecurrentTerminal<F2, TCtx2, C>>,
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, C, O>>> {
-    claimName(name, [this.stepNames]);
-    this.stepNames[name] = true;
-    const loop = new RecurrentStepperBuilder<{}, C, TKinds, RingContext<TCtx, C>>(ring);
-    this.steps.push(flowStepNode({ name, flow: asRecurrentStepper(ring.build(loop).build()) }, ring));
+    const built = ring.build(new RecurrentStepperBuilder<{}, C, TKinds, RingContext<TCtx, C>>(ring)).build();
 
-    return this;
+    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, C, O>>>(
+      this.appended([flowStepNode({ name, flow: built, opts: ring })]),
+    );
   }
 
   build(): Stepper<TForms, TCtx, never> {
     return new Stepper<TForms, TCtx, never>({
-      forms: retype<TForms>(this.forms),
-      steps: this.steps,
-      shared: new SharedState(retype<SharedOf<TCtx>>(this.sharedInit)),
-      resolveResult: this.resultResolver,
-      controlTypes: this.controlTypes,
-      providers: this.providers,
+      forms: this.chain.forms,
+      steps: this.chain.steps,
+      shared: new SharedState(this.chain.shared.snapshot()),
+      controlTypes: this.chain.controlTypes,
+      providers: this.chain.providers,
     });
   }
 
-  private pushStep(append: StepAppend): void {
-    const name = append.opts.name;
-    if (name !== undefined) {
-      claimName(name, [this.stepNames]);
-      this.stepNames[name] = true;
-    }
-    appendStep(this.steps, append);
+  private appended(nodes: readonly SequenceNode[]): ChainState {
+    return {
+      ...this.chain,
+      steps: [...this.chain.steps, ...nodes],
+      stepNames: nodes.reduce(claimedStep, this.chain.stepNames),
+    };
   }
 }
 
-interface ErasedFlowStepOptions {
-  readonly label?: Reactive<string>;
-
-  readonly when?: (ctx: never) => boolean;
-
-  readonly defer?: DeferTrigger;
-}
-
-interface FlowSlot {
-  readonly name: string;
-
-  readonly flow: RuntimeFlow;
-}
-
-function flowStepNode(slot: FlowSlot, opts: ErasedFlowStepOptions): FlowStepNode {
-  const { name, flow } = slot;
-  const complete = isRecurrent(flow) ? flow.complete : undefined;
-  const initial = isRecurrent(flow) ? flow.initial : undefined;
-
-  return {
-    kind: SequenceNodeKind.Flow,
-    name,
-    flow,
-    label: opts.label,
-    when: opts.when ? eraseGate(opts.when) : undefined,
-    defer: opts.defer,
-    completeWhen: complete && initial ? (ctx) => complete(ctx.steps[name] ?? initial()) : undefined,
-    incompleteMessage: isRecurrent(flow) ? flow.incompleteMessage : undefined,
-  };
-}
-
-/** The single erasure point from a typed nested linear flow to the runtime shape. */
-export function erasedFlow<TForms, TCtx, TResult>(stepper: Stepper<TForms, TCtx, TResult>): FlowDefinition {
-  return stepper as unknown as FlowDefinition;
-}
+/** The runtime shape of every context inside a ring over `C`. */
+export type RingRuntimeContext<C> = StepContext<
+  SharedSignals,
+  RuntimeStepContext['steps'],
+  RuntimeStepContext['parent'],
+  RecurrentSignals<C>
+>;
 
 /** A ring after `dock()`: only `build()` remains. */
-export interface RecurrentTerminal<TForms, TCtx, C> {
+export interface RecurrentTerminal<TForms, TCtx extends RuntimeStepContext, C> {
   build(): RecurrentStepper<TForms, TCtx, C>;
 }
 
-/** A built ring; hand it to `<ngx-formad-stepper>` via `asRecurrentStepper` or nest it. */
-export class RecurrentStepper<TForms, TCtx, C> {
-  readonly __types?: { forms: TForms; context: TCtx };
+/** A built ring: the runtime shape plus the authoring types it was built with. */
+export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepContext = RuntimeStepContext, C = unknown>
+  implements RecurrentFlowDefinition<C>
+{
+  readonly __forms?: TForms;
 
-  constructor(readonly definition: RecurrentFlowDefinition<C>) {}
+  readonly __context?: TCtx;
+
+  readonly recurrent: true = true;
+
+  readonly steps: readonly SequenceNode[];
+
+  readonly forms: Readonly<Record<string, AnyFormProvider>>;
+
+  readonly shared: SharedState;
+
+  readonly controlTypes: ControlTypeMap;
+
+  readonly providers: readonly Provider[];
+
+  readonly dockAt: number;
+
+  readonly initial: () => C;
+
+  readonly fold?: (state: C, pass: RuntimeStepContext) => C;
+
+  readonly dockReachable?: (state: C) => boolean;
+
+  readonly complete?: (state: C) => boolean;
+
+  readonly incompleteMessage?: string;
+
+  constructor(definition: RecurrentFlowDefinition<C>) {
+    this.steps = definition.steps;
+    this.forms = definition.forms;
+    this.shared = definition.shared;
+    this.controlTypes = definition.controlTypes;
+    this.providers = definition.providers;
+    this.dockAt = definition.dockAt;
+    this.initial = definition.initial;
+    this.fold = definition.fold;
+    this.dockReachable = definition.dockReachable;
+    this.complete = definition.complete;
+    this.incompleteMessage = definition.incompleteMessage;
+  }
 }
 
-/** The single erasure point from a typed ring to the runtime shape. */
-export function asRecurrentStepper<TForms, TCtx, C>(stepper: RecurrentStepper<TForms, TCtx, C>): RuntimeFlow {
-  return stepper.definition as unknown as RuntimeFlow;
+interface RingState<C> extends ChainState {
+  readonly ring: RingCfg<C>;
+
+  fold?(state: C, pass: RuntimeStepContext): C;
+
+  complete?(state: C): boolean;
+
+  readonly incompleteMessage?: string;
 }
+
+const passGate: StepGate = { when: (ctx) => ctx.flow?.passOpen() === true };
+
+const dockGate: StepGate = { when: (ctx) => ctx.flow?.passOpen() !== true };
 
 /** The root of a ring: pass steps, `fold`, `completeWhen`, then `dock` last. */
 export class RecurrentStepperBuilder<
   TForms = {},
   C = unknown,
   TKinds extends string = BuiltInControlKind,
-  TCtx = StepContext<{}, {}, undefined, RecurrentSignalsOf<C>>,
+  TCtx extends RingRuntimeContext<C> = RingContext<RootContext, C>,
 > {
+  readonly __forms?: TForms;
+
   readonly __context?: TCtx;
 
-  private forms: Record<string, AnyFormProvider> = {};
+  private readonly state: RingState<C>;
 
-  private sharedInit: ErasedRecord = {};
+  private docked = false;
 
-  private readonly steps: SequenceNode[] = [];
-
-  private controlTypes: ControlTypeMap = {};
-
-  private readonly providers: Provider[] = [];
-
-  private readonly stepNames: Record<string, true> = {};
-
-  private dockIndex = -1;
-
-  private foldFn?: (state: C, pass: TCtx) => C;
-
-  private completePredicate?: (state: C) => boolean;
-
-  private completeMessage?: string;
-
-  constructor(private readonly ring: RingCfg<C>) {}
-
-  provide(...providers: Provider[]): this {
-    this.providers.push(...providers);
-
-    return this;
+  constructor(ring: RingCfg<C> | RingState<C>) {
+    this.state = 'steps' in ring ? ring : { ...EMPTY_CHAIN, ring };
   }
 
-  withState<S extends ErasedRecord>(
+  provide(...providers: Provider[]): RecurrentStepperBuilder<TForms, C, TKinds, TCtx> {
+    return new RecurrentStepperBuilder<TForms, C, TKinds, TCtx>({
+      ...this.state,
+      providers: [...this.state.providers, ...providers],
+    });
+  }
+
+  withState<S extends Record<string, unknown>>(
     initial: S,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithShared<TCtx, S>> {
-    this.sharedInit = { ...this.sharedInit, ...initial };
-
-    return this;
+    return new RecurrentStepperBuilder<TForms, C, TKinds, WithShared<TCtx, S>>({
+      ...this.state,
+      shared: new SharedState({ ...this.state.shared.snapshot(), ...initial }),
+    });
   }
 
-  createForm<K extends string, M extends ErasedRecord>(
+  createForm<K extends string, M extends Record<string, unknown>>(
     name: K,
-    provider: FormProvider<M>,
+    provider: FormProvider<M> & AnyFormProvider,
   ): RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, C, TKinds, TCtx> {
-    claimName(name, [this.forms]);
-    this.forms = { ...this.forms, [name]: eraseProvider(provider) };
+    claimName(name, this.state.forms);
 
-    return this;
+    return new RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, C, TKinds, TCtx>({
+      ...this.state,
+      forms: { ...this.state.forms, [name]: provider },
+    });
   }
 
   addControlType<K extends string, Cmp extends object>(
     kind: K & UnregisteredKind<TKinds, K>,
     component: Type<Cmp> & ControlComponent<Cmp>,
   ): RecurrentStepperBuilder<TForms, C, TKinds | K, TCtx> {
-    this.controlTypes = { ...this.controlTypes, [kind]: component };
-
-    return this;
+    return new RecurrentStepperBuilder<TForms, C, TKinds | K, TCtx>({
+      ...this.state,
+      controlTypes: { ...this.state.controlTypes, [kind]: component },
+    });
   }
 
   overrideControlType<K extends TKinds, Cmp extends object>(
     kind: K,
     component: Type<Cmp> & ControlComponent<Cmp>,
-  ): this {
-    this.controlTypes = { ...this.controlTypes, [kind]: component };
-
-    return this;
+  ): RecurrentStepperBuilder<TForms, C, TKinds, TCtx> {
+    return new RecurrentStepperBuilder<TForms, C, TKinds, TCtx>({
+      ...this.state,
+      controlTypes: { ...this.state.controlTypes, [kind]: component },
+    });
   }
 
   createStep<N extends string = never, P = {}>(
     build: StepBuild<TForms, TCtx, P>,
-    opts: StepOptions<TCtx, N> = {},
+    opts: StepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>> {
-    this.pushStep({ build, opts, guard: passGate });
-
-    return this;
+    return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>(
+      this.appended([stepNode({ pages: pagesOf(build), opts, gate: passGate })]),
+    );
   }
 
   branch<
     K extends string,
-    B extends Record<K, (b: BranchBuilder<TForms, TCtx, {}>) => { __added?: ErasedValue }>,
+    B extends Record<K, (b: BranchBuilder<TForms, TCtx, {}>) => { __added?: unknown }>,
   >(
     select: BranchSelect<TCtx, K>,
     branches: B,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, BranchAdded<B>>> {
-    const erased = eraseSelect(select);
-    for (const key of Object.keys(branches) as K[]) {
-      const guard: RuntimeStepCondition = (ctx) => passGate(ctx) && erased(ctx) === key;
-      branches[key](new BranchBuilder<TForms, TCtx, {}>((append) => this.pushStep(append), guard));
+    const steps: SequenceNode[] = [];
+    for (const key in branches) {
+      const gate: StepGate = {
+        when: (ctx: GateContext<TCtx>) => {
+          if (!passGate.when(ctx)) return false;
+
+          const selected: string | null | undefined = select(ctx);
+
+          return selected === key;
+        },
+      };
+      branches[key](new BranchBuilder<TForms, TCtx, {}>((node) => steps.push(node), gate));
     }
 
-    return this;
+    return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, BranchAdded<B>>>(this.appended(steps));
   }
 
-  createStepper<N extends string, F2, TK2 extends string, TCtx2, O extends FlowStepOptions<TCtx>>(
+  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepContext, O extends FlowStepOptions<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
-  ): RecurrentStepperBuilder<
-    TForms,
-    C,
-    TKinds,
-    WithSteps<TCtx, GatedEntry<N, StepsCommitted<StepsOf<TCtx2>>>>
-  > {
-    claimName(name, [this.stepNames]);
-    this.stepNames[name] = true;
-    const sub = new StepperBuilder<{}, TKinds, ChildContext<TCtx>>();
-    const node = flowStepNode({ name, flow: erasedFlow(flow.build(sub).build()) }, flow);
-    this.steps.push({ ...node, when: combineConditions(passGate, node.when) });
+  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepsCommitted<TCtx2['steps']>>>> {
+    const built = flow.build(new StepperBuilder<{}, TKinds, ChildContext<TCtx>>()).build();
 
-    return this;
+    return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepsCommitted<TCtx2['steps']>>>>(
+      this.appended([guardedBy(passGate, flowStepNode({ name, flow: built, opts: flow }))]),
+    );
   }
 
-  createRecurrentStepper<N extends string, C2, F2, TCtx2, O extends FlowStepOptions<TCtx>>(
+  createRecurrentStepper<N extends string, C2, F2, TCtx2 extends RingRuntimeContext<C2>, O extends FlowStepOptions<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C2, TKinds, TCtx, RecurrentTerminal<F2, TCtx2, C2>>,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, C2>>> {
-    claimName(name, [this.stepNames]);
-    this.stepNames[name] = true;
-    const loop = new RecurrentStepperBuilder<{}, C2, TKinds, RingContext<TCtx, C2>>(ring);
-    const node = flowStepNode({ name, flow: asRecurrentStepper(ring.build(loop).build()) }, ring);
-    this.steps.push({ ...node, when: combineConditions(passGate, node.when) });
+    const built = ring.build(new RecurrentStepperBuilder<{}, C2, TKinds, RingContext<TCtx, C2>>(ring)).build();
 
-    return this;
+    return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, C2>>>(
+      this.appended([guardedBy(passGate, flowStepNode({ name, flow: built, opts: ring }))]),
+    );
   }
 
-  fold(fold: (state: C, pass: TCtx) => C): this {
-    this.foldFn = fold;
-
-    return this;
+  fold(fold: (state: C, pass: TCtx) => C): RecurrentStepperBuilder<TForms, C, TKinds, TCtx> {
+    return new RecurrentStepperBuilder<TForms, C, TKinds, TCtx>({ ...this.state, fold });
   }
 
-  completeWhen(complete: (state: C) => boolean, message?: string): this {
-    this.completePredicate = complete;
-    this.completeMessage = message;
-
-    return this;
+  completeWhen(complete: (state: C) => boolean, message?: string): RecurrentStepperBuilder<TForms, C, TKinds, TCtx> {
+    return new RecurrentStepperBuilder<TForms, C, TKinds, TCtx>({
+      ...this.state,
+      complete,
+      incompleteMessage: message,
+    });
   }
 
   dock<N extends string = never, P = {}>(
     build: StepBuild<TForms, TCtx, P>,
-    opts: StepOptions<TCtx, N> = {},
+    opts: StepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): RecurrentTerminal<TForms, TCtx, C> {
-    if (this.dockIndex >= 0) throw new Error('A recurrent flow has exactly one dock.');
+    if (this.docked) throw new Error('A recurrent flow has exactly one dock.');
 
-    this.dockIndex = this.steps.length;
-    const own = opts.completeWhen ? eraseGate(opts.completeWhen) : undefined;
-    const gate: RuntimeStepCondition = (ctx) => {
+    this.docked = true;
+    const own = opts.completeWhen;
+    const complete = this.state.complete;
+    const gate = (ctx: GateContext<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>): boolean => {
       if (own && !own(ctx)) return false;
-      if (!this.completePredicate) return true;
 
-      return this.completePredicate(ctx.flow ? (ctx.flow.state() as C) : this.ring.initial());
+      return complete ? complete(ctx.flow.state()) : true;
     };
-    this.pushStep({
-      build,
-      opts: { ...opts, completeWhen: gate, incompleteMessage: opts.incompleteMessage ?? this.completeMessage },
-      guard: dockGate,
-    });
-
-    return this;
-  }
-
-  build(): RecurrentStepper<TForms, TCtx, C> {
-    return new RecurrentStepper(this._drain());
-  }
-
-  _drain(): RecurrentFlowDefinition<C> {
-    if (this.dockIndex < 0) {
-      throw new Error('A recurrent flow needs a dock - author it last with dock().');
-    }
-
-    return {
+    const docked = this.appended([
+      stepNode({
+        pages: pagesOf(build),
+        opts: { ...opts, completeWhen: gate, incompleteMessage: opts.incompleteMessage ?? this.state.incompleteMessage },
+        gate: dockGate,
+      }),
+    ]);
+    const definition: RecurrentFlowDefinition<C> = {
       recurrent: true,
-      steps: this.steps,
-      forms: this.forms,
-      shared: new SharedState(this.sharedInit),
-      controlTypes: this.controlTypes,
-      providers: this.providers,
-      dockAt: this.dockIndex,
-      initial: this.ring.initial,
-      fold: this.foldFn ? eraseFold(this.foldFn) : undefined,
-      dockReachable: this.ring.dockReachable,
-      complete: this.completePredicate,
-      incompleteMessage: this.completeMessage,
+      steps: docked.steps,
+      forms: docked.forms,
+      shared: new SharedState(docked.shared.snapshot()),
+      controlTypes: docked.controlTypes,
+      providers: docked.providers,
+      dockAt: this.state.steps.length,
+      initial: this.state.ring.initial,
+      fold: this.state.fold,
+      dockReachable: this.state.ring.dockReachable,
+      complete: this.state.complete,
+      incompleteMessage: this.state.incompleteMessage,
     };
+
+    return { build: () => new RecurrentStepper<TForms, TCtx, C>(definition) };
   }
 
-  private pushStep(append: StepAppend): void {
-    const name = append.opts.name;
-    if (name !== undefined) {
-      claimName(name, [this.stepNames]);
-      this.stepNames[name] = true;
-    }
-    appendStep(this.steps, append);
+  private appended(nodes: readonly SequenceNode[]): RingState<C> {
+    return {
+      ...this.state,
+      steps: [...this.state.steps, ...nodes],
+      stepNames: nodes.reduce(claimedStep, this.state.stepNames),
+    };
   }
 }
-
-type RecurrentSignalsOf<C> = RingContext<StepContext<{}, {}, undefined, undefined>, C>['flow'];
-
-const passGate: RuntimeStepCondition = (ctx) => ctx.flow?.passOpen() === true;
-
-const dockGate: RuntimeStepCondition = (ctx) => ctx.flow?.passOpen() !== true;

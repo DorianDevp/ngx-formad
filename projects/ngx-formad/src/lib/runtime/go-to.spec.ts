@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { StepFormsView } from './step-forms-view';
@@ -48,26 +48,24 @@ class JumpChrome {
 })
 class JumpHost {
   last: Record<string, unknown> | null = null;
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('source', oneForm('Source'))
       .createForm('device', oneForm('Device'))
       .createForm('list', oneForm('List'))
       .createStep(
-        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.source)),
+        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('source')),
         { name: 'source', label: 'Source' },
       )
       .createStep(
-        (s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.device)),
+        (s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('device')),
         { name: 'device', label: 'Device' },
       )
       .createStep(
-        (s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm((f) => f.list)),
+        (s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm('list')),
         { name: 'list', label: 'List' },
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('StepperController.goTo', () => {

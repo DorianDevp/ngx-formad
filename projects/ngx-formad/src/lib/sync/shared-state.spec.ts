@@ -22,13 +22,13 @@ describe('SharedState', () => {
     expect(state.get('name')).toBe('b');
   });
 
-  it('hands out a slot that round-trips one key', () => {
+  it('hands out a read-only signal that tracks one key', () => {
     const state = new SharedState({ email: '' });
-    const slot = state.slot('email');
+    const email = state.select('email');
 
-    slot.write('via-slot@example.com');
+    state.patch({ email: 'via-patch@example.com' });
 
-    expect(slot.read()).toBe('via-slot@example.com');
-    expect(state.get('email')).toBe('via-slot@example.com');
+    expect(email()).toBe('via-patch@example.com');
+    expect(state.get('email')).toBe('via-patch@example.com');
   });
 });

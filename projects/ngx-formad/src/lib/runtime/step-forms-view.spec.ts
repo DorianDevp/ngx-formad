@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { StepFormsView } from './step-forms-view';
@@ -43,18 +43,16 @@ class FormsChrome {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class Host {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('shown', only('Shown field'))
       .createForm('gone', only('Hidden field'))
       .createStep((s) =>
         s.createPage({ options: { heading: 'Step' } }, (p) =>
-          p.addForm((f) => f.shown).addForm((f) => f.gone, { visibleWhen: () => false }),
+          p.addForm('shown').addForm('gone', { visibleWhen: () => false }),
         ),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('StepFormsView', () => {

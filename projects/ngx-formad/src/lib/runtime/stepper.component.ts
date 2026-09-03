@@ -14,7 +14,7 @@ import {
   Type,
 } from '@angular/core';
 import { RuntimeFlow } from '../builders/flow';
-import { ErasedRecord, ErasedValue } from '../builders/step-context';
+import { RuntimeStepContext } from '../builders/step-context';
 import { ControlAdapter } from '../controls/control-adapter';
 import { CONTROL_ADAPTER, ControlTypeMap, STEPPER_ADAPTER } from '../provide';
 import { DefaultStepperChrome } from './default-stepper-chrome';
@@ -50,12 +50,12 @@ class StepperControlScope {
     }
   `,
 })
-export class StepperComponent implements OnInit, OnDestroy {
-  readonly stepper = input.required<RuntimeFlow>();
+export class StepperComponent<TResult = unknown> implements OnInit, OnDestroy {
+  readonly stepper = input.required<RuntimeFlow<TResult>>();
 
-  readonly completed = output<ErasedValue>();
+  readonly completed = output<TResult | null>();
 
-  readonly stepCommitted = output<ErasedRecord>();
+  readonly stepCommitted = output<RuntimeStepContext['steps']>();
 
   private readonly parentEnvironment = inject(EnvironmentInjector);
   private readonly wizard = inject(FormadWizard);

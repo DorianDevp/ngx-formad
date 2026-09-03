@@ -4,7 +4,7 @@ import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from '../runtime/effective-sequence';
 import { isFlowStep, isRecurrent } from './flow';
 import { SequenceNodeKind } from './nodes';
-import { ErasedValue, RuntimeStepContext, RuntimeStepInstance } from './step-context';
+import { RuntimeStepContext, SharedSignals } from './step-context';
 import { RecurrentStepperBuilder, StepperBuilder } from './stepper-builder';
 
 type One = { v: string };
@@ -21,13 +21,13 @@ interface RingCtx {
 
   readonly passOpen: boolean;
 
-  readonly values?: Record<string, ErasedValue>;
+  readonly values?: Record<string, SharedSignals[string] extends Signal<infer V> ? V : never>;
 
-  readonly steps?: Record<string, RuntimeStepInstance>;
+  readonly steps?: RuntimeStepContext['steps'];
 }
 
 function ctx(ring: RingCtx): RuntimeStepContext {
-  const shared: Record<string, Signal<ErasedValue>> = {};
+  const shared: Record<string, SharedSignals[string]> = {};
   for (const [key, value] of Object.entries(ring.values ?? {})) shared[key] = signal(value);
 
   return {
@@ -43,7 +43,7 @@ type Source = 'invoice' | 'manual';
 const built = new StepperBuilder()
   .withState({ source: null as Source | null })
   .createForm('intro', form('Intro'))
-  .createStep((s) => s.createPage({ options: { heading: 'Intro' } }, (p) => p.addForm((f) => f.intro)))
+  .createStep((s) => s.createPage({ options: { heading: 'Intro' } }, (p) => p.addForm('intro')))
   .createRecurrentStepper('devices', {
     initial: (): Item[] => [],
     label: 'Devices',
@@ -54,11 +54,11 @@ const built = new StepperBuilder()
         .createForm('bulk', form('Bulk'))
         .branch((c) => c.shared.source(), {
           manual: (b) =>
-            b.step((s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm((f) => f.name)), {
+            b.step((s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm('name')), {
               label: 'Name',
             }),
           invoice: (b) =>
-            b.step((s) => s.createPage({ options: { heading: 'Bulk' } }, (p) => p.addForm((f) => f.bulk)), {
+            b.step((s) => s.createPage({ options: { heading: 'Bulk' } }, (p) => p.addForm('bulk')), {
               label: 'Bulk',
             }),
         })
@@ -146,7 +146,7 @@ describe('RecurrentStepperBuilder - authoring errors', () => {
     expect(() =>
       new StepperBuilder()
         .createForm('intro', form('A'))
-        .createStep((s) => s.createPage({ options: {} }, (p) => p.addForm((f) => f.intro)), {
+        .createStep((s) => s.createPage({ options: {} }, (p) => p.addForm('intro')), {
           name: 'devices',
         })
         .createRecurrentStepper('devices', {
@@ -156,9 +156,9 @@ describe('RecurrentStepperBuilder - authoring errors', () => {
     ).toThrow(/already taken/);
   });
 
-  it('refuses to build without a dock', () => {
+  it('offers build() only after the dock', () => {
     const dockless = new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] });
-    expect(() => dockless._drain()).toThrow(/dock/);
+    expect('build' in dockless).toBe(false);
   });
 
   it('refuses a second dock', () => {

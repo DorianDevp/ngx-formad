@@ -1,7 +1,7 @@
 import { Component, input, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { StepperController } from './stepper-controller';
@@ -44,8 +44,7 @@ class Probe {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class LabelledHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', only('A'))
       .createForm('b', only('B'))
@@ -58,12 +57,12 @@ class LabelledHost {
                 subheading: 'Delivery comes next.',
               },
             },
-            (p) => p.addForm((f) => f.a),
+            (p) => p.addForm('a'),
           ),
         { label: 'Products' },
       )
       .createStep(
-        (s) => s.createPage({ options: { heading: 'Gift wrap' } }, (p) => p.addForm((f) => f.b)),
+        (s) => s.createPage({ options: { heading: 'Gift wrap' } }, (p) => p.addForm('b')),
         {
           label: 'Gift options',
           when: () => withGiftWrap(),
@@ -78,8 +77,7 @@ class LabelledHost {
           label: 'Review',
         },
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('Step labels', () => {

@@ -1,8 +1,7 @@
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
-import { resolvePages } from './materialize-step';
 import { Signal, signal } from '@angular/core';
-import { RuntimeStepContext, RuntimeStepInstance } from '../builders/step-context';
+import { RuntimeStepContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from './effective-sequence';
@@ -27,24 +26,24 @@ const wizard = new StepperBuilder()
   .createForm('adminConfig', form('Advanced'))
   .createForm('userMeta', form('Settings'))
   .createForm('review', form('Review'))
-  .createStep((s) => s.createPage({ options: { heading: 'Basics' } }, (p) => p.addForm((f) => f.basics)), {
+  .createStep((s) => s.createPage({ options: { heading: 'Basics' } }, (p) => p.addForm('basics')), {
     name: 'basics',
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Advanced' } }, (p) => p.addForm((f) => f.adminConfig)), {
+  .createStep((s) => s.createPage({ options: { heading: 'Advanced' } }, (p) => p.addForm('adminConfig')), {
     when: ({ shared }) => shared.accountType() === 'admin',
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Settings' } }, (p) => p.addForm((f) => f.userMeta)), {
+  .createStep((s) => s.createPage({ options: { heading: 'Settings' } }, (p) => p.addForm('userMeta')), {
     // A predecessor's LIVE instance — `basics` is unconditional, but a gate may run
     // before it exists, so it reads as optional here.
     when: ({ steps }) => steps.basics?.basics.model().accountType !== 'admin',
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Review' } }, (p) => p.addForm((f) => f.review)))
+  .createStep((s) => s.createPage({ options: { heading: 'Review' } }, (p) => p.addForm('review')))
   .build();
 
 
 // A hand-built runtime context, the shape a controller supplies: shared as signals,
 // predecessors' instances under `steps`.
-function ctx(over: { shared?: Record<string, unknown>; steps?: Record<string, RuntimeStepInstance> } = {}): RuntimeStepContext {
+function ctx(over: { shared?: Record<string, unknown>; steps?: RuntimeStepContext['steps'] } = {}): RuntimeStepContext {
   const shared: Record<string, Signal<unknown>> = {};
   for (const [key, value] of Object.entries(over.shared ?? {})) shared[key] = signal(value);
 
@@ -94,7 +93,8 @@ describe('effectiveSteps', () => {
 // resolves it the way the controller does.
 const headings = (steps: readonly SequenceNode[]) =>
   steps.filter(isStepNode).map((s) => {
-    const heading = resolvePages(s, ctx())[0].options.heading;
+    const pages = 'build' in s.pages ? s.pages.build(ctx()) : s.pages;
+    const heading = pages[0].options.heading;
     return typeof heading === 'function' ? heading() : heading;
   });
 
@@ -105,18 +105,18 @@ const branched = new StepperBuilder()
   .createForm('addons', form('Addons'))
   .createForm('free', form('Free'))
   .createForm('done', form('Done'))
-  .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm((f) => f.start)))
+  .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm('start')))
   .branch((c) => c.shared.plan(), {
     pro: (b) =>
       b
-        .step((s) => s.createPage({ options: { heading: 'Pro' } }, (p) => p.addForm((f) => f.pro)))
+        .step((s) => s.createPage({ options: { heading: 'Pro' } }, (p) => p.addForm('pro')))
         // a step inside the branch with its own extra condition (ANDed with the guard)
-        .step((s) => s.createPage({ options: { heading: 'Addons' } }, (p) => p.addForm((f) => f.addons)), {
+        .step((s) => s.createPage({ options: { heading: 'Addons' } }, (p) => p.addForm('addons')), {
           when: ({ shared }) => shared.addons() === true,
         }),
-    free: (b) => b.step((s) => s.createPage({ options: { heading: 'Free' } }, (p) => p.addForm((f) => f.free))),
+    free: (b) => b.step((s) => s.createPage({ options: { heading: 'Free' } }, (p) => p.addForm('free'))),
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addForm((f) => f.done)))
+  .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addForm('done')))
   .build();
 
 describe('branching (sugar over conditional steps)', () => {

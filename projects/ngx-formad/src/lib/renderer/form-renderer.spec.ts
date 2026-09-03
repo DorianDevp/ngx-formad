@@ -5,7 +5,7 @@ import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
 import { defineForm, FormConfig, SelectOption } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { FormRenderer } from './form-renderer';
-import { instantiateForm } from './instantiate-form';
+import { instantiateForm, isItems, isLevel } from './instantiate-form';
 
 async function pump(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 3; i++) {
@@ -93,25 +93,25 @@ describe('FormRenderer', () => {
     emailInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.state.rootForm.email().value()).toBe('alice@example.com');
+    expect(fixture.componentInstance.state.rootForm['email']?.().value()).toBe('alice@example.com');
   });
 
   it('marks the field dirty on a user edit but not on a programmatic write', async () => {
     const root = fixture.componentInstance.state.rootForm;
-    expect(root.email().dirty()).toBe(false);
+    expect(root['email']?.().dirty()).toBe(false);
 
     // A programmatic seed-style write must leave the field pristine, or the
     // shared-state seed gate would refuse to ever re-seed it.
     fixture.componentInstance.state.model.set({ email: 'seed@example.com', name: '', type: '' });
     await fixture.whenStable();
-    expect(root.email().dirty()).toBe(false);
+    expect(root['email']?.().dirty()).toBe(false);
 
     // A real user edit must flip dirty so the gate backs off.
     const emailInput = inputs()[0];
     emailInput.value = 'typed@example.com';
     emailInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
-    expect(root.email().dirty()).toBe(true);
+    expect(root['email']?.().dirty()).toBe(true);
   });
 });
 
@@ -163,7 +163,9 @@ describe('FormRenderer — nested groups', () => {
     cityInput.dispatchEvent(new Event('input'));
     await fixture.whenStable();
 
-    expect(fixture.componentInstance.state.rootForm.address.city().value()).toBe('Berlin');
+    const address = fixture.componentInstance.state.rootForm['address'];
+    if (!address || !isLevel(address)) throw new Error('no address group');
+    expect(address['city']?.().value()).toBe('Berlin');
   });
 });
 
@@ -213,7 +215,11 @@ describe('FormRenderer — repeating arrays', () => {
     inputs()[0].value = 'ABC-1';
     inputs()[0].dispatchEvent(new Event('input'));
     await pump(fixture);
-    expect(fixture.componentInstance.state.rootForm.items[0]?.sku().value()).toBe('ABC-1');
+    const items = fixture.componentInstance.state.rootForm['items'];
+    if (!items || !isItems(items)) throw new Error('no items array');
+    const first = items[0];
+    if (!first || !isLevel(first)) throw new Error('no first item');
+    expect(first['sku']?.().value()).toBe('ABC-1');
 
     button('Remove')!.click();
     await pump(fixture);

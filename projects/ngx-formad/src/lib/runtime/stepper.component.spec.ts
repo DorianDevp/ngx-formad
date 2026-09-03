@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { required } from '@angular/forms/signals';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { provideFormadSuite } from '../provide';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
@@ -52,35 +52,25 @@ const billing: FormConfig<Billing> = {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class Host {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({ email: '' })
       .createForm('account', account)
       .createForm('billing', billing)
       .createStep((step) =>
         step.createPage({ options: { heading: 'Account' } }, (page) =>
-          page.addForm((f) => f.account, {
-            bind: (l) =>
-              l.link(
-                (m) => m.email,
-                (s) => s.email,
-              ),
+          page.addForm('account', {
+            bind: { email: 'email' },
           }),
         ),
       )
       .createStep((step) =>
         step.createPage({ options: { heading: 'Billing' } }, (page) =>
-          page.addForm((f) => f.billing, {
-            bind: (l) =>
-              l.link(
-                (m) => m.email,
-                (s) => s.email,
-              ),
+          page.addForm('billing', {
+            bind: { email: 'email' },
           }),
         ),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('StepperComponent', () => {
@@ -127,19 +117,17 @@ describe('StepperComponent', () => {
 })
 class ConditionalHost {
   // Step 2 is hidden by its `when`, so Next on step 1 lands on step 3.
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({ hide: true })
       .createForm('a', labelForm('First'))
       .createForm('b', labelForm('Second'))
       .createForm('c', labelForm('Third'))
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.b)), {
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')))
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')), {
         when: ({ shared }) => !shared.hide,
       })
-      .createStep((s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm((f) => f.c)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm('c')))
+      .build();
 }
 
 describe('StepperComponent — conditional steps', () => {
@@ -175,17 +163,15 @@ describe('StepperComponent — conditional steps', () => {
 })
 class OptionalHost {
   // Step 1 is optional and has a required field, so Next is gated but Skip is not.
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', requiredForm('Need'))
       .createForm('b', labelForm('After'))
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)), {
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')), {
         optional: true,
       })
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.b)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')))
+      .build();
 }
 
 describe('StepperComponent — optional steps', () => {
@@ -220,13 +206,11 @@ class CustomChrome {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class ChromeHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', labelForm('Only'))
-      .createStep((s) => s.createPage({ options: { heading: 'Heading X' } }, (p) => p.addForm((f) => f.a)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: 'Heading X' } }, (p) => p.addForm('a')))
+      .build();
 }
 
 describe('StepperComponent — stepper adapter', () => {
@@ -258,15 +242,13 @@ const countingForm = (label: string, tick: () => void): FormConfig<Labelled> => 
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class LazyHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', countingForm('First', () => built.a++))
       .createForm('c', countingForm('Third', () => built.c++))
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm((f) => f.a)))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm((f) => f.c)))
-      .build(),
-  );
+      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')))
+      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('c')))
+      .build();
 }
 
 describe('StepperComponent — laziness', () => {
@@ -300,29 +282,27 @@ const kindForm: FormConfig<KindModel> = {
 })
 class ForkHost {
   done: unknown = undefined;
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({ kind: '' })
       .createForm('start', kindForm)
       .createStep((s) =>
         s.createPage({ options: { heading: 'Start' } }, (p) =>
-          p.addForm((f) => f.start, { bind: (l) => l.link((m) => m.kind, (sh) => sh.kind) }),
+          p.addForm('start', { bind: { kind: 'kind' } }),
         ),
       )
       .fork((c) => c.shared.kind(), {
         business: (arm) =>
           arm
             .createForm('company', labelForm('Company'))
-            .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm((f) => f.company)))
+            .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm('company')))
             .result(({ shared }) => ({ kind: 'business', via: shared.kind() })),
         individual: (arm) =>
           arm
             .createForm('person', labelForm('Person'))
-            .createStep((s) => s.createPage({ options: { heading: 'Person' } }, (p) => p.addForm((f) => f.person)))
+            .createStep((s) => s.createPage({ options: { heading: 'Person' } }, (p) => p.addForm('person')))
             .result(() => ({ kind: 'individual' })),
       })
-      .build(),
-  );
+      .build();
 }
 
 describe('StepperComponent — fork', () => {

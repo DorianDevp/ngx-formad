@@ -1,6 +1,6 @@
 import { Component, computed, input, model } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
-import { ErasedValue } from '../builders/step-context';
+import { ControlOption } from '../form-config/form-config';
 
 type Errors = readonly ValidationError.WithOptionalFieldTree[];
 
@@ -25,6 +25,14 @@ const ariaAttrs = `
   [attr.aria-required]="required() ? 'true' : null"`;
 
 /** The plain-HTML single-line text control; `type` selects the native input type. */
+function valueOf(event: Event): string {
+  const target = event.target;
+  if (target instanceof HTMLInputElement) return target.value;
+  if (target instanceof HTMLTextAreaElement) return target.value;
+
+  return target instanceof HTMLSelectElement ? target.value : '';
+}
+
 @Component({
   selector: 'ngx-formad-text',
   template: `
@@ -63,7 +71,7 @@ export class TextControl implements FormValueControl<string> {
   errors = input<Errors>([]);
 
   asString(e: Event): string {
-    return (e.target as HTMLInputElement).value;
+    return valueOf(e);
   }
 }
 
@@ -106,7 +114,7 @@ export class TextareaControl implements FormValueControl<string> {
   errors = input<Errors>([]);
 
   asString(e: Event): string {
-    return (e.target as HTMLTextAreaElement).value;
+    return valueOf(e);
   }
 }
 
@@ -144,17 +152,10 @@ export class NumberControl implements FormValueControl<number | null> {
   errors = input<Errors>([]);
 
   asNumber(e: Event): number | null {
-    const raw = (e.target as HTMLInputElement).value;
+    const raw = valueOf(e);
 
     return raw === '' ? null : Number(raw);
   }
-}
-
-/** An option as the select and radio controls consume it. */
-export interface ControlOption {
-  readonly value: ErasedValue;
-
-  readonly label: string;
 }
 
 /** The plain-HTML select control; options carry their index as the DOM value so any value type maps back. */
@@ -180,10 +181,10 @@ export interface ControlOption {
     </label>
   `,
 })
-export class SelectControl implements FormValueControl<ErasedValue> {
+export class SelectControl implements FormValueControl<ControlOption['value']> {
   readonly cid = nextControlId();
 
-  value = model<ErasedValue>(null);
+  value = model<ControlOption['value']>(null);
 
   label = input('');
 
@@ -199,8 +200,8 @@ export class SelectControl implements FormValueControl<ErasedValue> {
 
   readonly matched = computed(() => this.options().some((option) => option.value === this.value()));
 
-  optionFrom(e: Event): ErasedValue {
-    const raw = (e.target as HTMLSelectElement).value;
+  optionFrom(e: Event): ControlOption['value'] {
+    const raw = valueOf(e);
     if (raw === '') return null;
 
     return this.options()[Number(raw)]?.value ?? null;
@@ -247,7 +248,7 @@ export class CheckboxControl implements FormValueControl<boolean> {
   errors = input<Errors>([]);
 
   asChecked(e: Event): boolean {
-    return (e.target as HTMLInputElement).checked;
+    return e.target instanceof HTMLInputElement && e.target.checked;
   }
 }
 
@@ -297,7 +298,7 @@ export class DateControl implements FormValueControl<Date | null> {
   readonly maxInputValue = computed(() => toInputDate(this.maxDate()));
 
   asDate(e: Event): Date | null {
-    const raw = (e.target as HTMLInputElement).value;
+    const raw = valueOf(e);
 
     return raw ? new Date(`${raw}T00:00:00`) : null;
   }
@@ -360,7 +361,7 @@ export class FileControl implements FormValueControl<readonly File[]> {
   errors = input<Errors>([]);
 
   asFiles(e: Event): readonly File[] {
-    const picked = Array.from((e.target as HTMLInputElement).files ?? []);
+    const picked = e.target instanceof HTMLInputElement ? Array.from(e.target.files ?? []) : [];
     const cap = this.maxFiles();
 
     return cap != null ? picked.slice(0, cap) : picked;

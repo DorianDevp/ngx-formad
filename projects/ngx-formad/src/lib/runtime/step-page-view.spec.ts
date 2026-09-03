@@ -1,7 +1,7 @@
 import { Component, input, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from './stepper.component';
 
@@ -38,17 +38,15 @@ const onlyForm: FormConfig<Only> = {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class ComponentHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('only', onlyForm)
       .createStep((s) =>
         s.createPage({ options: { heading: 'One' } }, (p) =>
-          p.addComponent(Banner, { inputs: { note: 'hello from a slot' } }).addForm((f) => f.only),
+          p.addComponent(Banner, { inputs: { note: 'hello from a slot' } }).addForm('only'),
         ),
       )
-      .build(),
-  );
+      .build();
 }
 
 describe('StepPageView — dynamic components', () => {
@@ -72,16 +70,14 @@ const ready = signal(false);
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class GatedHost {
-  readonly stepper: RuntimeStepper = asStepper(
-    new StepperBuilder()
+  readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createStep(
         (s) => s.createPage({ options: { heading: 'Pick' } }, (p) => p.addComponent(Banner, { inputs: { note: 'choose' } })),
         { completeWhen: () => ready() },
       )
       .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
-      .build(),
-  );
+      .build();
 }
 
 describe('StepPageView — completeWhen gate', () => {
@@ -114,7 +110,7 @@ class SharedGatedHost {
     )
     .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
     .build();
-  readonly stepper: RuntimeStepper = asStepper(this.built);
+  readonly stepper: RuntimeStepper = (this.built);
 }
 
 describe('StepPageView — completeWhen context', () => {

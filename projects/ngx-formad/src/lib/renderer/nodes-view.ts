@@ -1,7 +1,5 @@
 import { Component, computed, inject, input } from '@angular/core';
-import { FieldState, FieldTree } from '@angular/forms/signals';
 import { ContentChild } from '../builders/content';
-import { ErasedRecord, ErasedValue } from '../builders/step-context';
 import {
   ArrayNode,
   ControlNode,
@@ -18,7 +16,7 @@ import { LAYOUT_ADAPTER } from '../provide';
 import { FormadWizard } from '../runtime/wizard-context';
 import { ContentView } from './content-view';
 import { FieldOutlet } from './field-outlet';
-import { childOf, FieldItems, FieldLevel } from './instantiate-form';
+import { FieldItems, FieldLeaf, FieldLevel, isItems, isLevel } from './instantiate-form';
 import { BoundOutputEffect } from './output-effect';
 
 interface Placement {
@@ -30,7 +28,7 @@ interface ControlRow extends Placement {
   readonly kind: RenderNodeKind.Control;
   readonly key: string;
   readonly node: ControlNode;
-  readonly tree: FieldTree<ErasedValue>;
+  readonly tree: FieldLeaf;
 }
 
 interface GroupRow extends Placement {
@@ -52,7 +50,7 @@ interface ArrayRow extends Placement {
   readonly kind: RenderNodeKind.Array;
   readonly key: string;
   readonly node: ArrayNode;
-  readonly state: FieldState<ErasedValue[]>;
+  readonly state: ReturnType<FieldItems>;
   readonly items: readonly ArrayItemRow[];
   readonly blockClass: string;
 }
@@ -91,7 +89,9 @@ function blockClass(base: string, placement: Placement): string {
   return placement.itemClass ? `${base} ${placement.itemClass}` : base;
 }
 
-function groupRow(node: GroupNode, scope: LevelScope): GroupRow {
+function groupRow(node: GroupNode, field: FieldLeaf, scope: LevelScope): GroupRow {
+  if (!isLevel(field)) throw new Error(`ngx-formad: group "${node.key}" needs an object value.`);
+
   const placement = placementOf(scope.adapter, node.layout);
 
   return {
@@ -99,25 +99,33 @@ function groupRow(node: GroupNode, scope: LevelScope): GroupRow {
     key: node.key,
     label: node.label,
     children: node.children,
-    tree: childOf(scope.tree, node.key) as FieldLevel,
+    tree: field,
     layout: { cols: node.maxCols },
     blockClass: blockClass('ngx-formad-group', placement),
     ...placement,
   };
 }
 
-function arrayRow(node: ArrayNode, scope: LevelScope): ArrayRow {
+function arrayRow(node: ArrayNode, field: FieldLeaf, scope: LevelScope): ArrayRow {
+  if (!isItems(field)) throw new Error(`ngx-formad: array "${node.key}" needs an array value.`);
+
+  const items: ArrayItemRow[] = [];
+  let index = 0;
+  for (const item of field) {
+    if (item === undefined || !isLevel(item)) {
+      throw new Error(`ngx-formad: item ${index} of "${node.key}" needs an object value.`);
+    }
+    items.push({ index, tree: item });
+    index += 1;
+  }
   const placement = placementOf(scope.adapter, node.layout);
-  const items = childOf(scope.tree, node.key) as FieldItems;
-  const state = items();
-  const length = state.value().length;
 
   return {
     kind: RenderNodeKind.Array,
     key: node.key,
     node,
-    state,
-    items: Array.from({ length }, (_, index) => ({ index, tree: items[index] as FieldLevel })),
+    state: field(),
+    items,
     blockClass: blockClass('ngx-formad-array', placement),
     ...placement,
   };
@@ -146,8 +154,12 @@ function layoutRow(node: FormRowNode, scope: LevelScope): LayoutRow {
 }
 
 function rowOf(node: RenderNode, scope: LevelScope): ViewRow | null {
+  if (node.kind === RenderNodeKind.Content) return contentRow(node, scope);
+  if (node.kind === RenderNodeKind.Row) return layoutRow(node, scope);
+
   const field = scope.tree[node.key];
-  if (field !== undefined && field().hidden()) return null;
+  if (field === undefined) throw new Error(`ngx-formad: the form model has no field "${node.key}".`);
+  if (field().hidden()) return null;
 
   switch (node.kind) {
     case RenderNodeKind.Control:
@@ -155,21 +167,21 @@ function rowOf(node: RenderNode, scope: LevelScope): ViewRow | null {
         kind: RenderNodeKind.Control,
         key: node.key,
         node,
-        tree: childOf(scope.tree, node.key),
+        tree: field,
         ...placementOf(scope.adapter, node.layout),
       };
     case RenderNodeKind.Group:
-      return groupRow(node, scope);
+      return groupRow(node, field, scope);
     case RenderNodeKind.Array:
-      return arrayRow(node, scope);
-    case RenderNodeKind.Content:
-      return contentRow(node, scope);
-    case RenderNodeKind.Row:
-      return layoutRow(node, scope);
+      return arrayRow(node, field, scope);
   }
 }
 
-function blankValue(type: FieldNode['type']): ErasedValue {
+type BlankValue = string | boolean | null | BlankItem | BlankValue[];
+
+type BlankItem = { [key: string]: BlankValue };
+
+function blankValue(type: FieldNode['type']): BlankValue {
   switch (type) {
     case 'number':
     case 'date':
@@ -184,7 +196,7 @@ function blankValue(type: FieldNode['type']): ErasedValue {
   }
 }
 
-function blankEntries(node: RenderNode): [string, ErasedValue][] {
+function blankEntries(node: RenderNode): [string, BlankValue][] {
   switch (node.kind) {
     case RenderNodeKind.Content:
     case RenderNodeKind.Row:
@@ -198,7 +210,7 @@ function blankEntries(node: RenderNode): [string, ErasedValue][] {
   }
 }
 
-function blankItem(nodes: readonly RenderNode[]): ErasedRecord {
+function blankItem(nodes: readonly RenderNode[]): BlankItem {
   return Object.fromEntries(nodes.flatMap((node) => blankEntries(node)));
 }
 

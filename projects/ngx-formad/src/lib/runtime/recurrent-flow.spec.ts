@@ -1,7 +1,7 @@
 import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { asStepper, RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { FormadDockRestart } from './flow-dock';
@@ -65,17 +65,15 @@ class RingChrome {
 }
 
 function deviceStepper(): RuntimeStepper {
-  return asStepper(
-    new StepperBuilder()
+  return new StepperBuilder()
       .withState({ source: '' })
       .createForm('intro', oneForm('Source'))
       .createForm('final', oneForm('Final'))
       .createStep(
         (s) =>
           s.createPage({ options: { heading: 'Intro' } }, (p) =>
-            p.addForm(
-              (f) => f.intro,
-              { bind: (l) => l.link((m) => m.v, (sh) => sh.source) },
+            p.addForm('intro',
+              { bind: { v: 'source' } },
             ),
           ),
         { label: 'Intro' },
@@ -95,9 +93,8 @@ function deviceStepper(): RuntimeStepper {
                   .step(
                     (s) =>
                       s.createPage({ options: { heading: 'Name' } }, (p) =>
-                        p.addForm(
-                          (f) => f.name,
-                          { bind: (l) => l.link((m) => m.v, (sh) => sh.draftName) },
+                        p.addForm('name',
+                          { bind: { v: 'draftName' } },
                         ),
                       ),
                     { name: 'name', label: 'Name' },
@@ -105,14 +102,14 @@ function deviceStepper(): RuntimeStepper {
                   .step(
                     (s) =>
                       s.createPage({ options: { heading: 'Details' } }, (p) =>
-                        p.addForm((f) => f.details),
+                        p.addForm('details'),
                       ),
                     { name: 'details', label: 'Details' },
                   ),
               invoice: (b) =>
                 b.step(
                   (s) =>
-                    s.createPage({ options: { heading: 'Bulk' } }, (p) => p.addForm((f) => f.bulk)),
+                    s.createPage({ options: { heading: 'Bulk' } }, (p) => p.addForm('bulk')),
                   { name: 'bulk', label: 'Bulk' },
                 ),
             })
@@ -135,11 +132,10 @@ function deviceStepper(): RuntimeStepper {
             ),
       })
       .createStep(
-        (s) => s.createPage({ options: { heading: 'Final' } }, (p) => p.addForm((f) => f.final)),
+        (s) => s.createPage({ options: { heading: 'Final' } }, (p) => p.addForm('final')),
         { label: 'Final', when: (c) => (c.steps.devices?.length ?? 0) > 0 },
       )
-      .build(),
-  );
+      .build();
 }
 
 @Component({

@@ -59,7 +59,9 @@ describe('Material adapter — field behaviour', () => {
     input.dispatchEvent(new Event('input'));
     await pump(fixture);
 
-    expect(fixture.componentInstance.state.rootForm.name().value()).toBe('Ada');
+    const entries = [...fixture.componentInstance.state.rootForm];
+    const nameField = entries.find((entry) => entry[0] === 'name')?.[1];
+    expect(nameField?.().value()).toBe('Ada');
   });
 
   it('shows the invalid outline once a required field is touched and empty', async () => {
