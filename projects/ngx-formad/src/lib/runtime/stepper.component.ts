@@ -5,6 +5,7 @@ import {
   EnvironmentInjector,
   inject,
   Injectable,
+  Injector,
   input,
   OnDestroy,
   OnInit,
@@ -58,6 +59,7 @@ export class StepperComponent<TResult = unknown> implements OnInit, OnDestroy {
   readonly stepCommitted = output<RuntimeStepContext['steps']>();
 
   private readonly parentEnvironment = inject(EnvironmentInjector);
+  private readonly injector = inject(Injector);
   private readonly wizard = inject(FormadWizard);
   private readonly controlScope = inject(StepperControlScope);
   private readonly flowDock = inject(StepperFlowDock);
@@ -72,6 +74,7 @@ export class StepperComponent<TResult = unknown> implements OnInit, OnDestroy {
     this.controlScope.map = this.stepper().controlTypes;
     const controller = new FormadStepperController(this.stepper(), {
       environment: this.parentEnvironment,
+      injector: this.injector,
       onComplete: (result) => this.completed.emit(result),
       onStep: (values) => this.stepCommitted.emit(values),
     });

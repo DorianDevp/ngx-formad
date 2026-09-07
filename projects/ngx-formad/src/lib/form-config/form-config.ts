@@ -2,20 +2,19 @@ import { computed, Type } from '@angular/core';
 import { SchemaPathTree } from '@angular/forms/signals';
 import {
   CUSTOM_FIELD,
-  isGetter,
-  Reactive,
   RepeatingGroupNode,
   SelectFormControlNode,
   UiFormControlNode,
   UiFormGroupConfig,
+  UiFormGroupNode,
 } from 'formodel';
 import { ContentChild } from '../builders/content';
 import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
+import { Live, read } from './live';
 
 /** One option of a `select`/`multiselect` field, as formodel declares it. */
-export type SelectOption =
-  SelectFormControlNode['options'] extends Reactive<readonly (infer O)[]> ? O : never;
+export type SelectOption = SelectFormControlNode['options'][number];
 
 /** An option as the select and radio controls consume it. */
 export interface ControlOption {
@@ -43,11 +42,31 @@ export interface ErasedArrayNode<TItem extends Record<string, unknown> = Record<
 export interface CustomKindNode<P extends Record<string, unknown> = Record<string, unknown>> {
   readonly type: string;
 
-  readonly props: Reactive<P>;
+  readonly props: Live<P>;
 }
 
-/** A scalar field's node: a formodel control node, or a registered custom kind. */
-export type FieldNode = UiFormControlNode | CustomKindNode;
+/** A formodel control node with every presentational prop accepting a live value; `type` stays plain, optional stays optional. */
+export type LiveControlNode<N extends UiFormControlNode = UiFormControlNode> = N extends UiFormControlNode
+  ? { [K in keyof N]: K extends 'type' ? N[K] : Live<Exclude<N[K], undefined>> }
+  : never;
+
+type LiveUiNode<V> = V extends UiFormGroupNode<infer T>
+  ? Omit<V, 'controlsConfig'> & { readonly controlsConfig: LiveUiConfig<T> }
+  : V extends RepeatingGroupNode<infer I>
+    ? Omit<V, 'itemConfig'> & { readonly itemConfig: LiveUiConfig<I> }
+    : V extends { readonly props: infer P extends Record<string, unknown> }
+      ? Omit<V, 'props'> & { readonly props: Live<P> }
+      : V extends UiFormControlNode
+        ? LiveControlNode<V>
+        : V;
+
+/** `UiFormGroupConfig<M>` with control props widened to `Live`; every plain formodel config is assignable as it is. */
+export type LiveUiConfig<M> = {
+  [K in keyof UiFormGroupConfig<M>]: LiveUiNode<UiFormGroupConfig<M>[K]>;
+};
+
+/** A scalar field's node: a formodel control node, live props allowed, or a registered custom kind. */
+export type FieldNode = LiveControlNode | CustomKindNode;
 
 /** One node of the erased ui: a scalar field, a group or a repeating group. */
 export type ErasedUiNode = FieldNode | ErasedGroupNode | ErasedArrayNode;
@@ -255,13 +274,13 @@ export interface RuntimeFormConfig<M extends Record<string, unknown> = Record<st
 /** One form as authored: the template with its ui type kept, so live props come back as declared. */
 export interface FormConfig<
   M extends Record<string, unknown>,
-  U extends UiFormGroupConfig<M> & ErasedUi = UiFormGroupConfig<M> & ErasedUi,
+  U extends LiveUiConfig<M> & ErasedUi = LiveUiConfig<M> & ErasedUi,
 > extends RuntimeFormConfig<M> {
   readonly ui: U;
 }
 
-/** Declares a form config while keeping the authored `ui` type, so live props come back writable. */
-export function defineForm<M extends Record<string, unknown>, U extends UiFormGroupConfig<M> & ErasedUi>(
+/** Declares a form config while keeping the authored `ui` type, so a signal put in comes back writable. */
+export function defineForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi>(
   config: FormConfig<M, U>,
 ): FormConfig<M, U> {
   return config;
@@ -395,16 +414,11 @@ export function flattenFields(ui: ErasedUi): FieldConfig[] {
 }
 
 /** The presentational inputs a control receives beyond the field binding, each possibly live. */
-export type ControlInputs<V = unknown> = Readonly<Record<string, Reactive<V>>>;
+export type ControlInputs<V = unknown> = Readonly<Record<string, Live<V>>>;
 
-function mapReactive<T, R>(value: Reactive<T>, map: (value: T) => R): Reactive<R> {
-  if (!isGetter(value)) return map(value);
+type PresentationalNode = Exclude<LiveControlNode, { readonly type: typeof CUSTOM_FIELD }>;
 
-  return computed(() => map(value()));
-}
-
-type PresentationalNode = Exclude<UiFormControlNode, { readonly type: typeof CUSTOM_FIELD }>;
-
+/** The inputs a kind adds; a derived one is a `computed`, so its identity holds until the source moves. */
 function kindInputs(node: PresentationalNode): ControlInputs {
   switch (node.type) {
     case 'text':
@@ -417,23 +431,21 @@ function kindInputs(node: PresentationalNode): ControlInputs {
       return node.rows != null ? { rows: node.rows } : {};
     case 'select':
       return {
-        options: mapReactive(node.options, (options): ControlOption[] =>
-          options.map((option) => ({ value: option.value, label: option.description })),
+        options: computed((): ControlOption[] =>
+          read(node.options).map((option) => ({ value: option.value, label: option.description })),
         ),
       };
     case 'radio':
       return {
-        options: mapReactive(node.options, (options): ControlOption[] =>
-          options.map((option) => ({ value: option.value, label: option.label })),
+        options: computed((): ControlOption[] =>
+          read(node.options).map((option) => ({ value: option.value, label: option.label })),
         ),
       };
-    case 'date':
-      return node.limit
-        ? {
-            minDate: mapReactive(node.limit, (limit) => limit.min),
-            maxDate: mapReactive(node.limit, (limit) => limit.max),
-          }
-        : {};
+    case 'date': {
+      const limit = node.limit;
+
+      return limit ? { minDate: computed(() => read(limit).min), maxDate: computed(() => read(limit).max) } : {};
+    }
     case 'file':
       return {
         ...(node.accept ? { accept: node.accept } : {}),

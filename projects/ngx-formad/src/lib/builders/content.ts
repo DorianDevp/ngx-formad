@@ -1,4 +1,4 @@
-import { Reactive } from 'formodel';
+import { Live } from '../form-config/live';
 
 /** The tags a content block may draw: structure, text, lists, links, images, a button. */
 export const CONTENT_TAGS = [
@@ -45,13 +45,13 @@ export function isContentTag(tag: string): tag is ContentTag {
 export type AttrValue = string | number | boolean | null | undefined;
 
 /** Text a content node draws: a value, or a getter for text that changes. */
-export type ContentText = Reactive<string | number>;
+export type ContentText = Live<string | number>;
 
 /** Attributes, listeners and visibility any content tag accepts. */
 export interface ContentOptions {
-  readonly className?: Reactive<string>;
+  readonly className?: Live<string>;
 
-  readonly attrs?: Readonly<Record<string, Reactive<AttrValue>>>;
+  readonly attrs?: Readonly<Record<string, Live<AttrValue>>>;
 
   readonly on?: Readonly<Record<string, (event: Event) => void>>;
 
@@ -60,18 +60,18 @@ export interface ContentOptions {
 
 /** Anchor options: `href`, `target` and `rel` on top of the common ones. */
 export interface AnchorOptions extends ContentOptions {
-  readonly href?: Reactive<string>;
+  readonly href?: Live<string>;
 
-  readonly target?: Reactive<string>;
+  readonly target?: Live<string>;
 
-  readonly rel?: Reactive<string>;
+  readonly rel?: Live<string>;
 }
 
 /** Image options: a required `src` and an `alt`. */
 export interface ImageOptions extends ContentOptions {
-  readonly src: Reactive<string>;
+  readonly src: Live<string>;
 
-  readonly alt?: Reactive<string>;
+  readonly alt?: Live<string>;
 }
 
 /** Button options; `type` defaults to `button` so a button in prose never submits by accident. */
@@ -83,7 +83,7 @@ export interface ButtonOptions extends ContentOptions {
 export interface ContentAttr {
   readonly name: string;
 
-  readonly value: Reactive<AttrValue>;
+  readonly value: Live<AttrValue>;
 }
 
 /** One DOM listener: the event name and its handler. */
@@ -112,7 +112,7 @@ export interface ContentTagChild {
 
   readonly tag: ContentTag;
 
-  readonly className?: Reactive<string>;
+  readonly className?: Live<string>;
 
   readonly attrs: readonly ContentAttr[];
 
@@ -142,7 +142,7 @@ export type TagArgs = TagArgsOf<ContentOptions>;
 interface MutableTag {
   kind: ContentChildKind.Tag;
   tag: ContentTag;
-  className?: Reactive<string>;
+  className?: Live<string>;
   attrs: ContentAttr[];
   listeners: ContentListener[];
   visibleWhen?: () => boolean;
@@ -189,7 +189,7 @@ function classify<O extends ContentOptions>(args: TagArgsOf<O>): TagParts<O> {
 
 function withAttrs(
   options: ContentOptions | undefined,
-  named: Readonly<Record<string, Reactive<AttrValue>>>,
+  named: Readonly<Record<string, Live<AttrValue>>>,
 ): ContentOptions {
   const declared = Object.entries(named).filter(([, value]) => value !== undefined);
 

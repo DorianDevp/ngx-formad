@@ -2,6 +2,7 @@ import {
   computed,
   createEnvironmentInjector,
   EnvironmentInjector,
+  Injector,
   resource,
   ResourceRef,
   runInInjectionContext,
@@ -18,9 +19,9 @@ import {
   RuntimeFlow,
   SequenceNode,
 } from '../builders/flow';
-import { isGetter, Reactive } from 'formodel';
 import { DeferTrigger, RecurrentSignals, RuntimeStepContext, SharedSignals } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
+import { Live, read } from '../form-config/live';
 import { FormState } from '../renderer/instantiate-form';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
@@ -113,9 +114,14 @@ export interface FlowOutlet {
   committedBelow(): void;
 }
 
-/** What a controller is hosted by: its parent environment, completion and commit callbacks, or a parent outlet. */
+/**
+ * What a controller is hosted by: its parent environment, the element injector its steps' components resolve
+ * through (the stepper's; the flow environment when absent), completion and commit callbacks, or a parent outlet.
+ */
 export interface ControllerHost<TResult = unknown> {
   readonly environment: EnvironmentInjector;
+
+  readonly injector?: Injector;
 
   readonly onComplete?: (result: TResult | null) => void;
 
@@ -179,10 +185,8 @@ export interface StepperController<TResult = unknown> {
   dockRestart(): void;
 }
 
-function resolveText(value: Reactive<string> | undefined): string {
-  if (value === undefined) return '';
-
-  return isGetter(value) ? value() : value;
+function resolveText(value: Live<string> | undefined): string {
+  return value === undefined ? '' : read(value);
 }
 
 type ResolvedForms = Record<string, RuntimeFormConfig>;
@@ -216,6 +220,8 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   readonly environment: EnvironmentInjector;
 
+  private readonly injector: Injector;
+
   private readonly contextShared: SharedSignals;
 
   private readonly contextFlow: RecurrentSignals | undefined;
@@ -234,6 +240,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     this.onComplete = host.onComplete;
     this.onStep = host.onStep;
     this.environment = createEnvironmentInjector([...flow.providers], host.environment, 'formad-flow');
+    this.injector = host.injector ?? this.environment;
     this.recurrentFlow = isRecurrent(flow) ? flow : null;
     this.ring = this.recurrentFlow ? new FlowRing(this.recurrentFlow) : null;
     this.contextShared = { ...(host.outlet?.shared() ?? {}), ...flow.shared.signals() };
@@ -546,6 +553,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   reset(): void {
     this.flow.shared.reset();
     this.attemptedNext.set(false);
+    for (const live of this.memo().values()) live.destroy();
     this.memo.set(new Map());
     this.lastShown = null;
     for (const child of this.children.values()) child.reset();
@@ -567,6 +575,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   destroy(): void {
     for (const child of this.children.values()) child.destroy();
+    for (const live of this.memo().values()) live.destroy();
     this.environment.destroy();
   }
 
@@ -674,8 +683,17 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       return;
     }
 
-    this.memo.update((memo) => without(memo, [node]));
+    this.drop([node]);
     if (this.lastShown === node) this.lastShown = null;
+  }
+
+  /** Forgets materialized steps and tears their formFields and components down. */
+  private drop(nodes: readonly SequenceNode[]): void {
+    const memo = this.memo();
+    for (const node of nodes) {
+      if (!isFlowStep(node)) memo.get(node)?.destroy();
+    }
+    this.memo.set(without(memo, nodes));
   }
 
   private dockIsBehind(): boolean {
@@ -698,7 +716,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     for (const node of passSteps) {
       if (isFlowStep(node)) this.children.get(node)?.reset();
     }
-    this.memo.update((memo) => without(memo, passSteps));
+    this.drop(passSteps);
     if (this.lastShown && steps.indexOf(this.lastShown) < flow.dockAt) this.lastShown = null;
     this.flow.shared.reset();
     ring.openPass();
@@ -721,7 +739,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     for (const candidate of dropped) {
       if (isFlowStep(candidate)) this.children.get(candidate)?.reset();
     }
-    this.memo.update((memo) => without(memo, dropped));
+    this.drop(dropped);
     if (this.lastShown && steps.indexOf(this.lastShown) >= origin) this.lastShown = null;
   }
 
@@ -790,7 +808,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       committedBelow: () => this.notifyCommitted(),
     };
 
-    return new FormadStepperController(node.flow, { environment: this.environment, outlet });
+    return new FormadStepperController(node.flow, { environment: this.environment, injector: this.injector, outlet });
   }
 
   private pagesFor(node: StepNode): readonly PageNode[] {
@@ -830,6 +848,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       pool: resolved.configs,
       shared: this.flow.shared,
       environment: this.environment,
+      injector: this.injector,
       entry: this.inContext(() => this.entryContext(node)),
     });
     this.memo.update((memo) => new Map(memo).set(node, live));

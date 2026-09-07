@@ -1,11 +1,20 @@
-import { computed, EnvironmentInjector, runInInjectionContext, Signal } from '@angular/core';
+import {
+  ApplicationRef,
+  ComponentRef,
+  computed,
+  createComponent,
+  EnvironmentInjector,
+  Injector,
+  runInInjectionContext,
+  Signal,
+} from '@angular/core';
 import { ValidationError } from '@angular/forms/signals';
-import { CUSTOM_FIELD, isGetter } from 'formodel';
-import { FormNode, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
+import { CUSTOM_FIELD } from 'formodel';
+import { ComponentNode, FormNode, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
 import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
+import { read } from '../form-config/live';
 import { FieldLeaf, FieldLevel, FormState, instantiateRuntimeForm, isLevel } from '../renderer/instantiate-form';
-import { BoundOutputEffect } from '../renderer/output-effect';
 import { InstanceRegistry } from '../registry/instance-registry';
 import { SharedState } from '../sync/shared-state';
 
@@ -16,13 +25,11 @@ export interface StepIssue {
   readonly message: string;
 }
 
-/** One placed form turned live: its state, effects, visibility, issues and the seed/commit/touch actions. */
+/** One placed form turned live: its state, visibility, issues and the seed/commit/touch actions. */
 export interface LiveForm {
   readonly name: string;
 
   readonly state: FormState;
-
-  readonly effects: readonly BoundOutputEffect[];
 
   readonly visible: Signal<boolean>;
 
@@ -35,29 +42,35 @@ export interface LiveForm {
   touch(): void;
 }
 
-/** A step turned live: its registry, forms, environment, instances by pool name and resolved pages. */
+/** A step turned live: its registry, forms, the page components' host elements by node, instances by pool name and pages. */
 export interface LiveStep {
   readonly registry: InstanceRegistry;
 
   readonly forms: readonly LiveForm[];
 
-  readonly environment: EnvironmentInjector;
+  readonly components: ReadonlyMap<ComponentNode, Node[][]>;
 
   readonly instances: Readonly<Record<string, FormState>>;
 
   readonly pages: readonly PageNode[];
+
+  destroy(): void;
 }
 
-/** The form nodes the pages place, in order, rows included. */
-export function formNodes(pages: readonly PageNode[]): FormNode[] {
-  const walk = (nodes: readonly LayoutNode[]): FormNode[] =>
+function walkPages<N extends LayoutNode>(pages: readonly PageNode[], kind: N['kind']): N[] {
+  const walk = (nodes: readonly LayoutNode[]): N[] =>
     nodes.flatMap((node) => {
-      if (node.kind === LayoutNodeKind.Form) return [node];
+      if (node.kind === kind) return [node as N];
 
       return node.kind === LayoutNodeKind.Row ? walk(node.children) : [];
     });
 
   return pages.flatMap((page) => walk(page.children));
+}
+
+/** The form nodes the pages place, in order, rows included. */
+export function formNodes(pages: readonly PageNode[]): FormNode[] {
+  return walkPages<FormNode>(pages, LayoutNodeKind.Form);
 }
 
 function fieldAt(root: FieldLevel, path: readonly string[]): FieldLeaf {
@@ -86,18 +99,22 @@ function issueLabel(error: ValidationError.WithFieldTree, state: FormState): str
   if ('props' in field.node || field.node.type === CUSTOM_FIELD) return field.key;
 
   const label = field.node.label;
-  if (label === undefined) return field.key;
 
-  return isGetter(label) ? label() : label;
+  return label === undefined ? field.key : read(label);
 }
 
-/** What a step materializes against: the resolved templates, the shared store, the flow environment and the entry context. */
+/**
+ * What a step materializes against: the resolved templates, the shared store, the flow environment, the element
+ * injector its components resolve through (the stepper's; the environment when there is none) and the entry context.
+ */
 export interface MaterializeOptions {
   readonly pool: Record<string, RuntimeFormConfig>;
 
   readonly shared: SharedState;
 
   readonly environment: EnvironmentInjector;
+
+  readonly injector?: Injector;
 
   readonly entry: RuntimeStepContext;
 }
@@ -108,14 +125,11 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
 
   const seed = node.initial?.(options.entry);
   const config = seed ? { ...template, model: () => ({ ...template.model(), ...seed }) } : template;
-  const state = runInInjectionContext(options.environment, () => instantiateRuntimeForm(config));
+  const state = runInInjectionContext(options.environment, () =>
+    instantiateRuntimeForm(config, { injector: options.injector, effects: node.effects, shared: options.shared }),
+  );
   const root = state.rootForm;
   const visible: Signal<boolean> = node.visibleWhen ? computed(node.visibleWhen) : computed(() => true);
-  const effects: BoundOutputEffect[] = node.effects.map((effect) => ({
-    path: effect.modelPath,
-    output: effect.output,
-    run: (payload) => effect.handler(payload, state.model),
-  }));
   const issues = computed<readonly StepIssue[]>(() =>
     root()
       .errorSummary()
@@ -125,7 +139,6 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
   return {
     name: node.name,
     state,
-    effects,
     visible,
     issues,
     seed: () => {
@@ -148,7 +161,20 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
   };
 }
 
-/** Instantiates a step's placed forms, registers them for completion and wires their shared links. */
+/** Creates a page's component as the step materializes; the view renders on the next tick and a slot projects its host. */
+function mountComponent(node: ComponentNode, options: MaterializeOptions): ComponentRef<unknown> {
+  const ref = createComponent(node.component, {
+    environmentInjector: options.environment,
+    elementInjector: options.injector ?? options.environment,
+    bindings: [...node.bindings],
+  });
+  options.environment.get(ApplicationRef).attachView(ref.hostView);
+  ref.changeDetectorRef.markForCheck();
+
+  return ref;
+}
+
+/** Instantiates a step's placed forms and components, registers the forms for completion and wires their shared links. */
 export function materializeStep(pages: readonly PageNode[], options: MaterializeOptions): LiveStep {
   const registry = new InstanceRegistry();
   const forms = formNodes(pages).flatMap((node) => {
@@ -160,13 +186,20 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
     registry.add({ rootForm: form.state.rootForm, visible: form.visible });
     form.seed();
   }
+  const mounted = walkPages<ComponentNode>(pages, LayoutNodeKind.Component).map(
+    (node) => [node, mountComponent(node, options)] as const,
+  );
 
   return {
     registry,
     forms,
-    environment: options.environment,
+    components: new Map(mounted.map(([node, ref]) => [node, [[ref.location.nativeElement as Node]]])),
     instances: Object.fromEntries(forms.map((form) => [form.name, form.state])),
     pages,
+    destroy: () => {
+      for (const form of forms) form.state.destroy();
+      for (const [, ref] of mounted) ref.destroy();
+    },
   };
 }
 

@@ -41,20 +41,3 @@ export interface LayoutAdapter {
 
   item(spec: ItemSpec): LayoutClasses;
 }
-
-/** Converts a camel-case style property to its CSSOM name; custom properties pass through. */
-export function cssPropertyName(property: string): string {
-  return property.startsWith('--')
-    ? property
-    : property.replace(/[A-Z]/g, (char) => `-${char.toLowerCase()}`);
-}
-
-/** Puts one resolved `LayoutClasses` on an element: classes appended, styles set inline. */
-export function applyLayoutClasses(el: HTMLElement, classes: LayoutClasses): void {
-  if (classes.class) el.className += (el.className ? ' ' : '') + classes.class;
-  if (!classes.style) return;
-
-  for (const [property, value] of Object.entries(classes.style)) {
-    el.style.setProperty(cssPropertyName(property), value);
-  }
-}

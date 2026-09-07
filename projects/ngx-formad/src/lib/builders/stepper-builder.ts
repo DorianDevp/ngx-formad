@@ -1,7 +1,7 @@
 import { Provider, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
-import { Reactive } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
+import { Live } from '../form-config/live';
 import { ControlTypeMap } from '../provide';
 import { FormState } from '../renderer/instantiate-form';
 import { SharedState } from '../sync/shared-state';
@@ -207,7 +207,7 @@ export type StepBuild<TForms, TCtx extends RuntimeStepContext, P> = (
 export interface StepOptions<TCtx extends RuntimeStepContext, N extends string = never> {
   readonly name?: N;
 
-  readonly label?: Reactive<string>;
+  readonly label?: Live<string>;
 
   readonly when?: StepCondition<TCtx>;
 
@@ -453,7 +453,7 @@ export type RuntimeStepper = Stepper;
 
 /** The parent-side options of a nested flow slot. */
 export interface FlowStepOptions<TCtx extends RuntimeStepContext> {
-  readonly label?: Reactive<string>;
+  readonly label?: Live<string>;
 
   readonly when?: StepCondition<TCtx>;
 

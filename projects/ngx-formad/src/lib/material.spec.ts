@@ -77,12 +77,13 @@ describe('Material adapter — field behaviour', () => {
     expect(el('mat-error')?.textContent?.trim()).toBe('Required');
   });
 
-  it('keeps the DOM flat — no field-outlet host, no per-field wrapper div', () => {
-    // The directive renders the control as the grid item itself.
-    expect(fixture.nativeElement.querySelector('ngx-formad-field-outlet')).toBeNull();
-    // The control host sits directly inside the grid container.
+  it('keeps the DOM flat — a display:contents slot, no per-field wrapper div', () => {
+    // The formField's host is projected through a slot that takes no layout of its own,
+    // so the host is the grid item and the grid container is one step above the slot.
     const control = el('mat-formad-text')!;
-    const parent = control.parentElement as HTMLElement;
-    expect(parent.style.display).toBe('grid');
+    const slot = control.parentElement as HTMLElement;
+    expect(slot.tagName.toLowerCase()).toBe('ngx-formad-slot');
+    expect(slot.style.display).toBe('contents');
+    expect((slot.parentElement as HTMLElement).style.display).toBe('grid');
   });
 });

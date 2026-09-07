@@ -1,5 +1,5 @@
 import { Binding, Type } from '@angular/core';
-import { Reactive } from 'formodel';
+import { Live } from '../form-config/live';
 import { ContentChild } from './content';
 import { LinkPair, OutputEffect } from './shared-link';
 import { DeferTrigger, RuntimeStepContext } from './step-context';
@@ -67,9 +67,9 @@ export type LayoutNode = ContentNode | ComponentNode | FormNode | RowNode;
 
 /** A page's heading and subheading (both may follow a signal) and its layout class. */
 export interface PageOptions {
-  readonly heading?: Reactive<string>;
+  readonly heading?: Live<string>;
 
-  readonly subheading?: Reactive<string>;
+  readonly subheading?: Live<string>;
 
   readonly layout?: string;
 }
@@ -100,7 +100,7 @@ export interface StepNode {
 
   readonly pages: readonly PageNode[] | DynamicPages;
 
-  readonly label?: Reactive<string>;
+  readonly label?: Live<string>;
 
   when?(ctx: RuntimeStepContext): boolean;
 

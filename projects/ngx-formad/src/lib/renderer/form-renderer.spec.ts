@@ -225,6 +225,26 @@ describe('FormRenderer — repeating arrays', () => {
     await pump(fixture);
     expect(inputs().length).toBe(0);
   });
+
+  it('keeps the later item, view and value, when an earlier one is removed', async () => {
+    button('Add item')!.click();
+    await pump(fixture);
+    button('Add item')!.click();
+    await pump(fixture);
+    expect(inputs().length).toBe(2);
+
+    inputs()[1].value = 'KEEP';
+    inputs()[1].dispatchEvent(new Event('input'));
+    await pump(fixture);
+    const second = inputs()[1];
+
+    // Items are keyed by their field tree, so removing the first leaves the second's view untouched.
+    button('Remove')!.click();
+    await pump(fixture);
+    expect(inputs().length).toBe(1);
+    expect(inputs()[0]).toBe(second);
+    expect(inputs()[0].value).toBe('KEEP');
+  });
 });
 
 type AB = { a: string; b: string };
@@ -446,7 +466,7 @@ describe('FormRenderer - placement under the default layout adapter', () => {
   });
 });
 
-// ── An outlet follows its node instead of freezing the first one ────────────
+// ── A swapped form shows its own formFields, not the first form's ───────────
 type Swapped = { v: string };
 const labelled = (label: string): FormConfig<Swapped> => ({
   model: () => ({ v: '' }),
@@ -467,14 +487,14 @@ class SwapHost {
   }
 }
 
-describe('FieldOutlet - a swapped config', () => {
-  it('re-renders the field when the config at the same key changes', async () => {
+describe('FormRenderer - a swapped form', () => {
+  it('shows the formField of the second form when the state at the same key changes', async () => {
     const fixture = TestBed.createComponent(SwapHost);
     await pump(fixture);
     expect(fixture.nativeElement.textContent).toContain('First form');
 
-    // The node key is the same ('v'), so the grid reuses the outlet - the control
-    // has to be rebuilt from the new config rather than kept with the old label.
+    // Both forms own their formFields from instantiation; the key is the same ('v'),
+    // but the render node is new, so the slot projects the second form's host.
     fixture.componentInstance.swap();
     await pump(fixture);
 

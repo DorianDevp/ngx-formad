@@ -1,40 +1,41 @@
-import { signal, untracked, WritableSignal } from '@angular/core';
-import { FieldTree, form } from '@angular/forms/signals';
-import { UiFormGroupConfig } from 'formodel';
+import {
+  ApplicationRef,
+  computed,
+  DestroyRef,
+  EnvironmentInjector,
+  inject,
+  Injector,
+  signal,
+  WritableSignal,
+} from '@angular/core';
+import { form } from '@angular/forms/signals';
+import { OutputEffect } from '../builders/shared-link';
 import {
   buildLayoutNodes,
   buildNodes,
   ErasedUi,
   FieldConfig,
   FormConfig,
+  FormLayoutContext,
   flattenFields,
+  LiveUiConfig,
   RenderNode,
   RuntimeFormConfig,
 } from '../form-config/form-config';
 import { LayoutSpec } from '../layout/layout-adapter';
+import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
+import { FormadWizard } from '../runtime/wizard-context';
+import { SharedState } from '../sync/shared-state';
+import { FieldLevel } from './field-tree';
+import { buildLevel, disposeAll, FormLevel, ViewScope } from './form-view';
 
-/** A field tree over an object value: its children are reachable by model key. */
-export type FieldLevel<M extends Record<string, unknown> = Record<string, unknown>> = FieldTree<M>;
+export type { FieldItems, FieldLeaf, FieldLevel } from './field-tree';
+export { isItems, isLevel } from './field-tree';
 
-/** A field tree over one value, as the renderer hands it to a control. */
-export type FieldLeaf<V = unknown> = FieldTree<V>;
-
-/** A field tree over an array value: its items are reachable by index. */
-export type FieldItems<V = unknown> = FieldTree<V[]>;
-
-/** Narrows a field tree to an object level from its current value, read outside any reactive context. */
-export function isLevel(tree: FieldLeaf): tree is FieldLevel {
-  const value = untracked(() => tree().value());
-
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** Narrows a field tree to a repeating group's items from its current value, read outside any reactive context. */
-export function isItems(tree: FieldLeaf): tree is FieldItems {
-  return Array.isArray(untracked(() => tree().value()));
-}
-
-/** A live form: its model signal, the erased field tree the renderer walks, the authored ui, render tree and leaves. */
+/**
+ * A live form: its model signal, the field tree, the authored ui, the render tree and leaves, and the view built
+ * with them, formFields included. `destroy` tears the formFields down; `instantiateForm` ties that to its host.
+ */
 export interface FormState<
   M extends Record<string, unknown> = Record<string, unknown>,
   U extends ErasedUi = ErasedUi,
@@ -50,6 +51,19 @@ export interface FormState<
   readonly fields: readonly FieldConfig[];
 
   readonly grid?: LayoutSpec;
+
+  readonly view: FormLevel;
+
+  destroy(): void;
+}
+
+/** What a form is instantiated with beyond its config: the injector its formFields see, their output effects, the shared store. */
+export interface InstantiateOptions {
+  readonly injector?: Injector;
+
+  readonly effects?: readonly OutputEffect[];
+
+  readonly shared?: SharedState | null;
 }
 
 function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'fields' | 'grid'> {
@@ -62,21 +76,53 @@ function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'field
   };
 }
 
-/** Builds live form state from a typed config; must run inside an injection context. */
-export function instantiateForm<M extends Record<string, unknown>, U extends UiFormGroupConfig<M> & ErasedUi>(
-  config: FormConfig<M, U> & RuntimeFormConfig,
+/** Builds the state over the erased template; the typed `model` and `ui` ride along under `M` and `U`. */
+function createState<M extends Record<string, unknown>, U extends ErasedUi>(
+  config: { model(): M; readonly ui: U } & RuntimeFormConfig,
+  options: InstantiateOptions,
 ): FormState<M, U> {
   const model = signal(config.model());
-  const erased: FormState['model'] = model;
+  const erased: WritableSignal<Record<string, unknown>> = model;
   const schema = config.schema;
+  const rootForm: FieldLevel = schema ? form(erased, schema) : form(erased);
+  const tree = renderTree(config);
 
-  return { model, rootForm: schema ? form(erased, schema) : form(erased), ui: config.ui, ...renderTree(config) };
+  const injector = options.injector ?? inject(Injector);
+  const shared = options.shared ?? injector.get(FormadWizard, null)?.sharedOrNull() ?? null;
+  const disposers = new Set<() => void>();
+  const scope: ViewScope = {
+    injector,
+    environment: injector.get(EnvironmentInjector),
+    appRef: injector.get(ApplicationRef),
+    controls: injector.get(CONTROL_ADAPTER),
+    layout: injector.get(LAYOUT_ADAPTER),
+    context: computed<FormLayoutContext>(() => ({ model: erased(), shared })),
+    model: erased,
+    effects: options.effects ?? [],
+    disposers,
+  };
+
+  return {
+    model,
+    rootForm,
+    ui: config.ui,
+    ...tree,
+    view: buildLevel(tree.nodes, rootForm, tree.grid ?? {}, scope),
+    destroy: () => disposeAll(disposers),
+  };
 }
 
-/** Builds live form state from a runtime template; must run inside an injection context. */
-export function instantiateRuntimeForm(config: RuntimeFormConfig): FormState {
-  const model = signal(config.model());
-  const schema = config.schema;
+/** Builds a live form from a typed config, formFields included; runs in an injection context and goes with its host. */
+export function instantiateForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi>(
+  config: FormConfig<M, U> & RuntimeFormConfig,
+): FormState<M, U> {
+  const state = createState<M, U>(config, {});
+  inject(DestroyRef).onDestroy(() => state.destroy());
 
-  return { model, rootForm: schema ? form(model, schema) : form(model), ui: config.ui, ...renderTree(config) };
+  return state;
+}
+
+/** Builds a live form from a runtime template; runs in an injection context, and the caller owns `destroy`. */
+export function instantiateRuntimeForm(config: RuntimeFormConfig, options: InstantiateOptions = {}): FormState {
+  return createState<Record<string, unknown>, ErasedUi>(config, options);
 }

@@ -184,7 +184,7 @@ const articleForm: FormConfig<Article> = {
 
 @Component({
   imports: [FormRenderer],
-  template: `<ngx-formad-form [state]="state" [layout]="{ cols: 2, gap: 4 }" />`,
+  template: `<ngx-formad-form [state]="state" />`,
 })
 export class ArticleEditor {
   // `instantiateForm` calls native `form()`, so it runs here, in an injection context.
@@ -1188,21 +1188,18 @@ const state = instantiateForm(addressForm);
 state.ui.country.options.set(await api.countries()); // the rendered select updates
 ```
 
-Configs built with formodel's fluent builder work too — thread the signal through the
-plain-typed helpers with `reactive(...)`, and keep your own reference to seed it:
+formodel itself stays plain and framework-agnostic: its helpers (`select`, `text`, …)
+take values, not signals. The widening lives in ngx-formad's `Live<T>` type, which
+`FormConfig` applies over the whole ui, so a field whose prop should follow a signal is
+authored as a literal node, like `country` above, next to builder-made siblings.
 
-```ts
-ui: UiFormConfigBuilder.from({ country: '' })
-  .country(select('Country', reactive(countries))),
-```
-
-This costs nothing where you don't use it: the widening is type-level, and a
-signal/`computed` exists only for a prop you actually authored as one — static
-configs render exactly as before. Structural config stays static by design (`type`,
+This costs nothing where you don't use it: the widening is type-level, and a prop
+authored as a value is bound as a value. Only a *derived* prop (mapped select options,
+a date's bounds) is a `computed` either way. Structural config stays static by design (`type`,
 group/array shape): fields that appear and disappear are the schema's job
 (`hidden()`, below), not a prop binding. If you fold over `FormState.fields`
-yourself (say, for an error summary), read node props through `readReactive(...)`,
-which passes plain values through and unwraps signals.
+yourself (say, for an error summary), read node props through `read(...)`, which
+passes plain values through and calls a signal or getter.
 
 ## Conditional fields
 
@@ -1273,7 +1270,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `FormState<M>` | `{ model; rootForm: FieldTree<M>; nodes: RenderNode[]; fields: FieldConfig[] }` — `nodes` is the recursive render tree; `fields` are the flat leaves (each with `path`). |
 | `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` (nested) \| `ArrayNode`. `buildNodes(ui)` builds it. |
 | `asRenderable(state)` | The single, named widening from `FormState<M>` to the erased view the renderer consumes. |
-| `FormRenderer` | The `<ngx-formad-form [state] [layout] />` component. Pure view — no `form()` call. |
+| `FormRenderer` | The `<ngx-formad-form [state] />` component. Pure view — the formFields were created with the state. |
 
 ### Author a multi-step wizard
 

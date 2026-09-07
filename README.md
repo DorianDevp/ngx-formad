@@ -38,7 +38,7 @@ projects/ngx-formad/
     layout/       layout adapter + zero-dependency CSS-grid default
     controls/     control adapter + zero-dependency plain-HTML controls
     form-config/  the formodel-backed field description the renderer consumes
-    renderer/     instantiate a form, then draw it (FormRenderer, outlets)
+    renderer/     instantiate a form, formFields included, then draw its view (FormRenderer, NodesView)
     sync/         cross-step shared state + the directional sync engine
     registry/     the signal-backed instance registry + completion fold
     builders/     the typed StepperBuilder chain and its node tree

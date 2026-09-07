@@ -1,5 +1,5 @@
 import { Provider } from '@angular/core';
-import { Reactive } from 'formodel';
+import { Live } from '../form-config/live';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
 import { SequenceNodeKind, StepNode } from './nodes';
@@ -48,7 +48,7 @@ export interface FlowStepNode {
 
   readonly flow: RuntimeFlow;
 
-  readonly label?: Reactive<string>;
+  readonly label?: Live<string>;
 
   when?(ctx: RuntimeStepContext): boolean;
 

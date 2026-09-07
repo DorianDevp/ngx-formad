@@ -1,5 +1,5 @@
 import { isSignal, signal } from '@angular/core';
-import { isGetter, UiFormConfigBuilder, UiFormControlNode, email, select, text } from 'formodel';
+import { UiFormConfigBuilder, email, select, text } from 'formodel';
 import {
   buildLayoutNodes,
   buildNodes,
@@ -9,10 +9,12 @@ import {
   FormRowNode,
   flattenFields,
   GroupNode,
+  LiveControlNode,
   RenderNodeKind,
   SelectOption,
 } from './form-config';
 import { formLayout } from './form-layout';
+import { read } from './live';
 
 type Names = { first: string; last: string; password: string };
 
@@ -70,7 +72,7 @@ describe('extraInputsFor', () => {
       { value: 'user', description: 'User' },
     ]);
 
-    expect(extraInputsFor(node)['options']).toEqual([
+    expect(read(extraInputsFor(node)['options'])).toEqual([
       { value: 'admin', label: 'Admin' },
       { value: 'user', label: 'User' },
     ]);
@@ -82,34 +84,35 @@ describe('extraInputsFor', () => {
   });
 });
 
-describe('extraInputsFor - reactive props', () => {
-  it('maps signal-backed select options through a live computed', () => {
+describe('extraInputsFor - live props', () => {
+  it('follows signal-backed select options through a computed', () => {
     const options = signal<SelectOption[]>([{ value: 'admin', description: 'Admin' }]);
-    const node: UiFormControlNode = { type: 'select', label: 'Role', options };
+    const node: LiveControlNode = { type: 'select', label: 'Role', options };
 
     const mapped = extraInputsFor(node)['options'];
 
     expect(isSignal(mapped)).toBe(true);
-    expect(isGetter(mapped) ? mapped() : mapped).toEqual([{ value: 'admin', label: 'Admin' }]);
+    expect(read(mapped)).toEqual([{ value: 'admin', label: 'Admin' }]);
 
     options.set([
       { value: 'admin', description: 'Admin' },
       { value: 'user', description: 'User' },
     ]);
-    expect(isGetter(mapped) ? mapped() : mapped).toEqual([
+    expect(read(mapped)).toEqual([
       { value: 'admin', label: 'Admin' },
       { value: 'user', label: 'User' },
     ]);
   });
 
-  it('threads a signal through formodel builder helpers', () => {
-    const options = signal<SelectOption[]>([{ value: 'a', description: 'A' }]);
-    const node = select('Role', options);
+  it('reads a live label and a plain one alike', () => {
+    const label = signal('Role');
+    const node: LiveControlNode = { type: 'text', label };
 
-    const mapped = extraInputsFor(node)['options'];
+    expect(read(extraInputsFor(node)['label'])).toBe('Role');
 
-    expect(isSignal(mapped)).toBe(true);
-    expect(isGetter(mapped) ? mapped() : mapped).toEqual([{ value: 'a', label: 'A' }]);
+    label.set('Function');
+    expect(read(extraInputsFor(node)['label'])).toBe('Function');
+    expect(read(extraInputsFor(text('Name'))['label'])).toBe('Name');
   });
 });
 

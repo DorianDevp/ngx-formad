@@ -98,14 +98,16 @@ export class FormLayoutBuilder<M extends Record<string, unknown>> {
     const cfg = typeof spec === 'function' ? { component: spec, inputs: undefined } : spec;
     const inputs: I | undefined = cfg.inputs;
     const reads: Record<string, ControlOverride<M>['inputs'][string]> = {};
+
     if (inputs) {
       for (const name in inputs) {
-        const input = inputs[name];
+        const input = inputs?.[name];
         if (input === undefined) continue;
 
         reads[name] = isContextual(input) ? { read: input } : { read: () => input };
       }
     }
+
     this.items = [
       ...this.items,
       {

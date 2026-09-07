@@ -1,5 +1,5 @@
 import { Binding, InputSignal, inputBinding, OutputEmitterRef, outputBinding } from '@angular/core';
-import { isGetter, Reactive } from 'formodel';
+import { Live, read } from '../form-config/live';
 
 /** The keys of `C` that are signal inputs. */
 export type InputKeys<C> = {
@@ -17,13 +17,13 @@ export type InputVal<C, K extends keyof C> = C[K] extends InputSignal<infer V> ?
 /** The event type of output `K` of `C`. */
 export type OutputVal<C, K extends keyof C> = C[K] extends OutputEmitterRef<infer V> ? V : never;
 
-/** The reactive inputs a dynamic component may receive. */
-export type ComponentInputs<C> = { readonly [K in InputKeys<C>]?: Reactive<InputVal<C, K>> };
+/** The inputs a dynamic component may receive, each possibly live. */
+export type ComponentInputs<C> = { readonly [K in InputKeys<C>]?: Live<InputVal<C, K>> };
 
 /** The output handlers a dynamic component may receive. */
 export type ComponentOutputs<C> = { readonly [K in OutputKeys<C>]?: (event: OutputVal<C, K>) => void };
 
-/** Reactive inputs, output handlers, visibility and layout class for one dynamic component. */
+/** Inputs, output handlers, visibility and layout class for one dynamic component. */
 export interface ComponentCfg<C> {
   readonly inputs?: ComponentInputs<C>;
 
@@ -46,7 +46,7 @@ export function toBindings<C, I extends ComponentInputs<C>, O extends ComponentO
       const value = inputs[name];
       if (value === undefined) continue;
 
-      bindings.push(inputBinding(name, isGetter(value) ? value : () => value));
+      bindings.push(inputBinding(name, () => read(value)));
     }
   }
   if (outputs) {

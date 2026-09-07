@@ -10,7 +10,7 @@ import {
   untracked,
 } from '@angular/core';
 import { ContentAttr, ContentChild, ContentChildKind, ContentTagChild, isContentTag } from '../builders/content';
-import { isGetter, Reactive } from 'formodel';
+import { Live, read } from '../form-config/live';
 
 const BOOLEAN_ATTRS = new Set([
   'autofocus',
@@ -163,13 +163,14 @@ export class ContentView {
     });
   }
 
-  private bind<V>(source: Reactive<V>, apply: (value: V) => void): void {
-    if (!isGetter(source)) {
+  /** A constant is applied once; a live value is applied now and then followed by its own effect. */
+  private bind<V>(source: Live<V>, apply: (value: V) => void): void {
+    if (typeof source !== 'function') {
       apply(source);
 
       return;
     }
-    apply(untracked(source));
-    this.bindings = [...this.bindings, effect(() => apply(source()), { injector: this.injector })];
+    apply(untracked(() => read(source)));
+    this.bindings = [...this.bindings, effect(() => apply(read(source)), { injector: this.injector })];
   }
 }

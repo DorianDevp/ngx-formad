@@ -1,7 +1,6 @@
 import { Component, computed, effect, EnvironmentInjector, inject, input, OnInit, output, signal, untracked } from '@angular/core';
 import { FieldTree } from '@angular/forms/signals';
-import { isGetter } from 'formodel';
-import { FormadStepperController, FormRenderer, RuntimeStepper, StepperController } from 'ngx-formad';
+import { FormadStepperController, FormRenderer, read, RuntimeStepper, StepperController } from 'ngx-formad';
 import { FlowTheme } from './theme';
 
 /** One field's current error, as the validation summary lists it. */
@@ -150,7 +149,7 @@ export class WizardHost implements OnInit {
         if (errors.length) {
           const label = 'label' in field.node ? field.node.label : undefined;
           out.push({
-            label: label === undefined ? field.key : isGetter(label) ? label() : label,
+            label: label === undefined ? field.key : read(label),
             message: errors[0]?.message ?? 'Invalid value',
           });
         }
