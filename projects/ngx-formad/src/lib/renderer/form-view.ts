@@ -1,13 +1,11 @@
 import {
-  ApplicationRef,
   computed,
-  createComponent,
   EnvironmentInjector,
   Injector,
   inputBinding,
+  linkedSignal,
   outputBinding,
   Signal,
-  signal,
   Type,
   WritableSignal,
 } from '@angular/core';
@@ -28,18 +26,17 @@ import {
   RenderNodeKind,
 } from '../form-config/form-config';
 import { read } from '../form-config/live';
-import { ItemSpec, LayoutAdapter, LayoutClasses, LayoutSpec } from '../layout/layout-adapter';
+import { GridLayout, GridPlacement, LayoutAdapter, LayoutClasses } from '../layout/layout-adapter';
 import { LayoutItem } from '../layout/layout-item';
 import { FieldItems, FieldLeaf, FieldLevel, isItems, isLevel } from './field-tree';
+import { COMPONENT_MOUNT, ComponentMount } from './mount-point';
 
-/** What a form's view is built against, captured once where the form is instantiated. */
+/** What a form's view is built against, captured once where the form is instantiated; `context` feeds the content gates. */
 export interface ViewScope {
   /** The element injector the formFields resolve through: the host's, or the stepper's. */
   readonly injector: Injector;
 
   readonly environment: EnvironmentInjector;
-
-  readonly appRef: ApplicationRef;
 
   readonly controls: ControlAdapter;
 
@@ -50,9 +47,6 @@ export interface ViewScope {
   readonly model: WritableSignal<Record<string, unknown>>;
 
   readonly effects: readonly OutputEffect[];
-
-  /** Tears down what this scope created; a nested scope registers here and unregisters when it goes early. */
-  readonly disposers: Set<() => void>;
 }
 
 /** One level of a form's view: its grid and the rows worth drawing right now. */
@@ -62,13 +56,13 @@ export interface FormLevel {
   readonly rows: Signal<readonly ViewRow[]>;
 }
 
-/** A formField's row; `content` is its host element, for projection where the row stands. */
+/** A formField's row; `injector` hands the mount point what to create. */
 export interface ControlRow {
   readonly kind: RenderNodeKind.Control;
 
   readonly node: ControlNode;
 
-  readonly content: Node[][];
+  readonly injector: Injector;
 }
 
 /** A nested group with its own level. */
@@ -102,14 +96,14 @@ export interface ContentRow {
   readonly item: LayoutClasses;
 }
 
-/** One item of a repeating group: its field tree, which keys the view, and its level. */
+/** One item of a repeating group: its field tree and its level. */
 export interface ArrayItem {
   readonly tree: FieldLevel;
 
   readonly level: FormLevel;
 }
 
-/** A repeating group; items change through `add` and `remove`, which also create and tear down their formFields. */
+/** A repeating group; `items` follows the field's value, `add` and `remove` write to it. */
 export interface ArrayRow {
   readonly kind: RenderNodeKind.Array;
 
@@ -132,30 +126,12 @@ interface Entry {
   readonly visible: Signal<boolean>;
 }
 
-/** Runs every disposer once, tolerating disposers that remove themselves. */
-export function disposeAll(disposers: Set<() => void>): void {
-  for (const dispose of [...disposers]) dispose();
-  disposers.clear();
-}
-
-/** A scope whose creations can go on their own, and still go with the parent. */
-function childScope(scope: ViewScope): { readonly scope: ViewScope; dispose(): void } {
-  const disposers = new Set<() => void>();
-  const dispose = (): void => {
-    scope.disposers.delete(dispose);
-    disposeAll(disposers);
-  };
-  scope.disposers.add(dispose);
-
-  return { scope: { ...scope, disposers }, dispose };
-}
-
 function samePath(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((segment, index) => segment === b[index]);
 }
 
-function itemOf(scope: ViewScope, spec: ItemSpec | undefined): LayoutClasses {
-  return scope.layout.item(spec ?? {});
+function itemOf(scope: ViewScope, placement: GridPlacement | undefined): LayoutClasses {
+  return scope.layout.item(placement ?? {});
 }
 
 /** A group's or array's placement: the block class first, and a full-row span when nothing placed it. */
@@ -169,7 +145,7 @@ function blockItem(base: string, placement: LayoutClasses): LayoutClasses {
 function componentFor(node: ControlNode, controls: ControlAdapter): Type<object> {
   if (node.control) return node.control.component;
   if (node.node.type === CUSTOM_FIELD) {
-    throw new Error(`ngx-formad: field "${node.key}" is a customField(); place it with formLayout().control(key, Component).`);
+    throw new Error(`ngx-formad: field "${node.key}" is a customField(); place it with formLayout().control(key, config).`);
   }
 
   const component = controls.controlFor(node.node.type) ?? controls.controlFor('text');
@@ -178,36 +154,30 @@ function componentFor(node: ControlNode, controls: ControlAdapter): Type<object>
   return component;
 }
 
-/**
- * Creates a field's formField: `FormField` on the host bound to the field, `LayoutItem` for its placement, the node's
- * inputs and its output effects. The view is attached to the application and rendered on the next tick; a slot
- * projects the host element wherever the row stands, and the element outlives the row.
- */
-function createFormField(node: ControlNode, field: FieldLeaf, scope: ViewScope): Node[][] {
-  const item = itemOf(scope, node.layout);
+/** A field's formField as its mount point will create it: `FormField` bound to the field, `LayoutItem` placing it, the inputs and output effects. */
+function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): ComponentMount {
+  const placement = itemOf(scope, node.layout);
   const inputs = node.control
-    ? Object.entries(node.control.inputs).map(([name, input]) =>
-        inputBinding(name, () => input.read(scope.context())),
-      )
+    ? (node.control.bindings ?? [])
     : Object.entries(extraInputsFor(node.node)).map(([name, value]) => inputBinding(name, () => read(value)));
   const outputs = scope.effects
     .filter((effect) => samePath(effect.modelPath, node.path))
     .map((effect) => outputBinding(effect.output, (payload) => effect.handler(payload, scope.model)));
 
-  const ref = createComponent(componentFor(node, scope.controls), {
-    environmentInjector: scope.environment,
-    elementInjector: scope.injector,
+  return {
+    component: componentFor(node, scope.controls),
     directives: [
       { type: FormField, bindings: [inputBinding('formField', () => field)] },
-      { type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => item)] },
+      { type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => placement)] },
     ],
     bindings: [...inputs, ...outputs],
-  });
-  scope.appRef.attachView(ref.hostView);
-  ref.changeDetectorRef.markForCheck();
-  scope.disposers.add(() => ref.destroy());
+    environment: scope.environment,
+  };
+}
 
-  return [[ref.location.nativeElement]];
+/** The injector a row hands `NgComponentOutlet`: the mount for its mount point, over the scope's element injector. */
+export function mountInjector(mount: ComponentMount, parent: Injector): Injector {
+  return Injector.create({ providers: [{ provide: COMPONENT_MOUNT, useValue: mount }], parent });
 }
 
 type BlankValue = string | boolean | null | BlankItem | BlankValue[];
@@ -247,44 +217,29 @@ function blankItem(nodes: readonly RenderNode[]): BlankItem {
   return Object.fromEntries(nodes.flatMap((node) => blankEntries(node)));
 }
 
-/** A repeating group's row. Items and their formFields come and go through `add` and `remove` only. */
+/** A repeating group's row: one item per element of the value, kept across writes while its field tree stays. */
 function arrayRow(node: ArrayNode, field: FieldItems, scope: ViewScope): ArrayRow {
   const state = field();
-  const disposals = new Map<ArrayItem, () => void>();
-
-  const itemAt = (index: number): ArrayItem => {
-    const tree = field[index];
+  const itemAt = (tree: FieldLeaf | undefined, index: number): ArrayItem => {
     if (tree === undefined || !isLevel(tree)) {
       throw new Error(`ngx-formad: item ${index} of "${node.key}" needs an object value.`);
     }
-    const child = childScope(scope);
-    const item: ArrayItem = { tree, level: buildLevel(node.item, tree, {}, child.scope) };
-    disposals.set(item, child.dispose);
 
-    return item;
+    return { tree, level: buildLevel(node.item, tree, {}, scope) };
   };
-
-  const items = signal<readonly ArrayItem[]>(Array.from({ length: state.value().length }, (_, index) => itemAt(index)));
+  const items = linkedSignal<readonly (FieldLeaf | undefined)[], readonly ArrayItem[]>({
+    source: () => Array.from(field),
+    computation: (trees, previous) =>
+      trees.map((tree, index) => previous?.value.find((item) => item.tree === tree) ?? itemAt(tree, index)),
+  });
 
   return {
     kind: RenderNodeKind.Array,
     node,
     items,
     item: blockItem('ngx-formad-array', itemOf(scope, node.layout)),
-    add: () => {
-      state.value.update((current) => [...current, blankItem(node.item)]);
-      const added = itemAt(items().length);
-      items.update((current) => [...current, added]);
-    },
-    remove: (index) => {
-      const removed = items()[index];
-      if (removed === undefined) return;
-
-      state.value.update((current) => current.filter((_, at) => at !== index));
-      items.update((current) => current.filter((_, at) => at !== index));
-      disposals.get(removed)?.();
-      disposals.delete(removed);
-    },
+    add: () => state.value.update((current) => [...current, blankItem(node.item)]),
+    remove: (index) => state.value.update((current) => current.filter((_, at) => at !== index)),
   };
 }
 
@@ -296,8 +251,7 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
       row: { kind: node.kind, node, item: itemOf(scope, node.layout) },
       visible: computed(() => node.visibleWhen?.(scope.context()) ?? true),
     };
-  }
-  if (node.kind === RenderNodeKind.Row) {
+  } else if (node.kind === RenderNodeKind.Row) {
     const level = buildLevel(node.children, tree, node.grid, scope);
 
     return {
@@ -306,14 +260,21 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
     };
   }
 
+  if (!Object.hasOwn(tree, node.key)) {
+    throw new Error(`ngx-formad: the form model has no field "${node.key}" in tree`);
+  }
+
   const field = tree[node.key];
-  if (field === undefined) throw new Error(`ngx-formad: the form model has no field "${node.key}".`);
+  if (field === undefined) throw new Error(`
+    ngx-formad: the form model field "${node.key}" is empty in tree.
+  `);
+
   const shown = (): boolean => !field().hidden();
 
   switch (node.kind) {
     case RenderNodeKind.Control:
       return {
-        row: { kind: node.kind, node, content: createFormField(node, field, scope) },
+        row: { kind: node.kind, node, injector: mountInjector(fieldMount(node, field, scope), scope.injector) },
         visible: computed(shown),
       };
     case RenderNodeKind.Group: {
@@ -334,10 +295,11 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
 }
 
 /**
- * Builds one level of a form's view over its nodes and field tree, formFields included, and hands back the grid and
- * a computed of the rows currently worth drawing: hidden fields, gated content and levels with nothing to show drop out.
+ * Builds one level of a form's view over its nodes and field tree, and hands back the grid and a computed of the rows
+ * currently worth drawing: hidden fields, gated content and levels with nothing to show drop out. A formField is
+ * described here and created by its row's mount point, so a hidden field has none.
  */
-export function buildLevel(nodes: readonly RenderNode[], tree: FieldLevel, grid: LayoutSpec, scope: ViewScope): FormLevel {
+export function buildLevel(nodes: readonly RenderNode[], tree: FieldLevel, grid: GridLayout, scope: ViewScope): FormLevel {
   const entries = nodes.flatMap((node) => {
     const entry = entryOf(node, tree, scope);
 

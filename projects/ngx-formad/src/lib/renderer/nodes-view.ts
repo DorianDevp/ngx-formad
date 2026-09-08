@@ -3,13 +3,13 @@ import { Component, input } from '@angular/core';
 import { RenderNodeKind } from '../form-config/form-config';
 import { ContentView } from './content-view';
 import { FormLevel } from './form-view';
-import { FormadSlot } from './slot';
+import { MountPoint } from './mount-point';
 
 /**
  * Draws one level of a form's view and recurses into groups, rows and array items.
  *
- * Everything shown here was decided when the form was instantiated: the rows are a computed over the level, the
- * formFields already exist, and a slot only projects a formField's host element where its row stands.
+ * Everything shown here was decided when the form was instantiated: the rows are a computed over the level, and a
+ * row's mount point creates its formField where the row stands, from the mount the row provides.
  */
 @Component({
   selector: 'ngx-formad-nodes',
@@ -20,7 +20,7 @@ import { FormadSlot } from './slot';
       @for (row of level().rows(); track row.node) {
         @switch (row.kind) {
           @case (kinds.Control) {
-            <ng-container *ngComponentOutlet="slot; content: row.content" />
+            <ng-container *ngComponentOutlet="mountPoint; injector: row.injector" />
           }
           @case (kinds.Group) {
             <fieldset [class]="row.item.class" [style]="row.item.style">
@@ -72,5 +72,5 @@ export class NodesView {
 
   protected readonly kinds = RenderNodeKind;
 
-  protected readonly slot = FormadSlot;
+  protected readonly mountPoint = MountPoint;
 }

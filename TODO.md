@@ -53,10 +53,9 @@ A `FormConfig` has three parts. JSON gets you two for free; the third is the rea
 Content blocks paint through `Renderer2` from an effect, so they take part in change
 detection and *do* appear in server-rendered output - but nothing verifies what
 hydration makes of imperatively created children under an empty-template component.
-FormFields and page components are created with `createComponent()` when a form or
-step is instantiated, attached to `ApplicationRef`, and projected into their slots by
-`NgComponentOutlet`; they render on the server too, but nothing verifies hydration of
-a projected, application-attached host element yet.
+FormFields and page components are created by a `MountPoint` component's constructor
+through `ViewContainerRef.createComponent` as their row appears; they render on the
+server too, but nothing verifies hydration of that path yet.
 
 - [ ] An SSR + hydration smoke test (prerender a wizard step with `addContent`, then
   hydrate) - decide whether content adopts the server DOM or has to be reclaimed.

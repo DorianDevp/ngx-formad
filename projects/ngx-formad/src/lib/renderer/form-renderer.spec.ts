@@ -1,7 +1,7 @@
-import { Component, signal } from '@angular/core';
+import { Component, input, inputBinding, model, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { hidden } from '@angular/forms/signals';
-import { array, UiFormConfigBuilder, email, text, select } from 'formodel';
+import { FormValueControl, hidden } from '@angular/forms/signals';
+import { array, customField, UiFormConfigBuilder, email, text, select } from 'formodel';
 import { defineForm, FormConfig, SelectOption } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { FormRenderer } from './form-renderer';
@@ -244,6 +244,14 @@ describe('FormRenderer — repeating arrays', () => {
     expect(inputs().length).toBe(1);
     expect(inputs()[0]).toBe(second);
     expect(inputs()[0].value).toBe('KEEP');
+  });
+
+  it('draws an item written into the model, not only one added through the button', async () => {
+    fixture.componentInstance.state.model.update((model) => ({ items: [...model.items, { sku: 'Z-9' }] }));
+    await pump(fixture);
+
+    expect(inputs().length).toBe(1);
+    expect(inputs()[0].value).toBe('Z-9');
   });
 });
 
@@ -501,5 +509,83 @@ describe('FormRenderer - a swapped form', () => {
     expect(fixture.nativeElement.textContent).toContain('Second form');
     expect(fixture.nativeElement.textContent).not.toContain('First form');
     expect(fixture.nativeElement.querySelectorAll('input')).toHaveLength(1);
+  });
+});
+
+// ── formLayout().control(): a component of your own on a field, with its own bindings ──
+@Component({
+  selector: 'stars-picker',
+  template: `<button type="button" class="stars" (click)="value.set(value() + 1)">{{ value() }} / {{ stars() }}</button>`,
+})
+class StarsPicker implements FormValueControl<number> {
+  value = model(0);
+  // `max` itself is a FormUiControl input FormField binds from the schema; a presentational input needs its own name.
+  stars = input(5);
+}
+
+type Rated = { rating: number };
+const limit = signal(3);
+const ratedConfig: FormConfig<Rated> = {
+  model: () => ({ rating: 0 }),
+  ui: { rating: customField() },
+  layout: formLayout<Rated>()
+    .control('rating', { component: StarsPicker, bindings: [inputBinding('stars', limit)] })
+    .build(),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class RatedHost {
+  readonly state = instantiateForm(ratedConfig);
+}
+
+const bareConfig: FormConfig<Rated> = {
+  model: () => ({ rating: 0 }),
+  ui: { rating: customField() },
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class BareHost {
+  readonly state = instantiateForm(bareConfig);
+}
+
+describe('FormRenderer - formLayout().control()', () => {
+  let fixture: ComponentFixture<RatedHost>;
+
+  beforeEach(async () => {
+    limit.set(3);
+    fixture = TestBed.createComponent(RatedHost);
+    await pump(fixture);
+  });
+
+  const stars = () => fixture.nativeElement.querySelector('.stars') as HTMLButtonElement;
+
+  it('renders the placed component on the field with its bindings applied', () => {
+    expect(fixture.nativeElement.querySelector('stars-picker')).toBeTruthy();
+    expect(stars().textContent?.trim()).toBe('0 / 3');
+  });
+
+  it('binds the component to the field through FormField: an edit lands in the model', async () => {
+    stars().click();
+    await pump(fixture);
+
+    expect(fixture.componentInstance.state.model().rating).toBe(1);
+    expect(stars().textContent?.trim()).toBe('1 / 3');
+  });
+
+  it('follows a bound signal, as any input binding does', async () => {
+    limit.set(5);
+    await pump(fixture);
+
+    expect(stars().textContent?.trim()).toBe('0 / 5');
+  });
+
+  it('refuses a customField() that no control() placed, when the form is instantiated', () => {
+    expect(() => TestBed.createComponent(BareHost)).toThrow(/customField\(\); place it with formLayout\(\).control/);
   });
 });

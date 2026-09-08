@@ -1,13 +1,4 @@
-import {
-  ApplicationRef,
-  computed,
-  DestroyRef,
-  EnvironmentInjector,
-  inject,
-  Injector,
-  signal,
-  WritableSignal,
-} from '@angular/core';
+import { computed, EnvironmentInjector, inject, Injector, signal, WritableSignal } from '@angular/core';
 import { form } from '@angular/forms/signals';
 import { OutputEffect } from '../builders/shared-link';
 import {
@@ -22,20 +13,17 @@ import {
   RenderNode,
   RuntimeFormConfig,
 } from '../form-config/form-config';
-import { LayoutSpec } from '../layout/layout-adapter';
+import { GridLayout } from '../layout/layout-adapter';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { FormadWizard } from '../runtime/wizard-context';
 import { SharedState } from '../sync/shared-state';
 import { FieldLevel } from './field-tree';
-import { buildLevel, disposeAll, FormLevel, ViewScope } from './form-view';
+import { buildLevel, FormLevel, ViewScope } from './form-view';
 
 export type { FieldItems, FieldLeaf, FieldLevel } from './field-tree';
 export { isItems, isLevel } from './field-tree';
 
-/**
- * A live form: its model signal, the field tree, the authored ui, the render tree and leaves, and the view built
- * with them, formFields included. `destroy` tears the formFields down; `instantiateForm` ties that to its host.
- */
+/** A live form: its model signal, the field tree, the authored ui, the render tree and leaves, and the view built over them. */
 export interface FormState<
   M extends Record<string, unknown> = Record<string, unknown>,
   U extends ErasedUi = ErasedUi,
@@ -50,11 +38,9 @@ export interface FormState<
 
   readonly fields: readonly FieldConfig[];
 
-  readonly grid?: LayoutSpec;
+  readonly grid?: GridLayout;
 
   readonly view: FormLevel;
-
-  destroy(): void;
 }
 
 /** What a form is instantiated with beyond its config: the injector its formFields see, their output effects, the shared store. */
@@ -89,40 +75,27 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 
   const injector = options.injector ?? inject(Injector);
   const shared = options.shared ?? injector.get(FormadWizard, null)?.sharedOrNull() ?? null;
-  const disposers = new Set<() => void>();
   const scope: ViewScope = {
     injector,
     environment: injector.get(EnvironmentInjector),
-    appRef: injector.get(ApplicationRef),
     controls: injector.get(CONTROL_ADAPTER),
     layout: injector.get(LAYOUT_ADAPTER),
     context: computed<FormLayoutContext>(() => ({ model: erased(), shared })),
     model: erased,
     effects: options.effects ?? [],
-    disposers,
   };
 
-  return {
-    model,
-    rootForm,
-    ui: config.ui,
-    ...tree,
-    view: buildLevel(tree.nodes, rootForm, tree.grid ?? {}, scope),
-    destroy: () => disposeAll(disposers),
-  };
+  return { model, rootForm, ui: config.ui, ...tree, view: buildLevel(tree.nodes, rootForm, tree.grid ?? {}, scope) };
 }
 
-/** Builds a live form from a typed config, formFields included; runs in an injection context and goes with its host. */
+/** Builds a live form from a typed config; runs in an injection context. */
 export function instantiateForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi>(
   config: FormConfig<M, U> & RuntimeFormConfig,
 ): FormState<M, U> {
-  const state = createState<M, U>(config, {});
-  inject(DestroyRef).onDestroy(() => state.destroy());
-
-  return state;
+  return createState<M, U>(config, {});
 }
 
-/** Builds a live form from a runtime template; runs in an injection context, and the caller owns `destroy`. */
+/** Builds a live form from a runtime template; runs in an injection context. */
 export function instantiateRuntimeForm(config: RuntimeFormConfig, options: InstantiateOptions = {}): FormState {
   return createState<Record<string, unknown>, ErasedUi>(config, options);
 }

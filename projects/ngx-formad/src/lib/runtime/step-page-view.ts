@@ -1,15 +1,15 @@
 import { NgComponentOutlet } from '@angular/common';
-import { Component, computed, input } from '@angular/core';
+import { Component, computed, Injector, input } from '@angular/core';
 import { LayoutNode, LayoutNodeKind } from '../builders/nodes';
 import { ContentView } from '../renderer/content-view';
 import { FormRenderer } from '../renderer/form-renderer';
-import { FormadSlot } from '../renderer/slot';
+import { MountPoint } from '../renderer/mount-point';
 import { LiveForm, LiveStep } from './materialize-step';
 
 interface PageNodeRow {
   readonly node: LayoutNode;
   readonly live: LiveForm | null;
-  readonly content: Node[][] | null;
+  readonly injector: Injector | null;
 }
 
 /** Draws one level of a page's nodes: live forms, the step's components, content blocks and nested rows. */
@@ -26,8 +26,8 @@ interface PageNodeRow {
           }
         }
         @case (kinds.Component) {
-          @if (row.content) {
-            <ng-container *ngComponentOutlet="slot; content: row.content" />
+          @if (row.injector) {
+            <ng-container *ngComponentOutlet="mountPoint; injector: row.injector" />
           }
         }
         @case (kinds.Row) {
@@ -53,7 +53,7 @@ export class PageNodesView {
 
   protected readonly kinds = LayoutNodeKind;
 
-  protected readonly slot = FormadSlot;
+  protected readonly mountPoint = MountPoint;
 
   private readonly forms = computed(() => new Map(this.step().forms.map((form) => [form.name, form])));
 
@@ -63,7 +63,7 @@ export class PageNodesView {
       .map((node) => ({
         node,
         live: node.kind === LayoutNodeKind.Form ? (this.forms().get(node.name) ?? null) : null,
-        content: node.kind === LayoutNodeKind.Component ? (this.step().components.get(node) ?? null) : null,
+        injector: node.kind === LayoutNodeKind.Component ? (this.step().components.get(node) ?? null) : null,
       })),
   );
 }
@@ -74,7 +74,7 @@ export class PageNodesView {
   imports: [PageNodesView],
   host: { style: 'display: contents' },
   template: `
-    @for (page of step().pages; track page) {
+    @for (page of step().pages; track $index) {
       @if (page.options.layout; as layout) {
         <div class="ngx-formad-page" [class]="layout">
           <ngx-formad-page-nodes [nodes]="page.children" [step]="step()" />
