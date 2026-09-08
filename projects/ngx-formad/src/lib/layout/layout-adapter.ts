@@ -15,14 +15,14 @@ export function responsiveEntries(value: Responsive<number> | null | undefined):
 }
 
 /** How a container arranges its children: columns and gap. */
-export interface LayoutSpec {
+export interface GridLayout {
   readonly cols?: Responsive<number>;
 
   readonly gap?: number;
 }
 
 /** How one child sits in its container: span and start column. */
-export interface ItemSpec {
+export interface GridPlacement {
   readonly colSpan?: Responsive<number>;
 
   readonly colStart?: Responsive<number>;
@@ -37,7 +37,7 @@ export interface LayoutClasses {
 
 /** Resolves layout specs into classes or styles; swapped once via `provideFormadSuite`. */
 export interface LayoutAdapter {
-  container(spec: LayoutSpec): LayoutClasses;
+  container(layout: GridLayout): LayoutClasses;
 
-  item(spec: ItemSpec): LayoutClasses;
+  item(placement: GridPlacement): LayoutClasses;
 }

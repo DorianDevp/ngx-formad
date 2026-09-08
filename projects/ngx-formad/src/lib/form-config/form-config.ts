@@ -1,5 +1,5 @@
-import { computed, Type } from '@angular/core';
-import { SchemaPathTree } from '@angular/forms/signals';
+import { Binding, computed, Type } from '@angular/core';
+import { FormValueControl, SchemaPathTree } from '@angular/forms/signals';
 import {
   CUSTOM_FIELD,
   RepeatingGroupNode,
@@ -9,7 +9,7 @@ import {
   UiFormGroupNode,
 } from 'formodel';
 import { ContentChild } from '../builders/content';
-import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
+import { GridPlacement, GridLayout } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
 import { Live, read } from './live';
 
@@ -81,27 +81,13 @@ export interface FormLayoutContext<M extends Record<string, unknown> = Record<st
   readonly shared: SharedState | null;
 }
 
-/** A control input read from the layout context; a signal fits too, since it ignores the argument. */
-export type ContextualInput<V, M extends Record<string, unknown>> = (ctx: FormLayoutContext<M>) => V;
+/** A component placed on a field of value `T` by `formLayout().control()`: its class, the bindings `createComponent` applies, its placement. */
+export interface FieldComponentConfig<T = any> {
+  readonly component: Type<FormValueControl<T>>;
 
-/** A control's presentational input as authored: a value, or a read of the layout context. */
-export type ControlInput<V, M extends Record<string, unknown>> = V | ContextualInput<V, M>;
+  readonly bindings?: readonly Binding[];
 
-/** Narrows an authored input to a read of the layout context. */
-export function isContextual<V, M extends Record<string, unknown>>(input: ControlInput<V, M>): input is ContextualInput<V, M> {
-  return typeof input === 'function';
-}
-
-/** One control input as a layout item holds it: read against the layout context whenever the outlet binds. */
-export interface ControlInputRead<V = unknown, M extends Record<string, unknown> = Record<string, unknown>> {
-  read(ctx: FormLayoutContext<M>): V;
-}
-
-/** A control placed on a field by `formLayout().control()`: the component and its inputs. */
-export interface ControlOverride<M extends Record<string, unknown> = Record<string, unknown>, V = unknown> {
-  readonly component: Type<object>;
-
-  readonly inputs: Readonly<Record<string, ControlInputRead<V, M>>>;
+  readonly placement?: GridPlacement;
 }
 
 /** Discriminates the nodes of the render tree. */
@@ -121,9 +107,9 @@ export interface FieldConfig {
 
   readonly node: FieldNode;
 
-  readonly layout?: ItemSpec;
+  readonly layout?: GridPlacement;
 
-  readonly control?: ControlOverride;
+  readonly control?: FieldComponentConfig;
 }
 
 /** A scalar control in the render tree. */
@@ -145,7 +131,7 @@ export interface GroupNode {
 
   readonly children: readonly RenderNode[];
 
-  readonly layout?: ItemSpec;
+  readonly layout?: GridPlacement;
 }
 
 /** A repeating group: the array node and the render tree of one item. */
@@ -160,7 +146,7 @@ export interface ArrayNode {
 
   readonly item: readonly RenderNode[];
 
-  readonly layout?: ItemSpec;
+  readonly layout?: GridPlacement;
 }
 
 /** A content block between fields, gated on the live form. */
@@ -175,7 +161,7 @@ export interface FormContentNode {
 
   visibleWhen?(ctx: FormLayoutContext): boolean;
 
-  readonly layout?: ItemSpec;
+  readonly layout?: GridPlacement;
 }
 
 /** A layout-only row: its own grid over children of the same field level. */
@@ -186,9 +172,9 @@ export interface FormRowNode {
 
   readonly path: readonly string[];
 
-  readonly grid: LayoutSpec;
+  readonly grid: GridLayout;
 
-  readonly layout?: ItemSpec;
+  readonly layout?: GridPlacement;
 
   readonly children: readonly RenderNode[];
 }
@@ -210,7 +196,7 @@ export interface FormFieldItem<M extends Record<string, unknown> = Record<string
 
   readonly key: string;
 
-  readonly item?: ItemSpec;
+  readonly item?: GridPlacement;
 }
 
 /** A field drawn by a chosen control. */
@@ -219,9 +205,7 @@ export interface FormControlItem<M extends Record<string, unknown> = Record<stri
 
   readonly key: string;
 
-  readonly control: ControlOverride<M>;
-
-  readonly item?: ItemSpec;
+  readonly control: FieldComponentConfig;
 }
 
 /** A content block with its gate and placement. */
@@ -232,16 +216,16 @@ export interface FormContentSpec<M extends Record<string, unknown> = Record<stri
 
   visibleWhen?(ctx: FormLayoutContext<M>): boolean;
 
-  readonly item?: ItemSpec;
+  readonly item?: GridPlacement;
 }
 
 /** A nested row of items with its own grid. */
 export interface FormRowItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Row;
 
-  readonly grid?: LayoutSpec;
+  readonly grid?: GridLayout;
 
-  readonly item?: ItemSpec;
+  readonly item?: GridPlacement;
 
   readonly children: readonly FormLayoutItem<M>[];
 }
@@ -255,7 +239,7 @@ export type FormLayoutItem<M extends Record<string, unknown> = Record<string, un
 
 /** A form's layout overlay: the container grid and the ordered items; built with `formLayout()`. */
 export interface FormLayout<M extends Record<string, unknown> = Record<string, unknown>> {
-  readonly grid?: LayoutSpec;
+  readonly grid?: GridLayout;
 
   readonly items: readonly FormLayoutItem<M>[];
 }
@@ -289,7 +273,7 @@ export function defineForm<M extends Record<string, unknown>, U extends LiveUiCo
 interface FieldSlot {
   readonly key: string;
   readonly path: readonly string[];
-  readonly layout?: ItemSpec;
+  readonly layout?: GridPlacement;
 }
 
 function buildFieldNode(node: ErasedUiNode, slot: FieldSlot): RenderNode {
@@ -361,7 +345,7 @@ function controlNode(item: FormControlItem, slot: LayoutSlot): ControlNode | nul
     key: item.key,
     path: [...slot.path, item.key],
     node,
-    layout: item.item,
+    layout: item.control.placement,
     control: item.control,
   };
 }

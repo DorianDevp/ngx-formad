@@ -1,59 +1,17 @@
-import { Type } from '@angular/core';
-import { FormValueControl } from '@angular/forms/signals';
 import { ContentBuild, buildContent } from '../builders/content';
-import { InputKeys, InputVal } from '../builders/dynamic-component';
-import { Rejected } from '../builders/step-context';
-import { ItemSpec, LayoutSpec } from '../layout/layout-adapter';
-import {
-  ControlInput,
-  ControlOverride,
-  FormLayout,
-  FormLayoutContext,
-  FormLayoutItem,
-  FormLayoutItemKind,
-  isContextual,
-} from './form-config';
-
-/** The value type a `FormValueControl` component binds. */
-export type ControlValue<C> = C extends FormValueControl<infer V> ? V : never;
-
-/** `object` when field value `V` fits control `C`; a refusal naming the mismatch otherwise. */
-export type ValueFits<V, C> = V extends ControlValue<C>
-  ? object
-  : Rejected<'the control value type does not fit the field type'>;
-
-/** The inputs `FormField` binds itself; `control()` refuses them. */
-export type FormFieldManaged = keyof FormValueControl<never>;
-
-type PresentationalKeys<C> = InputKeys<Omit<C, FormFieldManaged>>;
-
-/** The inputs `control()` may bind: every presentational input, static or read from the layout context. */
-export type ControlInputsCfg<C, M extends Record<string, unknown>> = {
-  readonly [K in PresentationalKeys<C>]?: ControlInput<InputVal<C, K>, M>;
-};
-
-/** A control placed with its inputs and grid placement. */
-export interface FormControlCfg<C, M extends Record<string, unknown>, I extends ControlInputsCfg<C, M>> extends ItemSpec {
-  readonly component: Type<C>;
-
-  readonly inputs?: I;
-}
-
-/** What `control()` takes for a field of value `V`: the component class alone, or a config naming it. */
-export type FormControlSpec<V, C, M extends Record<string, unknown>, I extends ControlInputsCfg<C, M>> =
-  | (Type<C> & ValueFits<V, C>)
-  | (FormControlCfg<C, M, I> & { readonly component: Type<C> & ValueFits<V, C> });
+import { GridPlacement, GridLayout } from '../layout/layout-adapter';
+import { FormLayout, FormLayoutContext, FormLayoutItem, FormLayoutItemKind, FieldComponentConfig } from './form-config';
 
 /** Placement of a content block: its grid span and a gate read from the layout context. */
-export interface FormContentCfg<M extends Record<string, unknown>> extends ItemSpec {
+export interface FormContentCfg<M extends Record<string, unknown>> extends GridPlacement {
   visibleWhen?(ctx: FormLayoutContext<M>): boolean;
 }
 
 /** A row's own grid plus its placement in the parent grid. */
-export interface FormRowCfg extends LayoutSpec, ItemSpec {}
+export interface FormRowCfg extends GridLayout, GridPlacement {}
 
-function itemOf(cfg: ItemSpec): ItemSpec | undefined {
-  const item: ItemSpec = {
+function itemOf(cfg: GridPlacement): GridPlacement | undefined {
+  const item: GridPlacement = {
     ...(cfg.colSpan != null ? { colSpan: cfg.colSpan } : {}),
     ...(cfg.colStart != null ? { colStart: cfg.colStart } : {}),
   };
@@ -61,13 +19,13 @@ function itemOf(cfg: ItemSpec): ItemSpec | undefined {
   return Object.keys(item).length ? item : undefined;
 }
 
-/** Arranges a form's declared fields: grid, order, per-field controls, prose and nested rows. */
+/** Arranges a form's declared fields: grid, order, placed components, prose and nested rows. */
 export class FormLayoutBuilder<M extends Record<string, unknown>> {
   private items: readonly FormLayoutItem<M>[] = [];
 
-  private grid: LayoutSpec = {};
+  private grid: GridLayout = {};
 
-  cols(cols: LayoutSpec['cols']): this {
+  cols(cols: GridLayout['cols']): this {
     this.grid = { ...this.grid, cols };
 
     return this;
@@ -79,7 +37,7 @@ export class FormLayoutBuilder<M extends Record<string, unknown>> {
     return this;
   }
 
-  field(key: keyof M & string, item?: ItemSpec): this {
+  field(key: keyof M & string, item?: GridPlacement): this {
     this.items = [...this.items, { kind: FormLayoutItemKind.Field, key, item }];
 
     return this;
@@ -91,32 +49,9 @@ export class FormLayoutBuilder<M extends Record<string, unknown>> {
     return this;
   }
 
-  control<K extends keyof M & string, C extends object, I extends ControlInputsCfg<C, M> = {}>(
-    key: K,
-    spec: FormControlSpec<M[K], C, M, I>,
-  ): this {
-    const cfg = typeof spec === 'function' ? { component: spec, inputs: undefined } : spec;
-    const inputs: I | undefined = cfg.inputs;
-    const reads: Record<string, ControlOverride<M>['inputs'][string]> = {};
-
-    if (inputs) {
-      for (const name in inputs) {
-        const input = inputs?.[name];
-        if (input === undefined) continue;
-
-        reads[name] = isContextual(input) ? { read: input } : { read: () => input };
-      }
-    }
-
-    this.items = [
-      ...this.items,
-      {
-        kind: FormLayoutItemKind.Control,
-        key,
-        control: { component: cfg.component, inputs: reads },
-        item: itemOf(cfg),
-      },
-    ];
+  /** Draws the field with a component of your own, one that edits the field's value type; it takes what `createComponent` binds. */
+  control<K extends keyof M & string>(key: K, config: FieldComponentConfig<M[K]>): this {
+    this.items = [...this.items, { kind: FormLayoutItemKind.Control, key, control: config }];
 
     return this;
   }
@@ -138,7 +73,7 @@ export class FormLayoutBuilder<M extends Record<string, unknown>> {
   row(build: (row: FormLayoutBuilder<M>) => void, cfg: FormRowCfg = {}): this {
     const row = new FormLayoutBuilder<M>();
     build(row);
-    const grid: LayoutSpec = {
+    const grid: GridLayout = {
       ...(cfg.cols != null ? { cols: cfg.cols } : {}),
       ...(cfg.gap != null ? { gap: cfg.gap } : {}),
     };
