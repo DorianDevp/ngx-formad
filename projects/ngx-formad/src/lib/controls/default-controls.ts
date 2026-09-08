@@ -128,6 +128,7 @@ export class TextareaControl implements FormValueControl<string> {
         type="number"
         [value]="value()"
         [disabled]="disabled()"
+        [placeholder]="placeholder()"
         ${ariaAttrs}
         (input)="value.set(asNumber($event))"
         (blur)="touched.set(true)"
@@ -150,6 +151,8 @@ export class NumberControl implements FormValueControl<number | null> {
   required = input(false);
 
   errors = input<Errors>([]);
+
+  placeholder = input("");
 
   asNumber(e: Event): number | null {
     const raw = valueOf(e);
