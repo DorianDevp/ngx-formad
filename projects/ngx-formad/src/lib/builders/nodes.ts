@@ -36,7 +36,15 @@ export interface ComponentNode {
   readonly layout?: string;
 }
 
-/** A pooled form placed by name, with its shared links, output effects and local `initial` seed. */
+/** What a placed form does with its `initial` seed when its step is entered again. */
+export enum FormRevisit {
+  /** The instance stays as the user left it; `initial` applied once, when the step came to life. */
+  Keep = 'keep',
+  /** `initial` is read again from the current context and goes into the fields the user has not edited. */
+  Reseed = 'reseed',
+}
+
+/** A pooled form placed by name, with its shared links, output effects, local `initial` seed and revisit policy. */
 export interface FormNode<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: LayoutNodeKind.Form;
 
@@ -51,6 +59,8 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
   readonly effects: readonly OutputEffect[];
 
   initial?(ctx: RuntimeStepContext): Partial<M>;
+
+  readonly revisit?: FormRevisit;
 }
 
 /** A nested layout row. */
@@ -92,7 +102,15 @@ export interface DynamicPages {
   build(ctx: RuntimeStepContext): readonly PageNode[];
 }
 
-/** A leaf step: its pages (data, or built on entry), gate, label, defer hint and completion guard. */
+/** What a step does when navigation lands on it again. */
+export enum StepRevisit {
+  /** The step stays as it was: its pages, its forms and what the user typed. */
+  Keep = 'keep',
+  /** The step is dropped and built again from the current context, pages and forms alike. */
+  Fresh = 'fresh',
+}
+
+/** A leaf step: its pages (data, or built on entry), gate, label, defer hint, completion guard and revisit policy. */
 export interface StepNode {
   readonly kind: SequenceNodeKind.Step;
 
@@ -111,4 +129,6 @@ export interface StepNode {
   completeWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly incompleteMessage?: string;
+
+  readonly revisit?: StepRevisit;
 }

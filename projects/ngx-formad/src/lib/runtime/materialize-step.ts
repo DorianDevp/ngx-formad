@@ -1,19 +1,11 @@
-import {
-  ApplicationRef,
-  ComponentRef,
-  computed,
-  createComponent,
-  EnvironmentInjector,
-  Injector,
-  runInInjectionContext,
-  Signal,
-} from '@angular/core';
+import { computed, EnvironmentInjector, Injector, runInInjectionContext, Signal } from '@angular/core';
 import { ValidationError } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
-import { ComponentNode, FormNode, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
+import { ComponentNode, FormNode, FormRevisit, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
 import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
 import { read } from '../form-config/live';
+import { mountInjector } from '../renderer/form-view';
 import { FieldLeaf, FieldLevel, FormState, instantiateRuntimeForm, isLevel } from '../renderer/instantiate-form';
 import { InstanceRegistry } from '../registry/instance-registry';
 import { SharedState } from '../sync/shared-state';
@@ -35,26 +27,28 @@ export interface LiveForm {
 
   readonly issues: Signal<readonly StepIssue[]>;
 
-  seed(): void;
+  /** First entry: `initial` over `ctx`, then the shared links, into the fresh fields. */
+  seed(ctx: RuntimeStepContext): void;
+
+  /** A later entry: the shared links into the fields the user has not edited, and `initial` again when the form reseeds. */
+  reseed(ctx: RuntimeStepContext): void;
 
   commit(): void;
 
   touch(): void;
 }
 
-/** A step turned live: its registry, forms, the page components' host elements by node, instances by pool name and pages. */
+/** A step turned live: its registry, forms, an injector per page component carrying its mount, instances by pool name and pages. */
 export interface LiveStep {
   readonly registry: InstanceRegistry;
 
   readonly forms: readonly LiveForm[];
 
-  readonly components: ReadonlyMap<ComponentNode, Node[][]>;
+  readonly components: ReadonlyMap<ComponentNode, Injector>;
 
   readonly instances: Readonly<Record<string, FormState>>;
 
   readonly pages: readonly PageNode[];
-
-  destroy(): void;
 }
 
 function walkPages<N extends LayoutNode>(pages: readonly PageNode[], kind: N['kind']): N[] {
@@ -79,7 +73,7 @@ function fieldAt(root: FieldLevel, path: readonly string[]): FieldLeaf {
     if (!isLevel(node)) throw new Error(`ngx-formad: "${segment}" sits under a field that is not an object.`);
 
     const child = node[segment];
-    if (child === undefined) throw new Error(`ngx-formad: the form model has no field "${segment}".`);
+    if (child === undefined) throw new Error(`ngx-formad: the form model field "${segment}" is empty in tree.`);
 
     node = child;
   }
@@ -119,14 +113,17 @@ export interface MaterializeOptions {
   readonly entry: RuntimeStepContext;
 }
 
+/** A seed's entries that carry a value; an `undefined` one means "leave the field as it is", not "unset it". */
+function definedEntries(seed: Record<string, unknown>): [string, unknown][] {
+  return Object.entries(seed).filter(([, value]) => value !== undefined);
+}
+
 function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null {
   const template = options.pool[node.name];
   if (!template) return null;
 
-  const seed = node.initial?.(options.entry);
-  const config = seed ? { ...template, model: () => ({ ...template.model(), ...seed }) } : template;
   const state = runInInjectionContext(options.environment, () =>
-    instantiateRuntimeForm(config, { injector: options.injector, effects: node.effects, shared: options.shared }),
+    instantiateRuntimeForm(template, { injector: options.injector, effects: node.effects, shared: options.shared }),
   );
   const root = state.rootForm;
   const visible: Signal<boolean> = node.visibleWhen ? computed(node.visibleWhen) : computed(() => true);
@@ -136,19 +133,25 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
       .map((error) => ({ label: issueLabel(error, state), message: issueMessage(error) })),
   );
 
+  /** Writes each value into its field unless the user edited it; a programmatic write leaves the field pristine. */
+  const sow = (values: readonly [readonly string[], unknown][]): void => {
+    for (const [path, value] of values) {
+      const field = fieldAt(root, path)();
+      if (!field.dirty()) field.value.set(value);
+    }
+  };
+  const local = (ctx: RuntimeStepContext): [readonly string[], unknown][] =>
+    definedEntries(node.initial?.(ctx) ?? {}).map(([key, value]) => [[key], value]);
+  const linked = (): [readonly string[], unknown][] =>
+    node.links.map((link) => [link.modelPath, options.shared.get(link.sharedKey)]);
+
   return {
     name: node.name,
     state,
     visible,
     issues,
-    seed: () => {
-      for (const link of node.links) {
-        const field = fieldAt(root, link.modelPath)();
-        if (field.dirty()) continue;
-
-        field.value.set(options.shared.get(link.sharedKey));
-      }
-    },
+    seed: (ctx) => sow([...local(ctx), ...linked()]),
+    reseed: (ctx) => sow([...(node.revisit === FormRevisit.Reseed ? local(ctx) : []), ...linked()]),
     commit: () => {
       for (const link of node.links) {
         const field = fieldAt(root, link.modelPath)();
@@ -161,17 +164,12 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
   };
 }
 
-/** Creates a page's component as the step materializes; the view renders on the next tick and a slot projects its host. */
-function mountComponent(node: ComponentNode, options: MaterializeOptions): ComponentRef<unknown> {
-  const ref = createComponent(node.component, {
-    environmentInjector: options.environment,
-    elementInjector: options.injector ?? options.environment,
-    bindings: [...node.bindings],
-  });
-  options.environment.get(ApplicationRef).attachView(ref.hostView);
-  ref.changeDetectorRef.markForCheck();
-
-  return ref;
+/** A page component's mount, for the mount point its row draws: the component with its bindings, in the flow's environment. */
+function componentInjector(node: ComponentNode, options: MaterializeOptions): Injector {
+  return mountInjector(
+    { component: node.component, directives: [], bindings: node.bindings, environment: options.environment },
+    options.injector ?? options.environment,
+  );
 }
 
 /** Instantiates a step's placed forms and components, registers the forms for completion and wires their shared links. */
@@ -184,22 +182,17 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
   });
   for (const form of forms) {
     registry.add({ rootForm: form.state.rootForm, visible: form.visible });
-    form.seed();
+    form.seed(options.entry);
   }
-  const mounted = walkPages<ComponentNode>(pages, LayoutNodeKind.Component).map(
-    (node) => [node, mountComponent(node, options)] as const,
-  );
 
   return {
     registry,
     forms,
-    components: new Map(mounted.map(([node, ref]) => [node, [[ref.location.nativeElement as Node]]])),
+    components: new Map(
+      walkPages<ComponentNode>(pages, LayoutNodeKind.Component).map((node) => [node, componentInjector(node, options)]),
+    ),
     instances: Object.fromEntries(forms.map((form) => [form.name, form.state])),
     pages,
-    destroy: () => {
-      for (const form of forms) form.state.destroy();
-      for (const [, ref] of mounted) ref.destroy();
-    },
   };
 }
 
