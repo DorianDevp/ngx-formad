@@ -1,13 +1,12 @@
 {
   "name": "ngx-formad",
-  "version": "0.3.0",
+  "version": "0.9.0",
   "scripts": {
     "ng": "ng",
     "start": "ng serve",
     "build": "ng build ngx-formad",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "examples": "ng build ngx-formad && ng serve examples",
     "pack": "ng build ngx-formad && npm pack ./dist/ngx-formad",
     "release": "ng build ngx-formad && npm publish ./dist/ngx-formad --access public"
   },
@@ -20,7 +19,7 @@
     "@angular/forms": "^21.2.0",
     "@angular/platform-browser": "^21.2.0",
     "@angular/router": "^21.2.0",
-    "formodel": "file:vendor/formodel-0.3.0.tgz",
+    "formodel": "^0.3.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
   },

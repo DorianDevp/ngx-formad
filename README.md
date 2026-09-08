@@ -1,16 +1,15 @@
 # ngx-formad — workspace
 
-This repository is the Angular **workspace** (monorepo) behind the `ngx-formad`
-library. It contains two projects:
+This repository is the Angular **workspace** behind the `ngx-formad` library. It
+contains one project:
 
 | Project | Path | What it is |
 | --- | --- | --- |
 | `ngx-formad` | [`projects/ngx-formad`](./projects/ngx-formad) | The published library. Its [README](./projects/ngx-formad/README.md) is the one shown on npm. |
-| `examples` | [`projects/examples`](./projects/examples) | A runnable demo app — a storefront self-service portal — that exercises the library end to end. |
 
 `ngx-formad` is config-driven rendering and multi-step orchestration on top of
 Angular's headless signal forms: describe a form or wizard as data, and one renderer
-walks it. It is an early release (0.3.x) built on the signal-forms API that is
+walks it. It is pre-1.0 (0.9.0) and built on the signal-forms API that is
 *experimental* in Angular 21, so expect breaking changes. The full story lives in the
 [library README](./projects/ngx-formad/README.md); this file only covers working in
 the repo.
@@ -21,10 +20,9 @@ the repo.
 pnpm install     # install dependencies
 pnpm test        # run the Vitest suite once
 pnpm build       # build the library into dist/ngx-formad
-pnpm examples    # build the library, then serve the demo app
 ```
 
-`pnpm build` and `pnpm examples` name the `ngx-formad` project explicitly — the
+`pnpm build` and name the `ngx-formad` project explicitly — the
 workspace has more than one project, so a bare `ng build` is ambiguous. `pnpm test`
 runs the Angular `@angular/build:unit-test` builder on Vitest;
 [`vitest.config.ts`](./vitest.config.ts) inlines `formodel` so its ESM resolves in the
@@ -38,7 +36,7 @@ projects/ngx-formad/
     layout/       layout adapter + zero-dependency CSS-grid default
     controls/     control adapter + zero-dependency plain-HTML controls
     form-config/  the formodel-backed field description the renderer consumes
-    renderer/     instantiate a form, formFields included, then draw its view (FormRenderer, NodesView)
+    renderer/     instantiate a form and describe its view, then draw it (FormRenderer, NodesView, MountPoint)
     sync/         cross-step shared state + the directional sync engine
     registry/     the signal-backed instance registry + completion fold
     builders/     the typed StepperBuilder chain and its node tree
