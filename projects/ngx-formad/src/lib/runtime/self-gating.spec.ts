@@ -47,20 +47,20 @@ class SelfGatingHost {
       .createForm('gate', gateForm)
       .createForm('last', only('Last'))
       .createStep((s) =>
-        s.createPage({ options: { heading: '1' } }, (p) => p.addForm('first')),
+        s.createPage((p) => p.addForm('first'), { heading: '1' }),
       )
       .createStep(
         (s) =>
-          s.createPage({ options: { heading: '2' } }, (p) =>
+          s.createPage((p) =>
             p.addForm('gate', {
               bind: { skip: 'skip' },
             }),
-          ),
+          { heading: '2' }),
         // The step is dropped by the very value its own form writes.
         { when: (ctx) => !ctx.shared.skip() },
       )
       .createStep((s) =>
-        s.createPage({ options: { heading: '3' } }, (p) => p.addForm('last')),
+        s.createPage((p) => p.addForm('last'), {  heading: '3' }),
       )
       .build();
 }
@@ -113,7 +113,7 @@ class BranchOnOneStepHost {
       .createForm('company', cityForm('Company city'))
       .createStep(
         (s) =>
-          s.createPage({ options: { heading: 'Where' } }, (p) =>
+          s.createPage((p) =>
             p
               .addForm('personal', {
                 visibleWhen: () => !isCompany(),
@@ -122,12 +122,12 @@ class BranchOnOneStepHost {
               .addForm('company', {
                 visibleWhen: () => isCompany(),
                 bind: { city: 'city' },
-              }),
+              }), { heading: 'Where' }
           ),
         { name: 'where' },
       )
       .createStep((s) =>
-        s.createPage({ options: { heading: 'Done' } }, (p) => p.addContent((c) => c.p('ok'))),
+        s.createPage((p) => p.addContent((c) => c.p('ok')), { heading: 'Done' }),
       )
       .build();
 }

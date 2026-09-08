@@ -47,12 +47,12 @@ class EgressHost {
       .createForm('a', oneForm)
       .createForm('b', oneForm)
       .createStep(
-        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')),
+        (s) => s.createPage((p) => p.addForm('a'), { heading: '1' }),
         {
           name: 'first',
         },
       )
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')))
+      .createStep((s) => s.createPage((p) => p.addForm('b'), { heading: '2' }))
       .build();
 }
 
@@ -104,8 +104,8 @@ class ResetHost {
       .withState({})
       .createForm('a', oneForm)
       .createForm('b', oneForm)
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')))
+      .createStep((s) => s.createPage((p) => p.addForm('a'), { heading: '1' }))
+      .createStep((s) => s.createPage((p) => p.addForm('b'), { heading: '2' }))
       .build();
 }
 
@@ -155,13 +155,13 @@ class WizCtxHost {
       .withState({})
       .createForm('a', oneForm)
       .createStep(
-        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')),
+        (s) => s.createPage((p) => p.addForm('a'), { heading: '1' }),
         {
           name: 'first',
         },
       )
       .createStep((s) =>
-        s.createPage({ options: { heading: '2' } }, (p) => p.addComponent(WizSummary, {})),
+        s.createPage((p) => p.addComponent(WizSummary, {}), { heading: '2' }),
       )
       .build();
 }

@@ -71,10 +71,10 @@ function deviceStepper(): RuntimeStepper {
       .createForm('final', oneForm('Final'))
       .createStep(
         (s) =>
-          s.createPage({ options: { heading: 'Intro' } }, (p) =>
+          s.createPage((p) =>
             p.addForm('intro',
               { bind: { v: 'source' } },
-            ),
+            ), { heading: 'Intro' },
           ),
         { label: 'Intro' },
       )
@@ -92,24 +92,24 @@ function deviceStepper(): RuntimeStepper {
                 b
                   .step(
                     (s) =>
-                      s.createPage({ options: { heading: 'Name' } }, (p) =>
+                      s.createPage((p) =>
                         p.addForm('name',
                           { bind: { v: 'draftName' } },
-                        ),
+                        ), { heading: 'Name' },
                       ),
                     { name: 'name', label: 'Name' },
                   )
                   .step(
                     (s) =>
-                      s.createPage({ options: { heading: 'Details' } }, (p) =>
-                        p.addForm('details'),
+                      s.createPage((p) =>
+                        p.addForm('details'), { heading: 'Details' },
                       ),
                     { name: 'details', label: 'Details' },
                   ),
               invoice: (b) =>
                 b.step(
                   (s) =>
-                    s.createPage({ options: { heading: 'Bulk' } }, (p) => p.addForm('bulk')),
+                    s.createPage((p) => p.addForm('bulk'), { heading: 'Bulk' }),
                   { name: 'bulk', label: 'Bulk' },
                 ),
             })
@@ -125,14 +125,14 @@ function deviceStepper(): RuntimeStepper {
             .completeWhen((items) => items.length > 0, 'Add at least one device')
             .dock(
               (s, ctx) =>
-                s.createPage({ options: { heading: 'Collected' } }, (p) =>
-                  p.addComponent(DockPanel, { inputs: { items: () => ctx.flow.state() } }),
+                s.createPage((p) =>
+                  p.addComponent(DockPanel, { inputs: { items: () => ctx.flow.state() } }), { heading: 'Collected' },
                 ),
               { label: 'Dock' },
             ),
       })
       .createStep(
-        (s) => s.createPage({ options: { heading: 'Final' } }, (p) => p.addForm('final')),
+        (s) => s.createPage((p) => p.addForm('final'), { heading: 'Final' }),
         { label: 'Final', when: (c) => (c.steps.devices?.length ?? 0) > 0 },
       )
       .build();

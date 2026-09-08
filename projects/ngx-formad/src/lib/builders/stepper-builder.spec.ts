@@ -36,20 +36,20 @@ describe('StepperBuilder', () => {
       .createForm('account', account)
       .createForm('billing', billing)
       .createStep((step) =>
-        step.createPage({ options: { heading: 'Account' } }, (page) =>
+        step.createPage((page) =>
           page
             .addComponent(Banner, { inputs: { tone: 'info' }, outputs: { dismissed: () => {} } })
             .addForm('account', {
               submitLabel: 'Next',
               bind: { email: 'email' },
-            }),
+            }), { heading: 'Account' },
         ),
       )
       .createStep((step) =>
-        step.createPage({ options: { heading: 'Billing' } }, (page) =>
+        step.createPage((page) =>
           page.addForm('billing', {
             bind: { email: 'email' },
-          }),
+          }), { heading: 'Billing' },
         ),
       )
       .build();
@@ -86,10 +86,10 @@ describe('StepperBuilder', () => {
       .createForm('account', account)
       .createForm('billing', billing)
       .createStep((step) =>
-        step.createPage({ options: { heading: 'Billing' } }, (page) =>
+        step.createPage((page) =>
           page.addForm('billing', {
             bind: { vat: 'vat' },
-          }),
+          }), { heading: 'Billing' },
         ),
       )
       .build();
@@ -119,7 +119,7 @@ describe('StepperBuilder', () => {
     const stepper = new StepperBuilder()
       .withState({ email: '' })
       .createForm('account', account)
-      .createStep((step) => step.createPage({ options: { heading: 'A' } }, (page) => page.addForm('account')), {
+      .createStep((step) => step.createPage((page) => page.addForm('account'), { heading: 'A' }), {
         optional: true,
         defer: DeferTrigger.Idle,
         when: ({ shared }) => shared.email() === 'go',

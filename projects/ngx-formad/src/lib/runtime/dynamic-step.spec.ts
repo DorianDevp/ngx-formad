@@ -56,13 +56,12 @@ class DynHost {
       .createForm('pick', oneForm('Pick'))
       .createForm('cheap', oneForm('Cheap details'))
       .createForm('fancy', oneForm('Fancy details'))
-      .createStep(
-        (s) =>
-          s.createPage({ options: { heading: 'Pick' } }, (p) =>
-            p.addForm('pick',
-              { bind: { v: 'pick' } },
-            ),
+      .createStep((s) =>
+        s.createPage((p) =>
+          p.addForm('pick',
+            { bind: { v: 'pick' } },
           ),
+          { heading: 'Pick'}),
         { label: 'Pick' },
       )
       .createStep(
@@ -71,8 +70,9 @@ class DynHost {
           // pages built from a given context are identical every time.
           this.builds = this.builds + 1;
 
-          return s.createPage({ options: { heading: `Details: ${ctx.shared.pick()}` } }, (p) =>
+          return s.createPage((p) =>
             p.addForm(ctx.shared.pick() === 'fancy' ? 'fancy' : 'cheap'),
+          { heading: `Details: ${ctx.shared.pick()}` }
           );
         },
         { label: 'Details' },

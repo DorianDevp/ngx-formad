@@ -71,7 +71,7 @@ class StepperHost {
   readonly stepper: RuntimeStepper =     new StepperBuilder()
       .addControlType('stars', StarsControl)
       .createForm('f', starForm)
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('f')))
+      .createStep((s) => s.createPage((p) => p.addForm('f'), { heading: '1' }))
       .build();
 }
 
@@ -109,7 +109,7 @@ class EffectHost {
       .addControlType('lookup', LookupControl)
       .createForm('f', lookupForm)
       .createStep((s) =>
-        s.createPage({ options: { heading: '1' } }, (p) =>
+        s.createPage((p) =>
           p.addForm('f', {
             effects: {
               taxId: [
@@ -119,7 +119,7 @@ class EffectHost {
                 },
               ],
             },
-          }),
+          }), { heading: '1' },
         ),
       )
       .build();

@@ -48,8 +48,8 @@ class Host {
       .createForm('shown', only('Shown field'))
       .createForm('gone', only('Hidden field'))
       .createStep((s) =>
-        s.createPage({ options: { heading: 'Step' } }, (p) =>
-          p.addForm('shown').addForm('gone', { visibleWhen: () => false }),
+        s.createPage((p) =>
+          p.addForm('shown').addForm('gone', { visibleWhen: () => false }), { heading: 'Step' },
         ),
       )
       .build();

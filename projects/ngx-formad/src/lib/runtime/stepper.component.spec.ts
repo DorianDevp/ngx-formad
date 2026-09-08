@@ -57,17 +57,18 @@ class Host {
       .createForm('account', account)
       .createForm('billing', billing)
       .createStep((step) =>
-        step.createPage({ options: { heading: 'Account' } }, (page) =>
+        step.createPage((page) =>
           page.addForm('account', {
             bind: { email: 'email' },
           }),
+        { heading: 'Account' },
         ),
       )
       .createStep((step) =>
-        step.createPage({ options: { heading: 'Billing' } }, (page) =>
+        step.createPage((page) =>
           page.addForm('billing', {
             bind: { email: 'email' },
-          }),
+          }), { heading: 'Billing' },
         ),
       )
       .build();
@@ -122,11 +123,11 @@ class ConditionalHost {
       .createForm('a', labelForm('First'))
       .createForm('b', labelForm('Second'))
       .createForm('c', labelForm('Third'))
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')), {
+      .createStep((s) => s.createPage((p) => p.addForm('a'), { heading: '1' }))
+      .createStep((s) => s.createPage((p) => p.addForm('b'), { heading: '2' }), {
         when: ({ shared }) => !shared.hide,
       })
-      .createStep((s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm('c')))
+      .createStep((s) => s.createPage((p) => p.addForm('c'), { heading: '3' }))
       .build();
 }
 
@@ -167,10 +168,10 @@ class OptionalHost {
       .withState({})
       .createForm('a', requiredForm('Need'))
       .createForm('b', labelForm('After'))
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')), {
+      .createStep((s) => s.createPage((p) => p.addForm('a'), { heading: '1' }), {
         optional: true,
       })
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('b')))
+      .createStep((s) => s.createPage((p) => p.addForm('b'), { heading: '2' }))
       .build();
 }
 
@@ -209,7 +210,7 @@ class ChromeHost {
   readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', labelForm('Only'))
-      .createStep((s) => s.createPage({ options: { heading: 'Heading X' } }, (p) => p.addForm('a')))
+      .createStep((s) => s.createPage((p) => p.addForm('a'), { heading: 'Heading X' }))
       .build();
 }
 
@@ -246,8 +247,8 @@ class LazyHost {
       .withState({})
       .createForm('a', countingForm('First', () => built.a++))
       .createForm('c', countingForm('Third', () => built.c++))
-      .createStep((s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('a')))
-      .createStep((s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('c')))
+      .createStep((s) => s.createPage((p) => p.addForm('a'), { heading: '1' }))
+      .createStep((s) => s.createPage((p) => p.addForm('c'), { heading: '2' }))
       .build();
 }
 
@@ -286,20 +287,20 @@ class ForkHost {
       .withState({ kind: '' })
       .createForm('start', kindForm)
       .createStep((s) =>
-        s.createPage({ options: { heading: 'Start' } }, (p) =>
-          p.addForm('start', { bind: { kind: 'kind' } }),
+        s.createPage((p) =>
+          p.addForm('start', { bind: { kind: 'kind' } }), { heading: 'Start' },
         ),
       )
       .fork((c) => c.shared.kind(), {
         business: (arm) =>
           arm
             .createForm('company', labelForm('Company'))
-            .createStep((s) => s.createPage({ options: { heading: 'Company' } }, (p) => p.addForm('company')))
+            .createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Company' }))
             .result(({ shared }) => ({ kind: 'business', via: shared.kind() })),
         individual: (arm) =>
           arm
             .createForm('person', labelForm('Person'))
-            .createStep((s) => s.createPage({ options: { heading: 'Person' } }, (p) => p.addForm('person')))
+            .createStep((s) => s.createPage((p) => p.addForm('person'), { heading: 'Person' }))
             .result(() => ({ kind: 'individual' })),
       })
       .build();

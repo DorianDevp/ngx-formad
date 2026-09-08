@@ -26,18 +26,18 @@ const wizard = new StepperBuilder()
   .createForm('adminConfig', form('Advanced'))
   .createForm('userMeta', form('Settings'))
   .createForm('review', form('Review'))
-  .createStep((s) => s.createPage({ options: { heading: 'Basics' } }, (p) => p.addForm('basics')), {
+  .createStep((s) => s.createPage((p) => p.addForm('basics'), { heading: 'Basics' }), {
     name: 'basics',
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Advanced' } }, (p) => p.addForm('adminConfig')), {
+  .createStep((s) => s.createPage((p) => p.addForm('adminConfig'), { heading: 'Advanced' }), {
     when: ({ shared }) => shared.accountType() === 'admin',
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Settings' } }, (p) => p.addForm('userMeta')), {
+  .createStep((s) => s.createPage((p) => p.addForm('userMeta'), { heading: 'Settings' }), {
     // A predecessor's LIVE instance — `basics` is unconditional, but a gate may run
     // before it exists, so it reads as optional here.
     when: ({ steps }) => steps.basics?.basics.model().accountType !== 'admin',
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Review' } }, (p) => p.addForm('review')))
+  .createStep((s) => s.createPage((p) => p.addForm('review'), { heading: 'Review' }))
   .build();
 
 
@@ -105,18 +105,18 @@ const branched = new StepperBuilder()
   .createForm('addons', form('Addons'))
   .createForm('free', form('Free'))
   .createForm('done', form('Done'))
-  .createStep((s) => s.createPage({ options: { heading: 'Start' } }, (p) => p.addForm('start')))
+  .createStep((s) => s.createPage((p) => p.addForm('start'), { heading: 'Start' }))
   .branch((c) => c.shared.plan(), {
     pro: (b) =>
       b
-        .step((s) => s.createPage({ options: { heading: 'Pro' } }, (p) => p.addForm('pro')))
+        .step((s) => s.createPage((p) => p.addForm('pro'), { heading: 'Pro' }))
         // a step inside the branch with its own extra condition (ANDed with the guard)
-        .step((s) => s.createPage({ options: { heading: 'Addons' } }, (p) => p.addForm('addons')), {
+        .step((s) => s.createPage((p) => p.addForm('addons'), { heading: 'Addons' }), {
           when: ({ shared }) => shared.addons() === true,
         }),
-    free: (b) => b.step((s) => s.createPage({ options: { heading: 'Free' } }, (p) => p.addForm('free'))),
+    free: (b) => b.step((s) => s.createPage((p) => p.addForm('free'), { heading: 'Free' })),
   })
-  .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addForm('done')))
+  .createStep((s) => s.createPage((p) => p.addForm('done'), { heading: 'Done' }))
   .build();
 
 describe('branching (sugar over conditional steps)', () => {

@@ -51,18 +51,16 @@ class LabelledHost {
       .createStep(
         (s) =>
           s.createPage(
-            {
-              options: {
-                heading: () => `Pick products (${productCount()})`,
-                subheading: 'Delivery comes next.',
-              },
-            },
             (p) => p.addForm('a'),
+        {
+          heading: () => `Pick products (${productCount()})`,
+          subheading: 'Delivery comes next.',
+        }
           ),
         { label: 'Products' },
       )
       .createStep(
-        (s) => s.createPage({ options: { heading: 'Gift wrap' } }, (p) => p.addForm('b')),
+        (s) => s.createPage((p) => p.addForm('b'), { heading: 'Gift wrap' }),
         {
           label: 'Gift options',
           when: () => withGiftWrap(),
@@ -70,8 +68,8 @@ class LabelledHost {
       )
       .createStep(
         (s) =>
-          s.createPage({ options: { heading: 'Review' } }, (p) =>
-            p.addContent((c) => c.p('All set.')),
+          s.createPage((p) =>
+            p.addContent((c) => c.p('All set.')), { heading: 'Review' },
           ),
         {
           label: 'Review',

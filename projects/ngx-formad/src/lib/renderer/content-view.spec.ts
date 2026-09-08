@@ -187,11 +187,11 @@ class PageHost {
       .withState({})
       .createForm('only', onlyForm)
       .createStep((s) =>
-        s.createPage({ options: { heading: 'Products' } }, (p) =>
+        s.createPage((p) =>
           p
             .addContent((c) => c.p('Fragile items ship in their own box.'), { layout: 'notice' })
             .addForm('only')
-            .addContent((c) => c.small('You can add more later.')),
+            .addContent((c) => c.small('You can add more later.')), { heading: 'Products' },
         ),
       )
       .build();

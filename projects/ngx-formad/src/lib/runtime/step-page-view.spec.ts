@@ -42,8 +42,8 @@ class ComponentHost {
       .withState({})
       .createForm('only', onlyForm)
       .createStep((s) =>
-        s.createPage({ options: { heading: 'One' } }, (p) =>
-          p.addComponent(Banner, { inputs: { note: 'hello from a slot' } }).addForm('only'),
+        s.createPage((p) =>
+          p.addComponent(Banner, { inputs: { note: 'hello from a slot' } }).addForm('only'), { heading: 'One' },
         ),
       )
       .build();
@@ -73,10 +73,10 @@ class GatedHost {
   readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createStep(
-        (s) => s.createPage({ options: { heading: 'Pick' } }, (p) => p.addComponent(Banner, { inputs: { note: 'choose' } })),
+        (s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'choose' } }), { heading: 'Pick' }),
         { completeWhen: () => ready() },
       )
-      .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
+      .createStep((s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'done' } }), { heading: 'Done' }))
       .build();
 }
 
@@ -105,10 +105,10 @@ class SharedGatedHost {
   readonly built = new StepperBuilder()
     .withState({ agreed: false })
     .createStep(
-      (s) => s.createPage({ options: { heading: 'Consent' } }, (p) => p.addComponent(Banner, { inputs: { note: 'agree' } })),
+      (s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'agree' } }), { heading: 'Consent' }),
       { completeWhen: (ctx) => ctx.shared.agreed() },
     )
-    .createStep((s) => s.createPage({ options: { heading: 'Done' } }, (p) => p.addComponent(Banner, { inputs: { note: 'done' } })))
+    .createStep((s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'done' } }), { heading: 'Done' }))
     .build();
   readonly stepper: RuntimeStepper = (this.built);
 }

@@ -29,14 +29,14 @@ function buildStepper() {
     .createForm('account', account)
     .createForm('billing', billing)
     .createStep((step) =>
-      step.createPage({ options: {} }, (page) =>
+      step.createPage((page) =>
         page.addForm('account', {
           bind: { email: 'email' },
         }),
       ),
     )
     .createStep((step) =>
-      step.createPage({ options: {} }, (page) =>
+      step.createPage((page) =>
         page.addForm('billing', {
           bind: { email: 'email' },
         }),
@@ -107,7 +107,7 @@ describe('materializeStep', () => {
         .withState({ city: '' })
         .createForm('addr', addrForm)
         .createStep((step) =>
-          step.createPage({ options: {} }, (page) =>
+          step.createPage((page) =>
             page.addForm('addr', {
               bind: { address: { city: 'city' } },
             }),
@@ -149,7 +149,7 @@ describe('materializeStep', () => {
         .createForm('account', account)
         .createForm('billing', () => Promise.resolve(billing))
         .createStep((step) =>
-          step.createPage({ options: {} }, (page) => page.addForm('account').addForm('billing')),
+          step.createPage((page) => page.addForm('account').addForm('billing')),
         )
         .build();
 

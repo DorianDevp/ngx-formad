@@ -66,10 +66,10 @@ function rootRing(): RuntimeFlow {
       .createForm('name', oneForm('Name'))
       .createStep(
         (s) =>
-          s.createPage({ options: { heading: 'Name' } }, (p) =>
+          s.createPage((p) =>
             p.addForm('name',
               { bind: { v: 'draft' } },
-            ),
+            ), { heading: 'Name' },
           ),
         { label: 'Name' },
       )
@@ -77,8 +77,8 @@ function rootRing(): RuntimeFlow {
       .completeWhen((items) => items.length > 0, 'Add at least one')
       .dock(
         (s, ctx) =>
-          s.createPage({ options: { heading: 'Collected' } }, (p) =>
-            p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }),
+          s.createPage((p) =>
+            p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }), { heading: 'Collected' },
           ),
         { label: 'Dock' },
       )
@@ -110,11 +110,11 @@ function ringWithLinearPass(): RuntimeStepper {
                   .createForm('a', oneForm('A'))
                   .createForm('b', oneForm('B'))
                   .createStep(
-                    (s) => s.createPage({ options: { heading: 'A' } }, (p) => p.addForm('a')),
+                    (s) => s.createPage((p) => p.addForm('a'), { heading: 'A' }),
                     { name: 'a', label: 'A' },
                   )
                   .createStep(
-                    (s) => s.createPage({ options: { heading: 'B' } }, (p) => p.addForm('b')),
+                    (s) => s.createPage((p) => p.addForm('b'), { heading: 'B' }),
                     { name: 'b', label: 'B' },
                   ),
             })
@@ -122,8 +122,8 @@ function ringWithLinearPass(): RuntimeStepper {
             .completeWhen((items) => items.length > 0)
             .dock(
               (s, ctx) =>
-                s.createPage({ options: { heading: 'Collected' } }, (p) =>
-                  p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }),
+                s.createPage((p) =>
+                  p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }), { heading: 'Collected' },
                 ),
               { label: 'Dock' },
             ),

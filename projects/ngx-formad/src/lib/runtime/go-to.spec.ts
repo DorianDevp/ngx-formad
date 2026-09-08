@@ -54,15 +54,15 @@ class JumpHost {
       .createForm('device', oneForm('Device'))
       .createForm('list', oneForm('List'))
       .createStep(
-        (s) => s.createPage({ options: { heading: '1' } }, (p) => p.addForm('source')),
+        (s) => s.createPage((p) => p.addForm('source'), { heading: '1' }),
         { name: 'source', label: 'Source' },
       )
       .createStep(
-        (s) => s.createPage({ options: { heading: '2' } }, (p) => p.addForm('device')),
+        (s) => s.createPage((p) => p.addForm('device'), { heading: '2' }),
         { name: 'device', label: 'Device' },
       )
       .createStep(
-        (s) => s.createPage({ options: { heading: '3' } }, (p) => p.addForm('list')),
+        (s) => s.createPage((p) => p.addForm('list'), { heading: '3' }),
         { name: 'list', label: 'List' },
       )
       .build();

@@ -17,12 +17,14 @@ import {
 } from './flow';
 import {
   DynamicPages,
+  FormRevisit,
   LayoutNode,
   LayoutNodeKind,
   PageNode,
   PageOptions,
   SequenceNodeKind,
   StepNode,
+  StepRevisit,
 } from './nodes';
 import { FormEffects, recordEffects, recordLinks, SharedLinks } from './shared-link';
 import {
@@ -105,7 +107,7 @@ export interface ContentCfg {
   readonly visibleWhen?: () => boolean;
 }
 
-/** Placement options for a pooled form: shared links, output effects and the local `initial` seed. */
+/** Placement options for a pooled form: shared links, output effects, the local `initial` seed and what a revisit does with it. */
 export interface FormCfg<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> {
   readonly submitLabel?: string;
 
@@ -116,6 +118,8 @@ export interface FormCfg<M extends Record<string, unknown>, TCtx extends Runtime
   readonly effects?: FormEffects<M>;
 
   readonly initial?: (ctx: TCtx) => Partial<M>;
+
+  readonly revisit?: FormRevisit;
 }
 
 /** Builds one page: content, components and pooled forms; `P` accumulates the placed pool names. */
@@ -169,6 +173,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
         links: opts.bind ? recordLinks(opts.bind) : [],
         effects: opts.effects ? recordEffects(opts.effects) : [],
         initial: opts.initial,
+        revisit: opts.revisit,
       },
     ]);
   }
@@ -185,14 +190,14 @@ export class StepBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
   constructor(readonly pages: readonly PageNode[] = []) {}
 
   createPage<P2>(
-    meta: { options: PageOptions },
     build: (page: PageBuilder<TForms, TCtx, {}>) => PageBuilder<TForms, TCtx, P2>,
+    options: PageOptions = {},
   ): StepBuilder<TForms, TCtx, P & P2> {
     const page = build(new PageBuilder<TForms, TCtx, {}>());
 
     return new StepBuilder<TForms, TCtx, P & P2>([
       ...this.pages,
-      { options: meta.options, children: page.nodes },
+      { options, children: page.nodes },
     ]);
   }
 }
@@ -218,6 +223,8 @@ export interface StepOptions<TCtx extends RuntimeStepContext, N extends string =
   readonly completeWhen?: StepCondition<TCtx>;
 
   readonly incompleteMessage?: string;
+
+  readonly revisit?: StepRevisit;
 }
 
 /** A branch selector: the branch key, or null/undefined while undecided. */
@@ -242,6 +249,11 @@ interface StepSpec<TCtx extends RuntimeStepContext> {
 
 const AUTHORING_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
+/**
+ * A step's pages: built once, now, when the callback takes only the step builder; built on every entry when it also
+ * declares `ctx`. The switch is the callback's arity (`Function.length`), which counts the parameters before the first
+ * one with a default value or a rest parameter.
+ */
 function pagesOf<TForms, TCtx extends RuntimeStepContext, P>(
   build: StepBuild<TForms, TCtx, P>,
 ): readonly PageNode[] | DynamicPages {
@@ -268,6 +280,7 @@ function stepNode<TCtx extends RuntimeStepContext>(spec: StepSpec<TCtx>): Sequen
     defer: opts.defer,
     completeWhen: opts.completeWhen,
     incompleteMessage: opts.incompleteMessage,
+    revisit: opts.revisit,
   };
 
   return gate ? guardedBy(gate, node) : node;
@@ -532,6 +545,15 @@ function claimedStep(taken: Readonly<Record<string, true>>, node: SequenceNode):
   return { ...taken, [node.name]: true };
 }
 
+function claimedForm(
+  taken: Readonly<Record<string, AnyFormProvider>>,
+  [name, provider]: readonly [string, AnyFormProvider],
+): Readonly<Record<string, AnyFormProvider>> {
+  claimName(name, taken);
+
+  return { ...taken, [name]: provider };
+}
+
 /** The root of a linear chain; `build()` freezes it into a `Stepper`. */
 export class StepperBuilder<
   TForms = {},
@@ -633,24 +655,26 @@ export class StepperBuilder<
     arms: A,
   ): TerminalForkBuilder<TForms, TCtx, ArmResult<A>> {
     const built = Object.entries(arms).map(([key, arm]) => [key, arm(new ForkArmBuilder<TForms, TCtx>())] as const);
-    const forms = built.reduce((pool, [, arm]) => ({ ...pool, ...arm.forms }), this.chain.forms);
-    const sharedInit = built.reduce(
-      (state, [, arm]) => ({ ...state, ...arm.shared.snapshot() }),
-      this.chain.shared.snapshot(),
-    );
-    const steps = built.flatMap(([key, arm]) => {
+    const merged = built.reduce<ChainState>((chain, [key, arm]) => {
       const gate: StepGate = { when: (ctx: GateContext<TCtx>) => select(ctx) === key };
+      const steps = arm.steps.map((node) => guardedBy(gate, node));
 
-      return arm.steps.map((node) => guardedBy(gate, node));
-    });
+      return {
+        ...chain,
+        forms: Object.entries(arm.forms).reduce(claimedForm, chain.forms),
+        shared: new SharedState({ ...chain.shared.snapshot(), ...arm.shared.snapshot() }),
+        steps: [...chain.steps, ...steps],
+        stepNames: steps.reduce(claimedStep, chain.stepNames),
+      };
+    }, this.chain);
     const resolvers: Readonly<Record<string, ForkArm>> = Object.fromEntries(built);
     const definition: FlowDefinition = {
-      forms,
-      steps: [...this.chain.steps, ...steps],
-      shared: new SharedState(sharedInit),
+      forms: merged.forms,
+      steps: merged.steps,
+      shared: new SharedState(merged.shared.snapshot()),
       resolveResult: (ctx: GateContext<TCtx>) => resolvers[select(ctx)]?.resolve(ctx),
-      controlTypes: this.chain.controlTypes,
-      providers: this.chain.providers,
+      controlTypes: merged.controlTypes,
+      providers: merged.providers,
     };
 
     return { build: () => new Stepper<TForms, TCtx, ArmResult<A>>(definition) };

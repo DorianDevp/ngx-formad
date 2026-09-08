@@ -88,8 +88,8 @@ class ProvHost {
       .createForm('start', oneForm('Start'))
       .createStep(
         (s) =>
-          s.createPage({ options: { heading: 'Start' } }, (p) =>
-            p.addForm('start').addComponent(GreetingPanel, {}),
+          s.createPage((p) =>
+            p.addForm('start').addComponent(GreetingPanel, {}), { heading: 'Start' },
           ),
         {
           label: 'Start',
@@ -109,14 +109,14 @@ class ProvHost {
             .provide({ provide: GREETING, useValue: 'from the ring' })
             .createForm('name', oneForm('Name'))
             .createStep(
-              (s) => s.createPage({ options: { heading: 'Name' } }, (p) => p.addForm('name')),
+              (s) => s.createPage((p) => p.addForm('name'), { heading: 'Name' }),
               { label: 'Name' },
             )
             .fold((state) => [...state, 'x'])
             .dock(
               (s, ctx) =>
-                s.createPage({ options: { heading: 'Collected' } }, (p) =>
-                  p.addComponent(ProvDock, { inputs: { count: () => ctx.flow.state().length } }),
+                s.createPage((p) =>
+                  p.addComponent(ProvDock, { inputs: { count: () => ctx.flow.state().length } }), { heading: 'Collected' },
                 ),
               { label: 'Dock' },
             ),
