@@ -3,14 +3,11 @@ import {
   createEnvironmentInjector,
   EnvironmentInjector,
   Injector,
-  resource,
-  ResourceRef,
   runInInjectionContext,
   signal,
   Signal,
-  untracked,
 } from '@angular/core';
-import { PageNode, SequenceNodeKind, StepNode } from '../builders/nodes';
+import { PageNode, SequenceNodeKind, StepNode, StepRevisit } from '../builders/nodes';
 import {
   FlowStepNode,
   isFlowStep,
@@ -32,6 +29,7 @@ import {
   materializeStep,
   resolveStepForms,
 } from './materialize-step';
+import { Navigation, StepMemo } from './navigation';
 
 /** Options of `goTo`; `fresh` drops the target and everything after it before entering. */
 export interface GoToOptions {
@@ -191,32 +189,15 @@ function resolveText(value: Live<string> | undefined): string {
 
 type ResolvedForms = Record<string, RuntimeFormConfig>;
 
-type StepMemo = ReadonlyMap<StepNode, LiveStep>;
-
-interface LazyStep {
-  readonly node: StepNode;
-
-  readonly pages: readonly PageNode[];
-
-  readonly configs: ResolvedForms;
-}
-
 export class FormadStepperController<TResult = unknown> implements StepperController<TResult> {
-  private readonly cursor = signal<SequenceNode | null>(null);
-
-  private readonly attemptedNext = signal(false);
+  /** The one piece of state this controller writes; every action replaces it with what the aggregate hands back. */
+  private readonly nav = signal(Navigation.start);
 
   private readonly ring: FlowRing<TResult> | null;
 
   private readonly recurrentFlow: RecurrentFlowDefinition<TResult> | null;
 
   private readonly children: ReadonlyMap<FlowStepNode, FormadStepperController>;
-
-  private readonly memo = signal<StepMemo>(new Map());
-
-  private lastShown: StepNode | null = null;
-
-  private readonly lazyForms: ResourceRef<LazyStep | undefined>;
 
   readonly environment: EnvironmentInjector;
 
@@ -248,74 +229,43 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       ? { state: this.ring.state, passOpen: this.ring.passOpen }
       : host.outlet?.flow();
     this.children = this.spawnChildren();
-    this.lazyForms = resource({
-      params: () => this.lazyTarget(),
-      loader: async ({ params }) => {
-        const pages = untracked(() => this.pagesFor(params));
-
-        return { node: params, pages, configs: await resolveStepForms(pages, this.flow.forms) };
-      },
-      injector: this.environment,
-    });
+    if (!host.outlet) this.nav.set(this.landed(Navigation.start));
   }
 
   private inContext<T>(compute: () => T): T {
     return runInInjectionContext(this.environment, compute);
   }
 
-  private readonly stepsView = computed<RuntimeStepContext['steps']>(() => {
-    const memo = this.memo();
-
-    return Object.fromEntries(
-      this.flow.steps.map((node, index) => [
-        stepKey(node, index),
-        isFlowStep(node) ? this.children.get(node)?.egress() : memo.get(node)?.instances,
-      ]),
-    );
-  });
-
-  private context(): RuntimeStepContext {
+  /** The context over a set of live steps: the computeds build it for the state as it is, actions for the state they are building. */
+  private contextOf(memo: StepMemo): RuntimeStepContext {
     return {
-      steps: this.stepsView(),
+      steps: Object.fromEntries(
+        this.flow.steps.map((node, index) => [
+          stepKey(node, index),
+          isFlowStep(node) ? this.children.get(node)?.egress() : memo.get(node)?.instances,
+        ]),
+      ),
       shared: this.contextShared,
       flow: this.contextFlow,
       parent: this.outlet?.context(),
     };
   }
 
-  private entryContext(upTo: SequenceNode | null): RuntimeStepContext {
-    const steps = this.flow.steps;
-    const limit = upTo ? steps.indexOf(upTo) : steps.length;
-    for (const node of steps.slice(0, limit)) {
-      if (isFlowStep(node) || node.when || this.memo().has(node)) continue;
-      if (this.hasLazyForms(this.pagesFor(node))) continue;
-
-      this.materialize(node, { pages: this.pagesFor(node), configs: this.eagerConfigs(this.pagesFor(node)) });
-    }
-
-    return this.context();
+  private context(): RuntimeStepContext {
+    return this.contextOf(this.nav().memo);
   }
 
-  private readonly effective = computed(() =>
-    this.inContext(() => effectiveSteps(this.flow.steps, this.context())),
-  );
+  private effectiveOf(nav: Navigation): readonly SequenceNode[] {
+    return this.inContext(() => effectiveSteps(this.flow.steps, this.contextOf(nav.memo)));
+  }
 
-  private readonly current = computed<SequenceNode | null>(() => {
-    const eff = this.effective();
-    const wanted = this.cursor();
-    if (!wanted) return eff[0] ?? null;
-    if (eff.includes(wanted)) return wanted;
+  private currentOf(nav: Navigation): SequenceNode | null {
+    return nav.landing(this.effectiveOf(nav), this.flow.steps);
+  }
 
-    const steps = this.flow.steps;
-    const origin = steps.indexOf(wanted);
-    let target: SequenceNode | undefined;
-    for (const candidate of eff) {
-      if (steps.indexOf(candidate) <= origin) target = candidate;
-      else break;
-    }
+  private readonly effective = computed(() => this.effectiveOf(this.nav()));
 
-    return target ?? eff[0] ?? null;
-  });
+  private readonly current = computed(() => this.nav().landing(this.effective(), this.flow.steps));
 
   private readonly position = computed(() => {
     const node = this.current();
@@ -332,28 +282,11 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return node && isFlowStep(node) ? (this.children.get(node) ?? null) : null;
   });
 
-  private readonly lazyTarget = computed<StepNode | undefined>(() => {
-    const node = this.currentStep();
-    if (!node || this.memo().has(node)) return undefined;
-    return untracked(() => this.hasLazyForms(this.pagesFor(node))) ? node : undefined;
-  });
-
+  /** The current step as brought to life; `null` while its forms are still being fetched. Bringing it to life is an action, see `landed`. */
   private readonly ownStep = computed<LiveStep | null>(() => {
     const node = this.currentStep();
-    if (!node) return null;
 
-    const cached = this.memo().get(node);
-    if (cached) return untracked(() => this.showCached(node, cached));
-
-    const pages = untracked(() => this.pagesFor(node));
-
-    if (this.hasLazyForms(pages)) {
-      const resolved = this.lazyForms.hasValue() ? this.lazyForms.value() : undefined;
-      if (!resolved || resolved.node !== node) return null;
-      return untracked(() => this.materialize(node, { pages: resolved.pages, configs: resolved.configs }));
-    }
-
-    return untracked(() => this.materialize(node, { pages, configs: this.eagerConfigs(pages) }));
+    return node ? (this.nav().stepOf(node) ?? null) : null;
   });
 
   readonly step: Signal<LiveStep | null> = computed(() => {
@@ -368,7 +301,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   });
 
   readonly committed: Signal<RuntimeStepContext['steps']> = computed(() => {
-    const memo = this.memo();
+    const memo = this.nav().memo;
 
     return Object.fromEntries(
       this.flow.steps.flatMap((node, index) => {
@@ -432,7 +365,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   readonly nextBlocked: Signal<boolean> = computed(() => {
     const child = this.child();
-    return child ? child.nextBlocked() : this.attemptedNext() && !this.ownCanNext();
+    return child ? child.nextBlocked() : this.nav().attemptedNext && !this.ownCanNext();
   });
 
   readonly validating: Signal<boolean> = computed(() => {
@@ -546,19 +479,15 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
         : eff.find((candidate) => resolveText(candidate.label) === target);
     if (!node) return;
 
-    if (options?.fresh) this.discardFrom(node);
+    if (options?.fresh) this.discard(this.flow.steps.slice(this.flow.steps.indexOf(node)));
     this.enter(node);
   }
 
   reset(): void {
     this.flow.shared.reset();
-    this.attemptedNext.set(false);
-    for (const live of this.memo().values()) live.destroy();
-    this.memo.set(new Map());
-    this.lastShown = null;
     for (const child of this.children.values()) child.reset();
     this.ring?.reset();
-    this.cursor.set(null);
+    this.nav.set(this.outlet ? Navigation.start : this.landed(Navigation.start));
   }
 
   dockRestart(): void {
@@ -575,7 +504,6 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   destroy(): void {
     for (const child of this.children.values()) child.destroy();
-    for (const live of this.memo().values()) live.destroy();
     this.environment.destroy();
   }
 
@@ -589,14 +517,16 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     if (step) {
       for (const form of step.forms) form.touch();
     }
-    this.attemptedNext.set(true);
+    this.nav.set(this.nav().attempted());
   }
 
   private advanceSelf(): void {
     const from = this.current();
     this.commitCurrent();
     if (from && this.foldsAfter(from)) {
-      this.inContext(() => this.ring?.fold(untracked(() => this.entryContext(null))));
+      const settled = this.withPredecessors(this.nav(), null);
+      this.nav.set(settled);
+      this.inContext(() => this.ring?.fold(this.contextOf(settled.memo)));
     }
 
     const eff = this.effective();
@@ -619,7 +549,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   private backSelf(): void {
     const from = this.current();
-    if (from && this.insideOpenPass(from)) this.discardStep(from);
+    if (from && this.insideOpenPass(from)) this.discard([from]);
     else this.commitCurrent();
 
     const eff = this.effective();
@@ -677,23 +607,12 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return at >= 0 && at < flow.dockAt;
   }
 
-  private discardStep(node: SequenceNode): void {
-    if (isFlowStep(node)) {
-      this.children.get(node)?.reset();
-      return;
-    }
-
-    this.drop([node]);
-    if (this.lastShown === node) this.lastShown = null;
-  }
-
-  /** Forgets materialized steps and tears their formFields and components down. */
-  private drop(nodes: readonly SequenceNode[]): void {
-    const memo = this.memo();
+  /** Drops the given steps: a nested flow starts over, a live step is forgotten and rebuilt on its next entry. */
+  private discard(nodes: readonly SequenceNode[]): void {
     for (const node of nodes) {
-      if (!isFlowStep(node)) memo.get(node)?.destroy();
+      if (isFlowStep(node)) this.children.get(node)?.reset();
     }
-    this.memo.set(without(memo, nodes));
+    this.nav.set(this.nav().forgetting(nodes));
   }
 
   private dockIsBehind(): boolean {
@@ -712,12 +631,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     if (!flow || !ring) return;
 
     const steps = this.flow.steps;
-    const passSteps = steps.slice(0, flow.dockAt);
-    for (const node of passSteps) {
-      if (isFlowStep(node)) this.children.get(node)?.reset();
-    }
-    this.drop(passSteps);
-    if (this.lastShown && steps.indexOf(this.lastShown) < flow.dockAt) this.lastShown = null;
+    this.discard(steps.slice(0, flow.dockAt));
     this.flow.shared.reset();
     ring.openPass();
 
@@ -725,22 +639,65 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     if (first) this.enter(first);
   }
 
+  /** Moves the cursor and brings the step it lands on to life; the one place navigation changes state. */
   private enter(node: SequenceNode): void {
-    this.cursor.set(node);
-    this.attemptedNext.set(false);
+    this.nav.set(this.landed(this.nav().movedTo(node)));
   }
 
-  private discardFrom(node: SequenceNode): void {
-    const steps = this.flow.steps;
-    const origin = steps.indexOf(node);
-    if (origin < 0) return;
+  /**
+   * The navigation with its current step alive: a nested flow lands its own; a step shown before is seeded again, or
+   * dropped first when it revisits fresh; a new step is brought to life after every eager step before it; one with lazy
+   * forms is brought to life once they arrive, if it is still current then.
+   */
+  private landed(nav: Navigation): Navigation {
+    const current = this.currentOf(nav);
+    if (!current) return nav;
+    if (isFlowStep(current)) {
+      this.children.get(current)?.land();
 
-    const dropped = steps.slice(origin);
-    for (const candidate of dropped) {
-      if (isFlowStep(candidate)) this.children.get(candidate)?.reset();
+      return nav;
     }
-    this.drop(dropped);
-    if (this.lastShown && steps.indexOf(this.lastShown) >= origin) this.lastShown = null;
+
+    const cached = nav.stepOf(current);
+    if (cached && current.revisit !== StepRevisit.Fresh) {
+      if (nav.shown !== current) for (const form of cached.forms) form.reseed(this.contextOf(nav.memo));
+
+      return nav.shownAs(current);
+    }
+
+    const ready = this.withPredecessors(cached ? nav.forgetting([current]) : nav, current);
+    const pages = this.pagesOf(current, ready);
+    if (!this.hasLazyForms(pages)) return ready.withStep(current, this.materialize(pages, this.eagerConfigs(pages), ready));
+
+    void resolveStepForms(pages, this.flow.forms).then((configs) => {
+      this.nav.update((now) =>
+        this.currentOf(now) === current && !now.stepOf(current)
+          ? now.withStep(current, this.materialize(pages, configs, now))
+          : now,
+      );
+    });
+
+    return ready;
+  }
+
+  /** What a parent asks of a nested flow it lands on: bring the step your own cursor rests on to life. */
+  private land(): void {
+    this.nav.set(this.landed(this.nav()));
+  }
+
+  /** `nav` with every eager, ungated step before `upTo` alive, so a context built over it sees them all. */
+  private withPredecessors(nav: Navigation, upTo: SequenceNode | null): Navigation {
+    const steps = this.flow.steps;
+    const limit = upTo ? steps.indexOf(upTo) : steps.length;
+
+    return steps.slice(0, limit).reduce((settled, node) => {
+      if (isFlowStep(node) || node.when || settled.stepOf(node)) return settled;
+
+      const pages = this.pagesOf(node, settled);
+      if (this.hasLazyForms(pages)) return settled;
+
+      return settled.withStep(node, this.materialize(pages, this.eagerConfigs(pages), settled));
+    }, nav);
   }
 
   private neighbour(node: SequenceNode, direction: 1 | -1): SequenceNode | undefined {
@@ -767,7 +724,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       return;
     }
 
-    const live = this.memo().get(node);
+    const live = this.nav().stepOf(node);
     if (!live) return;
 
     for (const form of live.forms) if (form.visible()) form.commit();
@@ -811,11 +768,12 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return new FormadStepperController(node.flow, { environment: this.environment, injector: this.injector, outlet });
   }
 
-  private pagesFor(node: StepNode): readonly PageNode[] {
+  /** A step's pages: as authored, or built now over the context the given navigation provides. */
+  private pagesOf(node: StepNode, nav: Navigation): readonly PageNode[] {
     const pages = node.pages;
     if (!('build' in pages)) return pages;
 
-    return this.inContext(() => pages.build(this.entryContext(node)));
+    return this.inContext(() => pages.build(this.contextOf(nav.memo)));
   }
 
   private hasLazyForms(pages: readonly PageNode[]): boolean {
@@ -834,26 +792,15 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return resolved;
   }
 
-  private showCached(node: StepNode, cached: LiveStep): LiveStep {
-    if (this.lastShown !== node) {
-      for (const form of cached.forms) form.seed();
-      this.lastShown = node;
-    }
-
-    return cached;
-  }
-
-  private materialize(node: StepNode, resolved: { pages: readonly PageNode[]; configs: ResolvedForms }): LiveStep {
-    const live = materializeStep(resolved.pages, {
-      pool: resolved.configs,
+  /** A step brought to life over the context the given navigation provides; the caller decides where it goes. */
+  private materialize(pages: readonly PageNode[], configs: ResolvedForms, nav: Navigation): LiveStep {
+    return materializeStep(pages, {
+      pool: configs,
       shared: this.flow.shared,
       environment: this.environment,
       injector: this.injector,
-      entry: this.inContext(() => this.entryContext(node)),
+      entry: this.inContext(() => this.contextOf(nav.memo)),
     });
-    this.memo.update((memo) => new Map(memo).set(node, live));
-    this.lastShown = node;
-    return live;
   }
 
   private ownLevel(): ProgressLevel {
@@ -893,16 +840,6 @@ function valuesOf(live: LiveStep): Readonly<Record<string, ReturnType<FormState[
 
   return values;
 }
-
-function without(memo: StepMemo, nodes: readonly SequenceNode[]): StepMemo {
-  const next = new Map(memo);
-  for (const node of nodes) {
-    if (!isFlowStep(node)) next.delete(node);
-  }
-
-  return next;
-}
-
 
 function linearLevel(steps: readonly SequenceNode[], at: number): LinearProgressLevel {
   return {
