@@ -13,12 +13,15 @@ versions may carry breaking changes.
   again") "ended up as a second stepper nested inside a step". It no longer does: a
   recurrent stepper is a flow abstraction equal in rank to the linear one - a ring
   of *pass steps* around a *dock*. Finishing a pass folds its values into the flow's
-  own collection through the author's pure `fold` and lands on the dock; the dock can
-  only reopen the ring or complete the flow. State is the flow's own: the collection
-  lives inside the ring, components read it through a `FlowView` (`all()`/`others()`),
-  and nothing outside mutates it. Entry is conditional - a collection already
-  satisfying `hasAny` lands on the dock, an empty one on the pass's first step - and
-  validity derives from the collection (`completeWhen`), never from the path taken.
+  own state through the author's pure `fold` and lands on the dock; the dock can only
+  reopen the ring or complete the flow. State is the flow's own: `initial` declares
+  the accumulator, it lives inside the ring as `ctx.flow.state()` (a dynamic dock step
+  hands it to its components), and nothing outside mutates it. Entry is conditional -
+  a state for which `dockReachable` holds lands on the dock, any other opens a pass on
+  its first step (without `dockReachable`, the dock is reachable once a pass has
+  folded) - and validity derives from the state (`completeWhen`), never from the path
+  taken. A ring built at the root (`new RecurrentStepperBuilder({ initial })`) goes
+  straight into `<ngx-formad-stepper>`; its `completed` carries the state.
 - **Nesting, both ways - `createStepper` on either builder.** A linear flow can hold
   a recurrent one as ONE step of its sequence and vice versa, driven by a child
   controller per flow slot behind the same root chrome: exactly one
@@ -44,9 +47,19 @@ versions may carry breaking changes.
   nested flow keeps its own namespace of step names, reaching the level above through
   `ctx.parent`. Everything in the context is live: `when`, `completeWhen`, a branch
   selector, a fold and a dynamic step all read the same reactive tree — no snapshots.
-- **Local seeding - `addForm(..., { initial: (ctx) => Partial<M> })`.** The LOCAL
-  channel from a predecessor's live instance into this form, applied when the step
-  materializes (a re-entry after Back re-seeds). `bind` stays the global one.
+- **Local seeding - `addForm(name, { initial: (ctx) => Partial<M> })`.** The LOCAL
+  channel from a predecessor's live instance into this form, applied once, when the
+  step comes to life; an `undefined` entry leaves the field's own default alone.
+  `bind` stays the global one.
+- **Revisit policies - `StepRevisit` and `FormRevisit`.** What a step the user comes
+  back to does is the author's call, per placement, and the default is to keep it:
+  the pages, the forms and what was typed stay as they were, so an address page does
+  not reset because the cart was confirmed. `addForm(name, { revisit:
+  FormRevisit.Reseed })` reads `initial` again from the current context on every
+  entry and writes it into the fields the user has not edited; `createStep(build, {
+  revisit: StepRevisit.Fresh })` drops the step on entry and builds it again, pages
+  and forms alike. Shared links are reapplied to pristine fields on every entry either
+  way: `LiveForm.seed(ctx)` on the first entry, `reseed(ctx)` on the next ones.
 - **`CommittedOf<typeof built>`.** `Stepper` now carries the accumulated step record
   (`TSteps`), so a host can narrow the erased `stepCommitted` record ONCE, at the
   boundary, to `{ [step]?: { [poolName]: model } }` instead of casting per field.
@@ -76,13 +89,38 @@ versions may carry breaking changes.
   levels behind an `aria-expanded` disclosure, announces the collected count through
   a polite live region, and keeps the root rail untouched.
 
-- **`formLayout().control(key, Component, cfg?)`.** A field rendered by a specific
-  `FormValueControl` component instead of a registered kind: the renderer binds
-  `FormField` to the field and feeds the component's presentational inputs, typed off
-  the class (`value` and the state inputs `FormField` owns are rejected). The field is
-  declared `customField()` in `ui` (formodel 0.3). `control()` checks the field's value
-  against the component's `FormValueControl<V>`. Its inputs, like a `content()` gate,
-  may read the layout context (`{ model, shared }`), never the field tree.
+- **`formLayout().control(key, { component, bindings?, placement? })`.** A field
+  rendered by a specific `FormValueControl` component instead of a registered kind:
+  the renderer creates the component with `FormField` bound to the field, and
+  everything else it takes arrives as the `bindings` `createComponent` accepts -
+  inputs, outputs and two-way bindings alike. The argument is a
+  `FieldComponentConfig<M[K]>`, so the component must edit the field's own value type.
+  The field is declared `customField()` in `ui` (formodel 0.3); one left without a
+  `control()` placement throws when the form is instantiated. A `content()` gate
+  inside a form reads the layout context (`{ model, shared }`), never the field tree.
+- **Rendering by mount - `MountPoint`.** A form's view is decided when the form is
+  instantiated, not when a template runs: `FormState.view` is a `FormLevel` whose rows
+  are a `computed` over the level, and each `ControlRow` carries an injector holding
+  a `ComponentMount` - the formField component, the `FormField` and `LayoutItem`
+  directives with their bindings, and the flow's environment. The template draws a
+  `MountPoint` per row through `NgComponentOutlet`, and its constructor creates the
+  component where the row stands with `createComponent`. No directive re-registers a
+  field, no `effect` runs per formField, no lifecycle hook is involved; a field hidden
+  by the schema has no row and so no formField. Array items are a `linkedSignal`
+  keyed by the item's `FieldTree` identity, so an item keeps its instance across a
+  programmatic write to the array. Page components go the same way:
+  `LiveStep.components` maps each `ComponentNode` to the injector its mount point
+  creates it from.
+- **`Live<T>` and `read()`.** `Live<T> = T | (() => T)` is the one way a config value
+  may follow a signal, and `read(value)` the one function that reads either.
+  `FormConfig` widens the authored ui with `LiveUiConfig<M>`, so any presentational
+  prop (`label`, `placeholder`, `options`, a date's `limit`, a custom node's `props`)
+  may be a signal; page headings, step labels, component inputs and content text take
+  the same type. formodel stays plain: 0.3.0 carries no reactive type at all.
+- **`GridPlacement.colStart`** and `formLayout().row(build, { cols, gap, colSpan,
+  colStart })` - a row's own grid plus its placement in the parent grid. `LayoutItem`
+  (`[ngxFormadItem]`) puts a placement's class and style on the element it sits on;
+  the renderer attaches it to every placed formField.
 
 ### Removed
 
@@ -95,26 +133,63 @@ versions may carry breaking changes.
   `controls` pool on flows. A page composes forms and widgets; a value that gates a
   step belongs to a form field, placed with `formLayout().control(...)` when it needs
   its own editor.
+- **The selector callbacks and their recorders.** `addForm((f) => f.lead, …)` is
+  `addForm('lead', …)`; `bind: (l) => l.link((m) => m.company, (s) => s.company)` is
+  `bind: { company: 'company' }` (a nested group binds through a nested record);
+  `effects: (e) => e.on((m) => m.taxId, 'resolved', handler)` is `effects: { taxId:
+  [{ output: 'resolved', handler }] }`. `FieldRef`, `FieldRefs`, `SharedLink`,
+  `selectedKey` and `OutputHandler` go with them; the records are checked against the
+  model and the shared keys exactly as the callbacks were.
+- **`asRenderable`, `asStepper` and `StepperResult`.** A `FormState<M, U>` is what
+  `<ngx-formad-form [state]>` takes and a built `Stepper` or `RecurrentStepper` is
+  what `<ngx-formad-stepper [stepper]>` takes; the erasure is assignability, not a
+  call. A result type is read off the built stepper's own generic.
+- **`FormRenderer`'s `[layout]` and `[effects]` inputs.** The grid is part of the state
+  (`FormState.grid`, the view's container classes) and output effects are wired when
+  the form is instantiated (`InstantiateOptions.effects`).
+- **The outlets and the sync helpers** — `FieldOutlet`, `ComponentOutlet`,
+  `BoundOutputEffect`, `samePath`, `SyncField`, `SharedSlot`, `seedFromShared`,
+  `commitToShared`, `fieldSync` and `SharedState.slot()`. The mount replaces the
+  outlets; a `LiveForm` seeds and commits its own links through the field tree, and
+  `SharedState.select(key)` / `signals()` are the per-key signals.
+- **`ReactiveValue`, `readReactive`, `mapReactive`, `reactive`, `ReactiveControlNode`,
+  `ReactiveUiConfig`.** One type, `Live<T>`, one function, `read()`, and the
+  `LiveControlNode` / `LiveUiConfig` widenings.
+- **`stepFormNames`.** `formNodes(pages)` lists the form nodes the pages place.
 
 ### Changed
 
 - **`committed()` / `stepCommitted` are keyed by step, then by pool name** —
   `{ basics: { basics: {...} } }`, a nested linear flow as its own step record, a
-  recurrent flow as its collection — because a template placed twice is two values.
+  recurrent flow as its folded state — because a template placed twice is two values.
   A form hidden by `visibleWhen` is on its step but not among its values.
 - **`ctx.value(name)` is gone; `ctx.shared.<key>` is a signal.** Read a predecessor
   through `ctx.steps.<step>.<poolName>.model()`, the store through `ctx.shared.key()`.
   `StepContextFor`, `Committed` and the `FlowEntry` pool entry are removed with it: a
   nested flow is a STEP of its parent (`ctx.steps.<flowName>`), not a pool member,
-  and step names are a namespace of their own (`claimName`) beside the pool's.
-- **The controller derives instead of repairing.** `FormadStepperController` holds
- two intents (the cursor and the blocked-Next flag) plus commits; the current step
-  clamps to the effective sequence in a `computed` (the self-gating repair `effect`
-  is gone), step instances are a memoized derivation of the current node (the
-  bootstrap `afterNextRender` is gone - an eager first step renders on first read),
-  and lazy form configs resolve through a `resource` keyed on the current node. A
-  nested flow's committed value is PULLED live from its child controller, so
-  `committed()` always carries the collection under the flow's name.
+  and step names are a namespace of their own (`claimName`) beside the pool's. Both
+  namespaces span a fork: an arm's step or form name may not repeat the parent's or
+  another arm's, so a form two arms place is declared once, before the fork.
+- **The controller is one immutable value.** `FormadStepperController` keeps its
+  position - the cursor, the blocked-Next flag, the live steps by node and which of
+  them are shown - as one `Navigation` value in a single signal; every move is
+  `nav.set(nav().transition())`, and the current step, the rail, the gate and the
+  blockers are computeds over it, none of which writes anything. The self-gating
+  repair `effect` and the bootstrap `afterNextRender` are gone: an eager step is
+  materialized inside the action that enters it, a step with lazy forms resolves its
+  loaders and lands only if the cursor still points at it. A nested flow's committed
+  value is PULLED live from its child controller, so `committed()` always carries
+  the state under the flow's name.
+- **`createPage(build, options?)`.** The build callback first, the options
+  (`heading`, `subheading`, `layout`) second, as `createStep`, `addContent` and
+  `formLayout().row` take theirs.
+- **`materializeStep(pages, options)` and `resolveStepForms(pages, pool)`** take the
+  step's pages and, for the former, a `MaterializeOptions` object (`pool`, `shared`,
+  `environment`, `injector?`, `entry`). `LiveStep` gains `components` and
+  `instances`; `LiveForm` gains `visible`, `issues`, `reseed(ctx)` and `touch()`.
+- **`FormState` gains `grid` and `view`**, and `instantiateForm` creates the mount of
+  every formField along with the field tree, so it runs in an injection context
+  whether or not a template is ever drawn from it.
 - **`StepNode` carries `kind: SequenceNodeKind.Step`** and `Stepper.steps` is
   `readonly SequenceNode[]` (`StepNode | FlowStepNode`). Hosts that walk the steps
   themselves must narrow with `isStepNode` / `isFlowStep` - `materializeStep` accepts
