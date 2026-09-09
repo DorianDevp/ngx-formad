@@ -487,6 +487,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     this.flow.shared.reset();
     for (const child of this.children.values()) child.reset();
     this.ring?.reset();
+    this.endForms(this.nav().memo.values());
     this.nav.set(this.outlet ? Navigation.start : this.landed(Navigation.start));
   }
 
@@ -504,6 +505,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   destroy(): void {
     for (const child of this.children.values()) child.destroy();
+    this.endForms(this.nav().memo.values());
     this.environment.destroy();
   }
 
@@ -612,7 +614,26 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     for (const node of nodes) {
       if (isFlowStep(node)) this.children.get(node)?.reset();
     }
-    this.nav.set(this.nav().forgetting(nodes));
+    this.nav.set(this.forgetting(this.nav(), nodes));
+  }
+
+  /** Ends the effects of every form the given steps brought to life. */
+  private endForms(steps: Iterable<LiveStep>): void {
+    for (const live of steps) {
+      for (const form of live.forms) form.destroy();
+    }
+  }
+
+  /** `nav` without the given steps, their live forms ended first. */
+  private forgetting(nav: Navigation, nodes: readonly SequenceNode[]): Navigation {
+    const dropped = nodes.flatMap((node) => {
+      const live = isFlowStep(node) ? undefined : nav.stepOf(node);
+
+      return live ? [live] : [];
+    });
+    this.endForms(dropped);
+
+    return nav.forgetting(nodes);
   }
 
   private dockIsBehind(): boolean {
@@ -665,7 +686,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       return nav.shownAs(current);
     }
 
-    const ready = this.withPredecessors(cached ? nav.forgetting([current]) : nav, current);
+    const ready = this.withPredecessors(cached ? this.forgetting(nav, [current]) : nav, current);
     const pages = this.pagesOf(current, ready);
     if (!this.hasLazyForms(pages)) return ready.withStep(current, this.materialize(pages, this.eagerConfigs(pages), ready));
 

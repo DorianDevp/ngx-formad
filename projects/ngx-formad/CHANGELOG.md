@@ -89,15 +89,29 @@ versions may carry breaking changes.
   levels behind an `aria-expanded` disclosure, announces the collected count through
   a polite live region, and keeps the root rail untouched.
 
-- **`formLayout().control(key, { component, bindings?, placement? })`.** A field
-  rendered by a specific `FormValueControl` component instead of a registered kind:
-  the renderer creates the component with `FormField` bound to the field, and
-  everything else it takes arrives as the `bindings` `createComponent` accepts -
-  inputs, outputs and two-way bindings alike. The argument is a
-  `FieldComponentConfig<M[K]>`, so the component must edit the field's own value type.
-  The field is declared `customField()` in `ui` (formodel 0.3); one left without a
-  `control()` placement throws when the form is instantiated. A `content()` gate
-  inside a form reads the layout context (`{ model, shared }`), never the field tree.
+- **`formLayout().control(key, { component, placement? })`.** A field rendered by a
+  specific `FormValueControl` component instead of a registered kind: the renderer
+  creates the component with `FormField` bound to the field. The argument is a
+  `FieldComponentConfig<M[K], C>`, so the component must edit the field's own value
+  type, and the layout's type remembers `C` under the field (`FormLayout<M, P>`,
+  `FormConfig<M, U, P>`, kept by `defineForm`). The field is declared `customField()`
+  in `ui` (formodel 0.3); one left without a `control()` placement throws when the form
+  is instantiated. A `content()` gate inside a form reads the layout context
+  (`{ model, shared }`), never the field tree.
+- **Bindings - one place per form instance.** Everything a field's component is bound
+  with beyond `FormField` (inputs, outputs, two-way) is declared in the second argument
+  of `instantiateForm(config, bindings, effects?)` and of `addForm(name, bindings, cfg?)`:
+  a record keyed by field name, under it `inputs` and `outputs` keyed by the component's
+  own names, typed by the component the layout placed or by the one `ControlComponents`
+  (a new, augmentable interface: kind → component class) registers for the field's kind.
+  An input takes a `Live<T>`, an output a handler `(payload, ctx)`. `ctx` is the form's
+  writable `model`; inside a stepper the step context with `model` layered in
+  (`StepFormContext`). A group nests its record, a repeating group binds every item.
+- **Effects - Angular `effect()`s over a live form.** `instantiateForm(config, bindings,
+  effects)` and `addForm(name, bindings, { effects })` take `(ctx) => void` side effects,
+  each run as an `effect()` created with the instance and ended with it: `FormState`
+  and `LiveForm` gain `destroy()`, called when a step is dropped (`StepRevisit.Fresh`, a
+  restarted pass).
 - **Rendering by mount - `MountPoint`.** A form's view is decided when the form is
   instantiated, not when a template runs: `FormState.view` is a `FormLevel` whose rows
   are a `computed` over the level, and each `ControlRow` carries an injector holding
@@ -145,8 +159,18 @@ versions may carry breaking changes.
   what `<ngx-formad-stepper [stepper]>` takes; the erasure is assignability, not a
   call. A result type is read off the built stepper's own generic.
 - **`FormRenderer`'s `[layout]` and `[effects]` inputs.** The grid is part of the state
-  (`FormState.grid`, the view's container classes) and output effects are wired when
-  the form is instantiated (`InstantiateOptions.effects`).
+  (`FormState.grid`, the view's container classes) and a field's bindings are wired when
+  the form is instantiated (`instantiateForm(config, bindings)`).
+- **`addForm({ effects })` as output handlers, `control({ bindings })`, and
+  `addComponent({ inputs, outputs })`.** What a field is bound with lives in ONE place
+  per abstraction - the bindings argument of `instantiateForm` / `addForm` - so the
+  layout's `control()` no longer takes `bindings` and the old `effects` record
+  (`{ field: [{ output, handler }] }`) is the field's own output key inside that
+  argument. `OutputEffectCfg`, `FormEffects`, `EffectRecord`, `OutputEffect`,
+  `recordEffects`, `toBindings`, `ComponentInputs` and `ComponentOutputs` go with it; a
+  page component takes Angular's own `Binding[]` (`addComponent(Cmp, { bindings })`), so
+  `ComponentCfg` no longer carries the component's type parameter.
+  `effects` now means an Angular `effect()` over the form.
 - **The outlets and the sync helpers** — `FieldOutlet`, `ComponentOutlet`,
   `BoundOutputEffect`, `samePath`, `SyncField`, `SharedSlot`, `seedFromShared`,
   `commitToShared`, `fieldSync` and `SharedState.slot()`. The mount replaces the

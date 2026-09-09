@@ -1,6 +1,6 @@
-import { computed, EnvironmentInjector, inject, Injector, signal, WritableSignal } from '@angular/core';
+import { computed, effect, EnvironmentInjector, inject, Injector, signal, WritableSignal } from '@angular/core';
 import { form } from '@angular/forms/signals';
-import { OutputEffect } from '../builders/shared-link';
+import { BindingRecord, FormBindings, FormContext, FormEffect, FormEffectHook } from '../form-config/form-bindings';
 import {
   buildLayoutNodes,
   buildNodes,
@@ -41,15 +41,22 @@ export interface FormState<
   readonly grid?: GridLayout;
 
   readonly view: FormLevel;
+
+  /** Ends the form's effects; a host whose injector outlives the instance calls it when the instance goes. */
+  destroy(): void;
 }
 
-/** What a form is instantiated with beyond its config: the injector its formFields see, their output effects, the shared store. */
+/** What a form is instantiated with beyond its config: the injector its formFields see, the shared store, its bindings and effects, and the context they read. */
 export interface InstantiateOptions {
   readonly injector?: Injector;
 
-  readonly effects?: readonly OutputEffect[];
-
   readonly shared?: SharedState | null;
+
+  readonly bindings?: BindingRecord;
+
+  readonly effects?: readonly FormEffectHook[];
+
+  readonly context?: object;
 }
 
 function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'fields' | 'grid'> {
@@ -75,6 +82,7 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 
   const injector = options.injector ?? inject(Injector);
   const shared = options.shared ?? injector.get(FormadWizard, null)?.sharedOrNull() ?? null;
+  const handlerContext: FormContext = { ...(options.context ?? {}), model: erased };
   const scope: ViewScope = {
     injector,
     environment: injector.get(EnvironmentInjector),
@@ -82,17 +90,30 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
     layout: injector.get(LAYOUT_ADAPTER),
     context: computed<FormLayoutContext>(() => ({ model: erased(), shared })),
     model: erased,
-    effects: options.effects ?? [],
+    bindings: options.bindings ?? {},
+    handlerContext,
   };
+  const effects = (options.effects ?? []).map((hook) => effect(() => hook.run(handlerContext), { injector }));
 
-  return { model, rootForm, ui: config.ui, ...tree, view: buildLevel(tree.nodes, rootForm, tree.grid ?? {}, scope) };
+  return {
+    model,
+    rootForm,
+    ui: config.ui,
+    ...tree,
+    view: buildLevel(tree.nodes, rootForm, tree.grid ?? {}, scope),
+    destroy: () => {
+      for (const ref of effects) ref.destroy();
+    },
+  };
 }
 
-/** Builds a live form from a typed config; runs in an injection context. */
-export function instantiateForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi>(
-  config: FormConfig<M, U> & RuntimeFormConfig,
+/** Builds a live form from a typed config, with its bindings and effects; runs in an injection context. */
+export function instantiateForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(
+  config: FormConfig<M, U, P> & RuntimeFormConfig,
+  bindings: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null = null,
+  effects: readonly FormEffect<FormContext<M>>[] = [],
 ): FormState<M, U> {
-  return createState<M, U>(config, {});
+  return createState<M, U>(config, { bindings: bindings ?? {}, effects: effects.map((run) => ({ run })) });
 }
 
 /** Builds a live form from a runtime template; runs in an injection context. */

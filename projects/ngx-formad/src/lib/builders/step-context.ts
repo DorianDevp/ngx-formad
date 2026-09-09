@@ -5,8 +5,17 @@ import { FormState } from '../renderer/instantiate-form';
 /** A compile-time refusal whose property name states the reason. */
 export type Rejected<Reason extends string> = { readonly 'ngx-formad': Reason };
 
+/** The config a pool entry resolves to: itself, or what its loader yields. */
+export type ConfigOf<F> = F extends () => Promise<infer C> ? C : F;
+
 /** The model type of a pooled form template. */
-export type FormModel<F> = F extends FormConfig<infer M extends Record<string, unknown>> ? M : never;
+export type FormModel<F> = ConfigOf<F> extends { model(): infer M extends Record<string, unknown> } ? M : never;
+
+/** The authored ui of a pooled form template. */
+export type FormUi<F> = ConfigOf<F> extends { readonly ui: infer U } ? U : never;
+
+/** The components a pooled form template's layout placed, by field. */
+export type FormPlaced<F> = ConfigOf<F> extends { readonly layout?: { readonly __placed?: infer P } } ? P : {};
 
 /** The pool names `addForm` may place. */
 export type FormKeys<TForms> = keyof TForms & string;
@@ -19,7 +28,7 @@ export enum DeferTrigger {
 }
 
 /** The live instance a placed template becomes. */
-export type InstanceOf<F> = F extends FormConfig<infer M extends Record<string, unknown>> ? FormState<M> : never;
+export type InstanceOf<F> = [FormModel<F>] extends [never] ? never : FormState<FormModel<F>>;
 
 /** One step's live instances by pool name, for the names `P` the step placed. */
 export type StepInstance<TForms, P> = {

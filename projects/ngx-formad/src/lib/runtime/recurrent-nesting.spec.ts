@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import {
@@ -67,9 +67,8 @@ function rootRing(): RuntimeFlow {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('name',
-              { bind: { v: 'draft' } },
-            ), { heading: 'Name' },
+            p.addForm('name', null,
+              { bind: { v: 'draft' } }), { heading: 'Name' },
           ),
         { label: 'Name' },
       )
@@ -78,7 +77,7 @@ function rootRing(): RuntimeFlow {
       .dock(
         (s, ctx) =>
           s.createPage((p) =>
-            p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }), { heading: 'Collected' },
+            p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
           ),
         { label: 'Dock' },
       )
@@ -123,7 +122,7 @@ function ringWithLinearPass(): RuntimeStepper {
             .dock(
               (s, ctx) =>
                 s.createPage((p) =>
-                  p.addComponent(NestDock, { inputs: { items: () => ctx.flow.state() } }), { heading: 'Collected' },
+                  p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
               { label: 'Dock' },
             ),

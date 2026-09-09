@@ -1,7 +1,8 @@
 import { Binding, Type } from '@angular/core';
 import { Live } from '../form-config/live';
 import { ContentChild } from './content';
-import { LinkPair, OutputEffect } from './shared-link';
+import { BindingRecord, FormEffectHook } from '../form-config/form-bindings';
+import { LinkPair } from './shared-link';
 import { DeferTrigger, RuntimeStepContext } from './step-context';
 
 /** Discriminates what a page lays out. */
@@ -44,7 +45,7 @@ export enum FormRevisit {
   Reseed = 'reseed',
 }
 
-/** A pooled form placed by name, with its shared links, output effects, local `initial` seed and revisit policy. */
+/** A pooled form placed by name, with its shared links, bindings, effects, local `initial` seed and revisit policy. */
 export interface FormNode<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: LayoutNodeKind.Form;
 
@@ -56,7 +57,9 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
 
   readonly links: readonly LinkPair[];
 
-  readonly effects: readonly OutputEffect[];
+  readonly bindings: BindingRecord;
+
+  readonly effects: readonly FormEffectHook[];
 
   initial?(ctx: RuntimeStepContext): Partial<M>;
 

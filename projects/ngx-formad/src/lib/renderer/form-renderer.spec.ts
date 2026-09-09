@@ -512,7 +512,7 @@ describe('FormRenderer - a swapped form', () => {
   });
 });
 
-// ── formLayout().control(): a component of your own on a field, with its own bindings ──
+// ── formLayout().control(): a component of your own on a field, bound where the form is instantiated ──
 @Component({
   selector: 'stars-picker',
   template: `<button type="button" class="stars" (click)="value.set(value() + 1)">{{ value() }} / {{ stars() }}</button>`,
@@ -525,20 +525,18 @@ class StarsPicker implements FormValueControl<number> {
 
 type Rated = { rating: number };
 const limit = signal(3);
-const ratedConfig: FormConfig<Rated> = {
-  model: () => ({ rating: 0 }),
+const ratedConfig = defineForm({
+  model: (): Rated => ({ rating: 0 }),
   ui: { rating: customField() },
-  layout: formLayout<Rated>()
-    .control('rating', { component: StarsPicker, bindings: [inputBinding('stars', limit)] })
-    .build(),
-};
+  layout: formLayout<Rated>().control('rating', { component: StarsPicker }).build(),
+});
 
 @Component({
   imports: [FormRenderer],
   template: `<ngx-formad-form [state]="state" />`,
 })
 class RatedHost {
-  readonly state = instantiateForm(ratedConfig);
+  readonly state = instantiateForm(ratedConfig, { rating: { inputs: { stars: limit } } });
 }
 
 const bareConfig: FormConfig<Rated> = {
@@ -565,7 +563,7 @@ describe('FormRenderer - formLayout().control()', () => {
 
   const stars = () => fixture.nativeElement.querySelector('.stars') as HTMLButtonElement;
 
-  it('renders the placed component on the field with its bindings applied', () => {
+  it('renders the placed component on the field with the declared bindings applied', () => {
     expect(fixture.nativeElement.querySelector('stars-picker')).toBeTruthy();
     expect(stars().textContent?.trim()).toBe('0 / 3');
   });

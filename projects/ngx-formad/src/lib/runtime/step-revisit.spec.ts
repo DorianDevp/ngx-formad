@@ -39,7 +39,7 @@ function journey(form?: FormRevisit, step?: StepRevisit): Journey {
       (s) =>
         s.createPage(
           (p) =>
-            p.addForm('details', {
+            p.addForm('details', null, {
               initial: ({ steps }) => {
                 calls += 1;
 

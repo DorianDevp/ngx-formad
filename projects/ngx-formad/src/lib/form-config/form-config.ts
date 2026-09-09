@@ -1,4 +1,4 @@
-import { Binding, computed, Type } from '@angular/core';
+import { computed, Type } from '@angular/core';
 import { FormValueControl, SchemaPathTree } from '@angular/forms/signals';
 import {
   CUSTOM_FIELD,
@@ -81,11 +81,9 @@ export interface FormLayoutContext<M extends Record<string, unknown> = Record<st
   readonly shared: SharedState | null;
 }
 
-/** A component placed on a field of value `T` by `formLayout().control()`: its class, the bindings `createComponent` applies, its placement. */
-export interface FieldComponentConfig<T = any> {
-  readonly component: Type<FormValueControl<T>>;
-
-  readonly bindings?: readonly Binding[];
+/** A component placed on a field of value `T` by `formLayout().control()`: its class and its placement; its bindings are declared where the form is instantiated. */
+export interface FieldComponentConfig<T = any, C extends object = FormValueControl<T>> {
+  readonly component: Type<C> & Type<FormValueControl<T>>;
 
   readonly placement?: GridPlacement;
 }
@@ -109,7 +107,7 @@ export interface FieldConfig {
 
   readonly layout?: GridPlacement;
 
-  readonly control?: FieldComponentConfig;
+  readonly control?: FieldComponentConfig<any, object>;
 }
 
 /** A scalar control in the render tree. */
@@ -205,7 +203,7 @@ export interface FormControlItem<M extends Record<string, unknown> = Record<stri
 
   readonly key: string;
 
-  readonly control: FieldComponentConfig;
+  readonly control: FieldComponentConfig<any, object>;
 }
 
 /** A content block with its gate and placement. */
@@ -237,8 +235,10 @@ export type FormLayoutItem<M extends Record<string, unknown> = Record<string, un
   | FormContentSpec<M>
   | FormRowItem<M>;
 
-/** A form's layout overlay: the container grid and the ordered items; built with `formLayout()`. */
-export interface FormLayout<M extends Record<string, unknown> = Record<string, unknown>> {
+/** A form's layout overlay: the container grid and the ordered items; built with `formLayout()`. `P` names the components `control()` placed, by field. */
+export interface FormLayout<M extends Record<string, unknown> = Record<string, unknown>, P extends {} = {}> {
+  readonly __placed?: P;
+
   readonly grid?: GridLayout;
 
   readonly items: readonly FormLayoutItem<M>[];
@@ -246,27 +246,27 @@ export interface FormLayout<M extends Record<string, unknown> = Record<string, u
 
 /** A form template as the runtime holds it: a fresh-model factory, the ui by structure, an optional schema and layout overlay. */
 export interface RuntimeFormConfig<M extends Record<string, unknown> = Record<string, unknown>> {
-  model(): M;
-
   readonly ui: ErasedUi;
-
-  schema?(p: SchemaPathTree<M>): void;
-
   readonly layout?: FormLayout<M>;
+  model(): M;
+  schema?(p: SchemaPathTree<M>): void;
 }
 
-/** One form as authored: the template with its ui type kept, so live props come back as declared. */
+/** One form as authored: the template with its ui type kept, so live props come back as declared, and the components its layout placed. */
 export interface FormConfig<
   M extends Record<string, unknown>,
   U extends LiveUiConfig<M> & ErasedUi = LiveUiConfig<M> & ErasedUi,
+  P extends {} = {},
 > extends RuntimeFormConfig<M> {
   readonly ui: U;
+
+  readonly layout?: FormLayout<M, P>;
 }
 
-/** Declares a form config while keeping the authored `ui` type, so a signal put in comes back writable. */
-export function defineForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi>(
-  config: FormConfig<M, U>,
-): FormConfig<M, U> {
+/** Declares a form config while keeping the authored `ui` type and the placed components, so a signal put in comes back writable and the bindings are typed. */
+export function defineForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(
+  config: FormConfig<M, U, P>,
+): FormConfig<M, U, P> {
   return config;
 }
 

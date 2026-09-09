@@ -1,4 +1,4 @@
-import { Component, input, output, signal } from '@angular/core';
+import { Component, input, inputBinding, output, outputBinding, signal } from '@angular/core';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { ComponentNode, FormNode, LayoutNodeKind, StepNode } from './nodes';
@@ -38,8 +38,8 @@ describe('StepperBuilder', () => {
       .createStep((step) =>
         step.createPage((page) =>
           page
-            .addComponent(Banner, { inputs: { tone: 'info' }, outputs: { dismissed: () => {} } })
-            .addForm('account', {
+            .addComponent(Banner, { bindings: [inputBinding('tone', () => 'info'), outputBinding('dismissed', () => {})] })
+            .addForm('account', null, {
               submitLabel: 'Next',
               bind: { email: 'email' },
             }), { heading: 'Account' },
@@ -47,7 +47,7 @@ describe('StepperBuilder', () => {
       )
       .createStep((step) =>
         step.createPage((page) =>
-          page.addForm('billing', {
+          page.addForm('billing', null, {
             bind: { email: 'email' },
           }), { heading: 'Billing' },
         ),
@@ -87,7 +87,7 @@ describe('StepperBuilder', () => {
       .createForm('billing', billing)
       .createStep((step) =>
         step.createPage((page) =>
-          page.addForm('billing', {
+          page.addForm('billing', null, {
             bind: { vat: 'vat' },
           }), { heading: 'Billing' },
         ),

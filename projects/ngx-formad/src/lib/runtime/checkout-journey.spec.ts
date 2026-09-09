@@ -1,9 +1,9 @@
-import { Component, input, inputBinding, model } from '@angular/core';
+import { Component, input, model } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl, hidden, required } from '@angular/forms/signals';
 import { array, checkbox, customField, email, number, password, phone, radio, select, text, UiFormConfigBuilder } from 'formodel';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
-import { FormConfig } from '../form-config/form-config';
+import { defineForm, FormConfig } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { StepperComponent } from './stepper.component';
 
@@ -85,8 +85,8 @@ type Shipping = {
   window: string;
   newsletter: boolean;
 };
-const shippingForm: FormConfig<Shipping> = {
-  model: () => ({ address: { street: '', city: '' }, method: 'courier', locker: '', window: '', newsletter: false }),
+const shippingForm = defineForm({
+  model: (): Shipping => ({ address: { street: '', city: '' }, method: 'courier', locker: '', window: '', newsletter: false }),
   ui: UiFormConfigBuilder.from({ address: { street: '', city: '' }, method: '', locker: '', window: '', newsletter: false })
     .address({ label: 'Address', maxCols: 2 }, (b) => b.street(text('Street')).city(text('City')))
     .method(
@@ -108,17 +108,15 @@ const shippingForm: FormConfig<Shipping> = {
     .field('address', { colSpan: 2 })
     .field('method')
     .field('locker')
-    .control('window', {
-      component: TimeWindowPicker,
-      bindings: [inputBinding('windows', () => ['9-12', '12-15'])],
-      placement: { colSpan: 2 },
-    })
+    .control('window', { component: TimeWindowPicker, placement: { colSpan: 2 } })
     .field('newsletter')
     .content((c) => c.p('We will e-mail the confirmation.', { className: 'confirm-note' }), {
       visibleWhen: (ctx) => (ctx.shared?.get('email') ?? '') !== '',
     })
     .build(),
-};
+});
+
+const WINDOWS: readonly string[] = ['9-12', '12-15'];
 
 @Component({
   imports: [StepperComponent],
@@ -134,7 +132,7 @@ class CheckoutHost {
     .createForm('shipping', shippingForm) // both arms place it, so it is declared once, before the fork
     .createStep((s) => s.createPage((p) => p.addForm('cart'), { heading: 'Your cart' }), { name: 'cart' })
     .createStep((s) =>
-      s.createPage((p) => p.addForm('mode', { bind: { mode: 'mode' } }), { heading: 'How to buy' }),
+      s.createPage((p) => p.addForm('mode', null, { bind: { mode: 'mode' } }), { heading: 'How to buy' }),
     )
     .fork((c) => c.shared.mode(), {
       account: (arm) =>
@@ -142,10 +140,10 @@ class CheckoutHost {
           .createForm('account', accountForm)
           .createStep((s) =>
             s.createPage((p) =>
-              p.addForm('account', { bind: { email: 'email' } }), { heading: 'Create an account' },
+              p.addForm('account', null, { bind: { email: 'email' } }), { heading: 'Create an account' },
             ),
           )
-          .createStep((s) => s.createPage((p) => p.addForm('shipping'), { heading: 'Shipping' }), {
+          .createStep((s) => s.createPage((p) => p.addForm('shipping', { window: { inputs: { windows: WINDOWS } } }), { heading: 'Shipping' }), {
             name: 'accountShipping',
           })
           .createStep((s, ctx) =>
@@ -158,9 +156,9 @@ class CheckoutHost {
         arm
           .createForm('contact', contactForm)
           .createStep((s) =>
-            s.createPage((p) => p.addForm('contact', { bind: { email: 'email' } }), { heading: 'Your details' }),
+            s.createPage((p) => p.addForm('contact', null, { bind: { email: 'email' } }), { heading: 'Your details' }),
           )
-          .createStep((s) => s.createPage((p) => p.addForm('shipping'), { heading: 'Shipping' }), {
+          .createStep((s) => s.createPage((p) => p.addForm('shipping', { window: { inputs: { windows: WINDOWS } } }), { heading: 'Shipping' }), {
             name: 'guestShipping',
           })
           .result(({ shared }) => ({ mode: 'guest' as const, email: shared.email() })),

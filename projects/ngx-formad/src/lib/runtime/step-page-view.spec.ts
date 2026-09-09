@@ -1,4 +1,4 @@
-import { Component, input, signal } from '@angular/core';
+import { Component, input, inputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
@@ -43,7 +43,7 @@ class ComponentHost {
       .createForm('only', onlyForm)
       .createStep((s) =>
         s.createPage((p) =>
-          p.addComponent(Banner, { inputs: { note: 'hello from a slot' } }).addForm('only'), { heading: 'One' },
+          p.addComponent(Banner, { bindings: [inputBinding('note', () => 'hello from a slot')] }).addForm('only'), { heading: 'One' },
         ),
       )
       .build();
@@ -73,10 +73,10 @@ class GatedHost {
   readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createStep(
-        (s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'choose' } }), { heading: 'Pick' }),
+        (s) => s.createPage((p) => p.addComponent(Banner, { bindings: [inputBinding('note', () => 'choose')] }), { heading: 'Pick' }),
         { completeWhen: () => ready() },
       )
-      .createStep((s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'done' } }), { heading: 'Done' }))
+      .createStep((s) => s.createPage((p) => p.addComponent(Banner, { bindings: [inputBinding('note', () => 'done')] }), { heading: 'Done' }))
       .build();
 }
 
@@ -105,10 +105,10 @@ class SharedGatedHost {
   readonly built = new StepperBuilder()
     .withState({ agreed: false })
     .createStep(
-      (s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'agree' } }), { heading: 'Consent' }),
+      (s) => s.createPage((p) => p.addComponent(Banner, { bindings: [inputBinding('note', () => 'agree')] }), { heading: 'Consent' }),
       { completeWhen: (ctx) => ctx.shared.agreed() },
     )
-    .createStep((s) => s.createPage((p) => p.addComponent(Banner, { inputs: { note: 'done' } }), { heading: 'Done' }))
+    .createStep((s) => s.createPage((p) => p.addComponent(Banner, { bindings: [inputBinding('note', () => 'done')] }), { heading: 'Done' }))
     .build();
   readonly stepper: RuntimeStepper = (this.built);
 }

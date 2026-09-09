@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
@@ -72,9 +72,8 @@ function deviceStepper(): RuntimeStepper {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('intro',
-              { bind: { v: 'source' } },
-            ), { heading: 'Intro' },
+            p.addForm('intro', null,
+              { bind: { v: 'source' } }), { heading: 'Intro' },
           ),
         { label: 'Intro' },
       )
@@ -93,9 +92,8 @@ function deviceStepper(): RuntimeStepper {
                   .step(
                     (s) =>
                       s.createPage((p) =>
-                        p.addForm('name',
-                          { bind: { v: 'draftName' } },
-                        ), { heading: 'Name' },
+                        p.addForm('name', null,
+                          { bind: { v: 'draftName' } }), { heading: 'Name' },
                       ),
                     { name: 'name', label: 'Name' },
                   )
@@ -126,7 +124,7 @@ function deviceStepper(): RuntimeStepper {
             .dock(
               (s, ctx) =>
                 s.createPage((p) =>
-                  p.addComponent(DockPanel, { inputs: { items: () => ctx.flow.state() } }), { heading: 'Collected' },
+                  p.addComponent(DockPanel, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
               { label: 'Dock' },
             ),

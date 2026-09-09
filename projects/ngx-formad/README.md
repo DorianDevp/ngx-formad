@@ -240,25 +240,23 @@ const signupForm: FormConfig<Signup> = {
 ```
 
 A field whose editor is a specific `FormValueControl` component, not a registered kind,
-is declared `customField()` in `ui` and placed with `.control(key, config)`. The renderer
-binds `FormField` to the field itself; everything else the component takes arrives as the
-same `bindings` `createComponent` accepts, so inputs, outputs and two-way bindings alike:
+is declared `customField()` in `ui` and placed with `.control(key, config)`. The layout only
+places: the renderer binds `FormField` to the field itself, and everything else the
+component takes is declared where the form is instantiated (see [Bindings](#bindings--one-place-per-form-instance)):
 
 ```ts
-ui: UiFormConfigBuilder.from({ source: '' }).source(customField()),
-layout: formLayout<Pick>()
-  .control('source', {
-    component: RadioCards,
-    bindings: [inputBinding('label', () => 'How?'), inputBinding('options', SOURCE_OPTIONS)],
-    placement: { colSpan: 2 },
-  })
-  .build(),
+const pickForm = defineForm({
+  model: (): Pick => ({ source: '' }),
+  ui: { source: customField() },
+  layout: formLayout<Pick>().control('source', { component: RadioCards, placement: { colSpan: 2 } }).build(),
+});
 ```
 
 `control(key, config)` takes a `FieldComponentConfig<M[K]>`, so the component must be a
-`FormValueControl` of the field's own value type. A `customField()` left without a `control()`
-placement throws when the form is instantiated. There is no component slot inside a
-form: a widget that is not a field belongs to the page.
+`FormValueControl` of the field's own value type; the layout remembers which component
+sits on which field, so the bindings of that field are typed by it. A `customField()`
+left without a `control()` placement throws when the form is instantiated. There is no
+component slot inside a form: a widget that is not a field belongs to the page.
 
 A `content()` gate may read the **layout context**: the live model value and, inside a
 stepper page, the cross-step `shared` store (`null` standalone). Never the field tree.
@@ -338,7 +336,7 @@ const editorPage = new StepperBuilder()
           .addForm('article') // place the article form by name
           .insertRow('cols-2', (row) => row.addForm('seo')) // a layout row
           .addComponent(ScheduleNotice, {
-            inputs: { when: () => status() },
+            bindings: [inputBinding('when', () => status())], // Angular's own bindings, as createComponent takes them
             visibleWhen: () => status() === 'scheduled', // conditional, as data
           }),
       { heading: 'Edit article' },
@@ -1076,7 +1074,7 @@ new StepperBuilder()
         // the dock reads the folded state through the live context: a dynamic step
         .dock((s, ctx) =>
           s.createPage(
-            (p) => p.addComponent(DeviceList, { inputs: { devices: () => ctx.flow.state() } }),
+            (p) => p.addComponent(DeviceList, { bindings: [inputBinding('devices', () => ctx.flow.state())] }),
             { heading: 'Your devices' },
           ),
         ),
@@ -1284,30 +1282,64 @@ class Summary {
 outside a stepper). Summaries stay free-form — you read the data and render it however
 you like.
 
-## Control-output effects — autofill from a widget
+## Bindings — one place per form instance
 
-A control can emit *outputs* beyond its value (a VAT-ID field that resolves a company).
-`addForm(name, { effects })` wires such an output to patch sibling fields — a record
-keyed by the emitting field, nested like the model for a field inside a group, each
-entry naming the output and a handler over the payload and the writable root model:
+Everything a field's component is bound with beyond what `FormField` binds — its
+inputs, its outputs, its two-way ones — is declared in ONE place per abstraction: the
+second argument of `instantiateForm(config, bindings)` for a form on its own, the
+second argument of `page.addForm(name, bindings, cfg)` inside a stepper. The record is
+keyed by the form's field names; under a field sit `inputs` and `outputs`, each keyed by
+the component's own names, so the keys are typed by the component that draws the field:
+the one the layout placed with `control()`, or the one `ControlComponents` registers for
+the field's kind. An input takes a value or a getter (`Live<T>`), an output takes a
+handler over the payload and the context:
 
 ```ts
+// the registry, typed once: kind → component class
+declare module 'ngx-formad' {
+  interface ControlComponents {
+    text: typeof TextControl;
+    taxId: typeof TaxIdControl; // emits `resolved`
+  }
+}
+
 page.addForm('thirdParty', {
-  effects: {
-    taxId: [
-      {
-        output: 'resolved', // the output name on the field's control
-        handler: (company: Company, model) =>
-          model.update((m) => ({ ...m, companyName: company.name, address: company.address })),
-      },
-    ],
+  taxId: {
+    inputs: { label: 'VAT ID' },
+    outputs: {
+      resolved: (company: Company, ctx) =>
+        ctx.model.update((m) => ({ ...m, companyName: company.name, address: company.address })),
+    },
   },
 });
 ```
 
-The handler runs a *programmatic* model write, which stays pristine — so it never
-trips the seed-if-pristine gate of cross-step prefill. This is how the VAT-ID
+The context is the form's writable `model`; inside a stepper it is the step's context
+with `model` layered in, so a handler reads `ctx.steps`, `ctx.shared` and the form it
+belongs to alike. The handler runs a *programmatic* model write, which stays pristine —
+so it never trips the seed-if-pristine gate of cross-step prefill. This is how the VAT-ID
 autofill is config, not a bespoke component.
+
+The types follow the config: keep `defineForm(...)` (or `satisfies`) rather than an
+annotation `: FormConfig<M>`, since the annotation erases both the field kinds and the
+placed components, and author `ui` as a literal where a field's kind must stay exact -
+the formodel builder hands back the wide `UiFormGroupConfig<M>`. A group nests its
+record; a repeating group binds every item's fields alike.
+
+## Effects — a side effect that lives as long as the form
+
+What the form's state has to reach outside the signal graph (a draft kept in storage, an
+analytics event, a focus) is an effect: `instantiateForm(config, bindings, effects)` takes
+them as its third argument, `addForm(name, bindings, { effects })` inside a stepper. Each
+is `(ctx) => void` over the same context handlers get, run as an Angular `effect()`
+created when the instance is, and ended with it - a step that is dropped (`StepRevisit.Fresh`,
+a restarted pass) ends its forms' effects too.
+
+```ts
+instantiateForm(orderForm, null, [
+  (ctx) => sessionStorage.setItem('order-draft', JSON.stringify(ctx.model())),
+]);
+```
 
 ## API
 
@@ -1317,15 +1349,18 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `FormConfig<M, U>` | A form as data: `{ model: () => M; ui: U; schema?: SchemaOrSchemaFn<M>; layout?: FormLayout<M> }`. `U` is the authored formodel ui, widened by `LiveUiConfig<M>` so any presentational prop may be a signal. |
-| `defineForm(config)` | Identity that keeps the authored `U`, so `state.ui.<field>.<prop>` hands a signal back writable. |
-| `instantiateForm(config)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField. Needs an injection context. |
-| `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, effects?, shared? }`. |
-| `FormState<M, U>` | `{ model; rootForm; ui; nodes; fields; grid?; view }` — `nodes` is the render tree, `fields` the flat leaves (each with `path`), `view` the `FormLevel` the renderer draws. |
+| `FormConfig<M, U, P>` | A form as data: `{ model: () => M; ui: U; schema?: SchemaOrSchemaFn<M>; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `LiveUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
+| `defineForm(config)` | Identity that keeps `U` and `P`, so `state.ui.<field>.<prop>` hands a signal back writable and the bindings are typed. |
+| `instantiateForm(config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. Needs an injection context. |
+| `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, shared?, bindings?, effects?, context? }`. |
+| `FormBindings<M, U, P, Ctx>` | What `instantiateForm` and `addForm` take: field name → `{ inputs?, outputs? }`, the component's inputs (`Live<T>`) and output handlers (`(payload, ctx) => void`), typed by the placed component or by `ControlComponents[kind]`. |
+| `ControlComponents` | The typed side of the control registry, kind → component class; augment it in the application. |
+| `FormEffect<Ctx>` | `(ctx) => void`, run as an `effect()` for the life of the instance. |
+| `FormState<M, U>` | `{ model; rootForm; ui; nodes; fields; grid?; view; destroy() }` — `nodes` is the render tree, `fields` the flat leaves (each with `path`), `view` the `FormLevel` the renderer draws, `destroy()` ends the effects. |
 | `FormLevel` / `ViewRow` | One level's container classes and its rows: `ControlRow` (a formField and the injector its mount point creates it from), `GroupRow`, `ArrayRow` (`items()`, `add()`, `remove(i)`), `LayoutRow`, `ContentRow`. |
 | `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` \| `ArrayNode` \| `FormContentNode` \| `FormRowNode`. `buildNodes(ui)` builds it from the ui, `buildLayoutNodes(ui, items)` from an overlay. |
 | `formLayout<M>()` | The layout overlay builder: `cols`, `gap`, `field`, `fields`, `control`, `content`, `row`, `build()`. |
-| `FieldComponentConfig<T>` | What `control(key, …)` takes: `{ component: Type<FormValueControl<T>>; bindings?: readonly Binding[]; placement?: GridPlacement }`. |
+| `FieldComponentConfig<T, C>` | What `control(key, …)` takes: `{ component: Type<C>; placement?: GridPlacement }`, `C` a `FormValueControl<T>`. |
 | `Live<T>` / `read(value)` | `T \| (() => T)`: a prop that may follow a signal, and the one function that reads either. |
 | `FormRenderer` | The `<ngx-formad-form [state] />` component. Pure view — the formFields were created with the state. |
 
@@ -1435,15 +1470,15 @@ createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends
   initial: () => C, dockReachable?: (state) => boolean, build: (loop) => loop…, label?, when?, defer?,
 })
 step.createPage((page) => …, { heading?, subheading?, layout? })  // page: PageBuilder; headings may be Live
-page.addForm('name', {                        // a pool name — declared forms only
-  submitLabel?: string,
+page.addForm('name', bindings | null, {       // a pool name — declared forms only
+  submitLabel?: string,                       // bindings: { field: { inputs?: { name: Live<T> }, outputs?: { name: (payload, ctx) => … } } }
   visibleWhen?: () => boolean,                // auto-@if'd by the renderer
   bind?: { field: 'sharedKey', group: { field: 'key' } },  // model field ↔ shared key of the same type
-  effects?: { field: [{ output: 'resolved', handler: (payload, model) => model.update(…) }] },
+  effects?: [(ctx) => …],                     // Angular effects over the step context + the form's model
   initial?: (ctx) => Partial<M>,              // the LOCAL seed, applied once
   revisit?: FormRevisit,                      // Keep (default) | Reseed
 })
-page.addComponent(Component, { inputs, outputs, visibleWhen?, layout? })  // typed to the component; inputs may be Live
+page.addComponent(Component, { bindings?: Binding[], visibleWhen?, layout? })  // inputBinding/outputBinding from @angular/core
 page.addContent((c) => …, { layout?, visibleWhen? })  // prose as data; c: ContentBuilder
 //  c.p('Text', { className?, attrs?, on?, visibleWhen? }, (p) => …)   // text, options, children
 //  c.div({ className }, (d) => …)   c.ul((list) => …)        // containers: options and/or children

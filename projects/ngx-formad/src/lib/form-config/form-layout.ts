@@ -19,74 +19,76 @@ function itemOf(cfg: GridPlacement): GridPlacement | undefined {
   return Object.keys(item).length ? item : undefined;
 }
 
-/** Arranges a form's declared fields: grid, order, placed components, prose and nested rows. */
-export class FormLayoutBuilder<M extends Record<string, unknown>> {
-  private items: readonly FormLayoutItem<M>[] = [];
+/** Arranges a form's declared fields: grid, order, placed components, prose and nested rows; `P` accumulates the components `control()` placed, by field. */
+export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} = {}> {
+  readonly __placed?: P;
 
-  private grid: GridLayout = {};
+  constructor(
+    private readonly items: readonly FormLayoutItem<M>[] = [],
+    private readonly grid: GridLayout = {},
+  ) {}
 
-  cols(cols: GridLayout['cols']): this {
-    this.grid = { ...this.grid, cols };
-
-    return this;
+  cols(cols: GridLayout['cols']): FormLayoutBuilder<M, P> {
+    return new FormLayoutBuilder<M, P>(this.items, { ...this.grid, cols });
   }
 
-  gap(gap: number): this {
-    this.grid = { ...this.grid, gap };
-
-    return this;
+  gap(gap: number): FormLayoutBuilder<M, P> {
+    return new FormLayoutBuilder<M, P>(this.items, { ...this.grid, gap });
   }
 
-  field(key: keyof M & string, item?: GridPlacement): this {
-    this.items = [...this.items, { kind: FormLayoutItemKind.Field, key, item }];
-
-    return this;
+  field(key: keyof M & string, item?: GridPlacement): FormLayoutBuilder<M, P> {
+    return this.with({ kind: FormLayoutItemKind.Field, key, item });
   }
 
-  fields(...keys: (keyof M & string)[]): this {
-    this.items = [...this.items, ...keys.map((key) => ({ kind: FormLayoutItemKind.Field, key }) as const)];
-
-    return this;
+  fields(...keys: (keyof M & string)[]): FormLayoutBuilder<M, P> {
+    return new FormLayoutBuilder<M, P>(
+      [...this.items, ...keys.map((key) => ({ kind: FormLayoutItemKind.Field, key }) as const)],
+      this.grid,
+    );
   }
 
-  /** Draws the field with a component of your own, one that edits the field's value type; it takes what `createComponent` binds. */
-  control<K extends keyof M & string>(key: K, config: FieldComponentConfig<M[K]>): this {
-    this.items = [...this.items, { kind: FormLayoutItemKind.Control, key, control: config }];
-
-    return this;
+  /** Draws the field with a component of your own, one that edits the field's value type; what it is bound with is declared where the form is instantiated. */
+  control<K extends keyof M & string, C extends object>(
+    key: K,
+    config: FieldComponentConfig<M[K], C>,
+  ): FormLayoutBuilder<M, P & Record<K, C>> {
+    return new FormLayoutBuilder<M, P & Record<K, C>>(
+      [...this.items, { kind: FormLayoutItemKind.Control, key, control: config }],
+      this.grid,
+    );
   }
 
-  content(build: ContentBuild, cfg: FormContentCfg<M> = {}): this {
-    this.items = [
-      ...this.items,
-      {
-        kind: FormLayoutItemKind.Content,
-        children: buildContent(build),
-        visibleWhen: cfg.visibleWhen,
-        item: itemOf(cfg),
-      },
-    ];
-
-    return this;
+  content(build: ContentBuild, cfg: FormContentCfg<M> = {}): FormLayoutBuilder<M, P> {
+    return this.with({
+      kind: FormLayoutItemKind.Content,
+      children: buildContent(build),
+      visibleWhen: cfg.visibleWhen,
+      item: itemOf(cfg),
+    });
   }
 
-  row(build: (row: FormLayoutBuilder<M>) => void, cfg: FormRowCfg = {}): this {
-    const row = new FormLayoutBuilder<M>();
-    build(row);
+  row<P2 extends {}>(
+    build: (row: FormLayoutBuilder<M, {}>) => FormLayoutBuilder<M, P2>,
+    cfg: FormRowCfg = {},
+  ): FormLayoutBuilder<M, P & P2> {
+    const row = build(new FormLayoutBuilder<M, {}>());
     const grid: GridLayout = {
       ...(cfg.cols != null ? { cols: cfg.cols } : {}),
       ...(cfg.gap != null ? { gap: cfg.gap } : {}),
     };
-    this.items = [
-      ...this.items,
-      { kind: FormLayoutItemKind.Row, grid, item: itemOf(cfg), children: row.items },
-    ];
 
-    return this;
+    return new FormLayoutBuilder<M, P & P2>(
+      [...this.items, { kind: FormLayoutItemKind.Row, grid, item: itemOf(cfg), children: row.items }],
+      this.grid,
+    );
   }
 
-  build(): FormLayout<M> {
+  build(): FormLayout<M, P> {
     return { grid: this.grid, items: this.items };
+  }
+
+  private with(item: FormLayoutItem<M>): FormLayoutBuilder<M, P> {
+    return new FormLayoutBuilder<M, P>([...this.items, item], this.grid);
   }
 }
 

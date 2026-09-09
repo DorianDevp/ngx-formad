@@ -1,9 +1,10 @@
 import { Component, input, model, output } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl } from '@angular/forms/signals';
-import { CustomControlNode, customInputType, text } from 'formodel';
+import { CustomControlNode, customField, customInputType, text } from 'formodel';
 import { RuntimeStepper, StepperBuilder } from './builders/stepper-builder';
-import { FormConfig } from './form-config/form-config';
+import { defineForm, FormConfig } from './form-config/form-config';
+import { formLayout } from './form-config/form-layout';
 import { provideFormadSuite } from './provide';
 import { FormRenderer } from './renderer/form-renderer';
 import { instantiateForm } from './renderer/instantiate-form';
@@ -12,12 +13,10 @@ import { StepperComponent } from './runtime/stepper.component';
 declare module 'formodel' {
   interface CustomControlNodes {
     stars: CustomControlNode<number, { max: number }>;
-    lookup: CustomControlNode<string, Record<string, never>>;
   }
 }
 
 const stars = customInputType<CustomControlNode<number, { max: number }>>('stars');
-const lookup = customInputType<CustomControlNode<string, Record<string, never>>>('lookup');
 
 @Component({ selector: 'stars-control', template: `<span class="stars">max {{ props().max }}</span>` })
 class StarsControl implements FormValueControl<number> {
@@ -91,42 +90,37 @@ describe('Per-stepper control types', () => {
 })
 class LookupControl implements FormValueControl<string> {
   value = model('');
-  props = input<Record<string, never>>({});
   resolved = output<string>();
 }
 
-const lookupForm: FormConfig<{ taxId: string; company: string }> = {
-  model: () => ({ taxId: '', company: '' }),
-  ui: { taxId: lookup({}), company: text('Company') },
-};
+type Lookup = { taxId: string; company: string };
+const lookupForm = defineForm({
+  model: (): Lookup => ({ taxId: '', company: '' }),
+  ui: { taxId: customField(), company: text('Company') },
+  layout: formLayout<Lookup>().control('taxId', { component: LookupControl }).field('company').build(),
+});
 
 @Component({
   imports: [StepperComponent],
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class EffectHost {
-  readonly stepper: RuntimeStepper =     new StepperBuilder()
-      .addControlType('lookup', LookupControl)
-      .createForm('f', lookupForm)
-      .createStep((s) =>
-        s.createPage((p) =>
+  readonly stepper: RuntimeStepper = new StepperBuilder()
+    .createForm('f', lookupForm)
+    .createStep((s) =>
+      s.createPage(
+        (p) =>
           p.addForm('f', {
-            effects: {
-              taxId: [
-                {
-                  output: 'resolved',
-                  handler: (payload: string, model) => model.update((m) => ({ ...m, company: payload })),
-                },
-              ],
-            },
-          }), { heading: '1' },
-        ),
-      )
-      .build();
+            taxId: { outputs: { resolved: (payload, ctx) => ctx.model.update((m) => ({ ...m, company: payload })) } },
+          }),
+        { heading: '1' },
+      ),
+    )
+    .build();
 }
 
-describe('addForm effects', () => {
-  it('wires a control output to patch a sibling field', async () => {
+describe('addForm bindings', () => {
+  it('wires a control output to a handler that patches a sibling field', async () => {
     const fixture = TestBed.createComponent(EffectHost);
     await pump(fixture);
 

@@ -1,4 +1,5 @@
 import {
+  Binding,
   computed,
   EnvironmentInjector,
   Injector,
@@ -11,8 +12,8 @@ import {
 } from '@angular/core';
 import { FormField } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
-import { OutputEffect } from '../builders/shared-link';
 import { ControlAdapter } from '../controls/control-adapter';
+import { BindingRecord, bindingsAt, FormContext } from '../form-config/form-bindings';
 import {
   ArrayNode,
   ControlNode,
@@ -46,7 +47,11 @@ export interface ViewScope {
 
   readonly model: WritableSignal<Record<string, unknown>>;
 
-  readonly effects: readonly OutputEffect[];
+  /** What the host declared for the fields, by field path. */
+  readonly bindings: BindingRecord;
+
+  /** What an output handler receives beside the payload. */
+  readonly handlerContext: FormContext;
 }
 
 /** One level of a form's view: its grid and the rows worth drawing right now. */
@@ -126,10 +131,6 @@ interface Entry {
   readonly visible: Signal<boolean>;
 }
 
-function samePath(a: readonly string[], b: readonly string[]): boolean {
-  return a.length === b.length && a.every((segment, index) => segment === b[index]);
-}
-
 function itemOf(scope: ViewScope, placement: GridPlacement | undefined): LayoutClasses {
   return scope.layout.item(placement ?? {});
 }
@@ -154,15 +155,33 @@ function componentFor(node: ControlNode, controls: ControlAdapter): Type<object>
   return component;
 }
 
-/** A field's formField as its mount point will create it: `FormField` bound to the field, `LayoutItem` placing it, the inputs and output effects. */
+/** A field's declared inputs as `createComponent` takes them, each read live. */
+function declaredInputs(inputs: BindingRecord): Binding[] {
+  return Object.entries(inputs).flatMap(([name, value]) =>
+    value === undefined ? [] : [inputBinding(name, () => read(value))],
+  );
+}
+
+/** A field's declared output handlers as `createComponent` takes them, each handed the payload and the context. */
+function declaredOutputs(outputs: BindingRecord, ctx: FormContext): Binding[] {
+  return Object.entries(outputs).flatMap(([name, handler]) => {
+    if (handler === undefined) return [];
+    if (typeof handler !== 'function') throw new Error(`ngx-formad: output "${name}" needs a handler.`);
+
+    return [outputBinding(name, (payload) => handler(payload, ctx))];
+  });
+}
+
+/** A field's formField as its mount point will create it: `FormField` bound to the field, `LayoutItem` placing it, the node's props and the declared inputs and outputs. */
 function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): ComponentMount {
   const placement = itemOf(scope, node.layout);
-  const inputs = node.control
-    ? (node.control.bindings ?? [])
-    : Object.entries(extraInputsFor(node.node)).map(([name, value]) => inputBinding(name, () => read(value)));
-  const outputs = scope.effects
-    .filter((effect) => samePath(effect.modelPath, node.path))
-    .map((effect) => outputBinding(effect.output, (payload) => effect.handler(payload, scope.model)));
+  const inputs = bindingsAt(scope.bindings, [...node.path, 'inputs']);
+  const outputs = bindingsAt(scope.bindings, [...node.path, 'outputs']);
+  const props = node.control
+    ? []
+    : Object.entries(extraInputsFor(node.node))
+        .filter(([name]) => !(name in inputs))
+        .map(([name, value]) => inputBinding(name, () => read(value)));
 
   return {
     component: componentFor(node, scope.controls),
@@ -170,7 +189,7 @@ function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): Comp
       { type: FormField, bindings: [inputBinding('formField', () => field)] },
       { type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => placement)] },
     ],
-    bindings: [...inputs, ...outputs],
+    bindings: [...props, ...declaredInputs(inputs), ...declaredOutputs(outputs, scope.handlerContext)],
     environment: scope.environment,
   };
 }

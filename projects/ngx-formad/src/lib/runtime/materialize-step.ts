@@ -36,6 +36,9 @@ export interface LiveForm {
   commit(): void;
 
   touch(): void;
+
+  /** Ends the instance's effects; called when the step that owns it is dropped. */
+  destroy(): void;
 }
 
 /** A step turned live: its registry, forms, an injector per page component carrying its mount, instances by pool name and pages. */
@@ -123,7 +126,13 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
   if (!template) return null;
 
   const state = runInInjectionContext(options.environment, () =>
-    instantiateRuntimeForm(template, { injector: options.injector, effects: node.effects, shared: options.shared }),
+    instantiateRuntimeForm(template, {
+      injector: options.injector,
+      shared: options.shared,
+      bindings: node.bindings,
+      effects: node.effects,
+      context: options.entry,
+    }),
   );
   const root = state.rootForm;
   const visible: Signal<boolean> = node.visibleWhen ? computed(node.visibleWhen) : computed(() => true);
@@ -161,6 +170,7 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
     touch: () => {
       for (const field of state.fields) fieldAt(root, field.path)().markAsTouched();
     },
+    destroy: () => state.destroy(),
   };
 }
 

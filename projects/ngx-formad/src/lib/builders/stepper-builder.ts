@@ -6,7 +6,7 @@ import { ControlTypeMap } from '../provide';
 import { FormState } from '../renderer/instantiate-form';
 import { SharedState } from '../sync/shared-state';
 import { ContentBuild, buildContent } from './content';
-import { ComponentCfg, toBindings } from './dynamic-component';
+import { ComponentCfg } from './dynamic-component';
 import {
   FlowDefinition,
   FlowStepNode,
@@ -26,14 +26,17 @@ import {
   StepNode,
   StepRevisit,
 } from './nodes';
-import { FormEffects, recordEffects, recordLinks, SharedLinks } from './shared-link';
+import { FormBindings, FormContext, FormEffect } from '../form-config/form-bindings';
+import { recordLinks, SharedLinks } from './shared-link';
 import {
   AnyFormProvider,
   ChildContext,
+  ConfigOf,
   DeferTrigger,
   FormKeys,
   FormModel,
-  FormProvider,
+  FormPlaced,
+  FormUi,
   GateContext,
   RecurrentSignals,
   Rejected,
@@ -107,18 +110,24 @@ export interface ContentCfg {
   readonly visibleWhen?: () => boolean;
 }
 
-/** Placement options for a pooled form: shared links, output effects, the local `initial` seed and what a revisit does with it. */
+/** The context a placed form's handlers and effects read: the step's, with the form's own writable model. */
+export type StepFormContext<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> = TCtx & FormContext<M>;
+
+/** The bindings a placed form takes, typed by the pool template it names. */
+export type PlacedFormBindings<F, TCtx extends RuntimeStepContext> = FormBindings<
+  FormModel<F>,
+  FormUi<F>,
+  FormPlaced<F>,
+  StepFormContext<FormModel<F>, TCtx>
+>;
+
+/** Placement options for a pooled form: shared links, effects, the local `initial` seed and what a revisit does with it. */
 export interface FormCfg<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> {
   readonly submitLabel?: string;
-
   readonly visibleWhen?: () => boolean;
-
   readonly bind?: SharedLinks<M, TCtx['shared']>;
-
-  readonly effects?: FormEffects<M>;
-
+  readonly effects?: readonly FormEffect<StepFormContext<M, TCtx>>[];
   readonly initial?: (ctx: TCtx) => Partial<M>;
-
   readonly revisit?: FormRevisit;
 }
 
@@ -137,11 +146,11 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
     });
   }
 
-  addComponent<C extends object>(component: Type<C>, cfg: ComponentCfg<C>): PageBuilder<TForms, TCtx, P> {
+  addComponent(component: Type<object>, cfg: ComponentCfg = {}): PageBuilder<TForms, TCtx, P> {
     return this.with({
       kind: LayoutNodeKind.Component,
       component,
-      bindings: toBindings(cfg),
+      bindings: cfg.bindings ?? [],
       visibleWhen: cfg.visibleWhen,
       layout: cfg.layout,
     });
@@ -161,6 +170,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 
   addForm<K extends FormKeys<TForms>>(
     name: K,
+    bindings: PlacedFormBindings<TForms[K], TCtx> | null = null,
     opts: FormCfg<FormModel<TForms[K]>, TCtx> = {},
   ): PageBuilder<TForms, TCtx, P & Record<K, true>> {
     return new PageBuilder<TForms, TCtx, P & Record<K, true>>([
@@ -171,7 +181,8 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
         submitLabel: opts.submitLabel,
         visibleWhen: opts.visibleWhen,
         links: opts.bind ? recordLinks(opts.bind) : [],
-        effects: opts.effects ? recordEffects(opts.effects) : [],
+        bindings: bindings ?? {},
+        effects: (opts.effects ?? []).map((run) => ({ run })),
         initial: opts.initial,
         revisit: opts.revisit,
       },
@@ -363,13 +374,13 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}
     });
   }
 
-  createForm<K extends string, M extends Record<string, unknown>>(
+  createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: FormProvider<M> & AnyFormProvider,
-  ): ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TCtx, TAdded> {
+    provider: F,
+  ): ForkArmBuilder<TForms & Record<K, ConfigOf<F>>, TCtx, TAdded> {
     claimName(name, this.arm.forms);
 
-    return new ForkArmBuilder<TForms & Record<K, FormConfig<M>>, TCtx, TAdded>({
+    return new ForkArmBuilder<TForms & Record<K, ConfigOf<F>>, TCtx, TAdded>({
       ...this.arm,
       forms: { ...this.arm.forms, [name]: provider },
     });
@@ -600,13 +611,13 @@ export class StepperBuilder<
     });
   }
 
-  createForm<K extends string, M extends Record<string, unknown>>(
+  createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: FormProvider<M> & AnyFormProvider,
-  ): StepperBuilder<TForms & Record<K, FormConfig<M>>, TKinds, TCtx> {
+    provider: F,
+  ): StepperBuilder<TForms & Record<K, ConfigOf<F>>, TKinds, TCtx> {
     claimName(name, this.chain.forms);
 
-    return new StepperBuilder<TForms & Record<K, FormConfig<M>>, TKinds, TCtx>({
+    return new StepperBuilder<TForms & Record<K, ConfigOf<F>>, TKinds, TCtx>({
       ...this.chain,
       forms: { ...this.chain.forms, [name]: provider },
     });
@@ -830,13 +841,13 @@ export class RecurrentStepperBuilder<
     });
   }
 
-  createForm<K extends string, M extends Record<string, unknown>>(
+  createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: FormProvider<M> & AnyFormProvider,
-  ): RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, C, TKinds, TCtx> {
+    provider: F,
+  ): RecurrentStepperBuilder<TForms & Record<K, ConfigOf<F>>, C, TKinds, TCtx> {
     claimName(name, this.state.forms);
 
-    return new RecurrentStepperBuilder<TForms & Record<K, FormConfig<M>>, C, TKinds, TCtx>({
+    return new RecurrentStepperBuilder<TForms & Record<K, ConfigOf<F>>, C, TKinds, TCtx>({
       ...this.state,
       forms: { ...this.state.forms, [name]: provider },
     });
