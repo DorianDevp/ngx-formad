@@ -267,15 +267,27 @@ export interface FormConfig<
   readonly layout?: FormLayout<M, P>;
 }
 
-type CustomKeys<U> = {
-  [K in keyof U]: U[K] extends { readonly type: typeof CUSTOM_FIELD } ? K : never;
-}[keyof U] &
-  string;
+/** Every `customField()` in `U` by its path, a nested one dotted under its group or array. */
+type CustomPaths<U, Prefix extends string = ''> = {
+  [K in keyof U & string]: U[K] extends { readonly type: typeof CUSTOM_FIELD }
+    ? `${Prefix}${K}`
+    : U[K] extends { readonly controlsConfig: infer CU }
+      ? CustomPaths<CU, `${Prefix}${K}.`>
+      : U[K] extends { readonly itemConfig: infer IU }
+        ? CustomPaths<IU, `${Prefix}${K}.`>
+        : never;
+}[keyof U & string];
+
+type Nested<S extends string> = S extends `${string}.${string}` ? S : never;
+
+type Unplaced<U, P> = Exclude<Exclude<CustomPaths<U>, Nested<CustomPaths<U>>>, keyof P>;
 
 /** `unknown` when every `customField()` in `U` has a `control()` placement in `P`; a refusal naming the field otherwise. */
-export type PlacesCustomFields<U, P> = [Exclude<CustomKeys<U>, keyof P>] extends [never]
-  ? unknown
-  : Rejected<`customField "${Exclude<CustomKeys<U>, keyof P>}" has no control() placement in the layout`>;
+export type PlacesCustomFields<U, P> = [Nested<CustomPaths<U>>] extends [never]
+  ? [Unplaced<U, P>] extends [never]
+    ? unknown
+    : Rejected<`customField "${Unplaced<U, P>}" has no control() placement in the layout`>
+  : Rejected<`customField "${Nested<CustomPaths<U>>}" sits inside a group or an array item, where no control() can place it`>;
 
 /** Declares a form config while keeping the authored `ui` type and the placed components, so a signal put in comes back writable and the bindings are typed. */
 export function defineForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(

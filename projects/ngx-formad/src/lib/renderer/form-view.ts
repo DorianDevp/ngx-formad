@@ -4,8 +4,10 @@ import {
   EnvironmentInjector,
   Injector,
   inputBinding,
+  isDevMode,
   linkedSignal,
   outputBinding,
+  reflectComponentType,
   Signal,
   Type,
   WritableSignal,
@@ -206,9 +208,11 @@ function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): Comp
     : Object.entries(extraInputsFor(node.node))
         .filter(([name]) => !(name in inputs))
         .map(([name, value]) => inputBinding(name, () => read(value)));
+  const component = componentFor(node, scope.controls);
+  checkNames(component, node.key, inputs, outputs);
 
   return {
-    component: componentFor(node, scope.controls),
+    component,
     directives: [
       { type: FormField, bindings: [inputBinding('formField', () => field)] },
       { type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => placement)] },

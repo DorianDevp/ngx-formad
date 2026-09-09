@@ -76,8 +76,19 @@ versions may carry breaking changes.
   are refused where they are made, with a `Rejected<...>` naming the fix: bindings for a
   field whose kind is unknown, not exact (a wide `ui`, an annotation `: FormConfig<M>`)
   or has no component in `ControlComponents`; a `customField()` without a `control()`
-  placement, in `defineForm`, `instantiateForm` and `createForm`; and
-  `createPage(options, build)` with the arguments the other way round.
+  placement - the check walks groups and array items, and a `customField()` nested in
+  one is refused outright, since no `control()` reaches it - in `defineForm`,
+  `instantiateForm` and `createForm`; and `createPage(options, build)` with the arguments
+  the other way round. Each refusal sits on the argument that made the mistake, so the
+  error is reported at that call and not at the next one in the chain.
+- **Binding names checked against the component, in dev mode.** A name bound as an input
+  that the component declares as an output (or the other way round) throws when the form
+  is instantiated, naming both sides; a name the component declares nowhere is a warning,
+  since host directives and inherited metadata put some names beyond the mirror.
+- **`SharedState` no longer needs `structuredClone`.** The store copies what it stores
+  through the platform's `structuredClone` where it exists and a structural walk (arrays,
+  dates, maps, sets, plain objects) otherwise, so importing the package no longer throws
+  in an environment without it - a jsdom test environment, for one.
 - **`formLayout().omit(...keys)` and the unplaced-field warning.** An overlay draws only
   what it names; in dev mode a form says once per layout which fields of `ui` it neither
   places nor omits on purpose.
@@ -116,7 +127,11 @@ versions may carry breaking changes.
   (a new, augmentable interface: kind → component class) registers for the field's kind.
   An input takes a `Live<T>`, an output a handler `(payload, ctx)`. `ctx` is the form's
   writable `model`; inside a stepper the step context with `model` layered in
-  (`StepFormContext`). A group nests its record, a repeating group binds every item.
+  (`StepFormContext`), read again on every emission, so `ctx.steps` names the steps alive
+  then and not those alive when the step was entered (`InstantiateOptions.context` and
+  `MaterializeOptions.context` take a getter; an effect reads it untracked, so an effect
+  follows the signals it reads and not the flow's navigation). A group nests its record,
+  a repeating group binds every item.
 - **Effects - Angular `effect()`s over a live form.** `instantiateForm(config, bindings,
   effects)` and `addForm(name, bindings, { effects })` take `(ctx) => void` side effects,
   each run as an `effect()` created with the instance and ended with it: `FormState`
