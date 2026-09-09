@@ -50,8 +50,8 @@ export interface ViewScope {
   /** What the host declared for the fields, by field path. */
   readonly bindings: BindingRecord;
 
-  /** What an output handler receives beside the payload. */
-  readonly handlerContext: FormContext;
+  /** What an output handler receives beside the payload, read again on every emission. */
+  readonly handlerContext: () => FormContext;
 }
 
 /** One level of a form's view: its grid and the rows worth drawing right now. */
@@ -163,13 +163,37 @@ function declaredInputs(inputs: BindingRecord): Binding[] {
 }
 
 /** A field's declared output handlers as `createComponent` takes them, each handed the payload and the context. */
-function declaredOutputs(outputs: BindingRecord, ctx: FormContext): Binding[] {
+function declaredOutputs(outputs: BindingRecord, ctx: () => FormContext): Binding[] {
   return Object.entries(outputs).flatMap(([name, handler]) => {
     if (handler === undefined) return [];
     if (typeof handler !== 'function') throw new Error(`ngx-formad: output "${name}" needs a handler.`);
 
-    return [outputBinding(name, (payload) => handler(payload, ctx))];
+    return [outputBinding(name, (payload) => handler(payload, ctx()))];
   });
+}
+
+/**
+ * In dev mode, says what the component does not declare: a name bound on the wrong side is an error, since the author
+ * meant the other record, and a name the component declares nowhere is a warning, since host directives and inherited
+ * metadata put some names beyond what the mirror reports.
+ */
+function checkNames(component: Type<object>, key: string, inputs: BindingRecord, outputs: BindingRecord): void {
+  const mirror = reflectComponentType(component);
+  if (!isDevMode() || !mirror) return;
+
+  const asInput = new Set(mirror.inputs.map((entry) => entry.templateName));
+  const asOutput = new Set(mirror.outputs.map((entry) => entry.templateName));
+  const check = (name: string, side: 'input' | 'output', declared: Set<string>, other: Set<string>): void => {
+    if (declared.has(name)) return;
+
+    const where = `field "${key}" binds "${name}" as an ${side}`;
+    if (other.has(name)) {
+      throw new Error(`ngx-formad: ${where}, but ${mirror.selector} declares it as an ${side === 'input' ? 'output' : 'input'}.`);
+    }
+    console.warn(`ngx-formad: ${where}, which ${mirror.selector} does not declare.`);
+  };
+  for (const name of Object.keys(inputs)) check(name, 'input', asInput, asOutput);
+  for (const name of Object.keys(outputs)) check(name, 'output', asOutput, asInput);
 }
 
 /** A field's formField as its mount point will create it: `FormField` bound to the field, `LayoutItem` placing it, the node's props and the declared inputs and outputs. */

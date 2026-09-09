@@ -1324,7 +1324,10 @@ page.addForm('thirdParty', {
 
 The context is the form's writable `model`; inside a stepper it is the step's context
 with `model` layered in, so a handler reads `ctx.steps`, `ctx.shared` and the form it
-belongs to alike. The handler runs a *programmatic* model write, which stays pristine —
+belongs to alike. It is read again on every emission, so `ctx.steps` names the steps
+alive when the output fires, not those alive when the step was entered. In dev mode a
+name bound on the wrong side (an output under `inputs`, or the reverse) throws when the
+form is instantiated, and a name the component declares nowhere is a warning. The handler runs a *programmatic* model write, which stays pristine —
 so it never trips the seed-if-pristine gate of cross-step prefill. This is how the VAT-ID
 autofill is config, not a bespoke component.
 

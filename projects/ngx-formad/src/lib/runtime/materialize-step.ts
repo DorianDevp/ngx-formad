@@ -114,6 +114,9 @@ export interface MaterializeOptions {
   readonly injector?: Injector;
 
   readonly entry: RuntimeStepContext;
+
+  /** The context a form's handlers and effects read; called again on every emission, so `steps` stays live. */
+  readonly context?: () => RuntimeStepContext;
 }
 
 /** A seed's entries that carry a value; an `undefined` one means "leave the field as it is", not "unset it". */
@@ -131,7 +134,7 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
       shared: options.shared,
       bindings: node.bindings,
       effects: node.effects,
-      context: options.entry,
+      context: options.context ?? (() => options.entry),
     }),
   );
   const root = state.rootForm;

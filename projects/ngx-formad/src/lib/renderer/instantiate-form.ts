@@ -1,4 +1,14 @@
-import { computed, effect, EnvironmentInjector, inject, Injector, isDevMode, signal, WritableSignal } from '@angular/core';
+import {
+  computed,
+  effect,
+  EnvironmentInjector,
+  inject,
+  Injector,
+  isDevMode,
+  signal,
+  untracked,
+  WritableSignal,
+} from '@angular/core';
 import { form } from '@angular/forms/signals';
 import { BindingRecord, FormBindings, FormContext, FormEffect, FormEffectHook } from '../form-config/form-bindings';
 import {
@@ -17,6 +27,7 @@ import {
   RenderNode,
   RuntimeFormConfig,
 } from '../form-config/form-config';
+import { Live, read } from '../form-config/live';
 import { GridLayout } from '../layout/layout-adapter';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { FormadWizard } from '../runtime/wizard-context';
@@ -60,7 +71,8 @@ export interface InstantiateOptions {
 
   readonly effects?: readonly FormEffectHook[];
 
-  readonly context?: object;
+  /** What a handler and an effect read beside the model; a getter is read again on every call, so a step context stays live. */
+  readonly context?: Live<object>;
 }
 
 const warnedLayouts = new WeakSet<FormLayout>();
@@ -111,7 +123,7 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 
   const injector = options.injector ?? inject(Injector);
   const shared = options.shared ?? injector.get(FormadWizard, null)?.sharedOrNull() ?? null;
-  const handlerContext: FormContext = { ...(options.context ?? {}), model: erased };
+  const handlerContext = (): FormContext => ({ ...read(options.context ?? {}), model: erased });
   const scope: ViewScope = {
     injector,
     environment: injector.get(EnvironmentInjector),
@@ -122,7 +134,9 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
     bindings: options.bindings ?? {},
     handlerContext,
   };
-  const effects = (options.effects ?? []).map((hook) => effect(() => hook.run(handlerContext), { injector }));
+  const effects = (options.effects ?? []).map((hook) =>
+    effect(() => hook.run(untracked(handlerContext)), { injector }),
+  );
 
   return {
     model,

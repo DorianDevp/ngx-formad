@@ -821,6 +821,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       environment: this.environment,
       injector: this.injector,
       entry: this.inContext(() => this.contextOf(nav.memo)),
+      context: () => this.inContext(() => this.contextOf(this.nav().memo)),
     });
   }
 
