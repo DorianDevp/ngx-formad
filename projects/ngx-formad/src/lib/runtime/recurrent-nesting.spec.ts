@@ -79,7 +79,7 @@ function rootRing(): RuntimeFlow {
           s.createPage((p) =>
             p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
           ),
-        { label: 'Dock' },
+        { label: 'Dock', dynamic: true },
       )
       .build();
 }
@@ -124,7 +124,7 @@ function ringWithLinearPass(): RuntimeStepper {
                 s.createPage((p) =>
                   p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock' },
+              { label: 'Dock', dynamic: true },
             ),
       })
       .build();

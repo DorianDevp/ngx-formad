@@ -74,7 +74,7 @@ class DynHost {
           { heading: `Details: ${ctx.shared.pick()}` }
           );
         },
-        { label: 'Details' },
+        { label: 'Details', dynamic: true },
       )
       .build();
 }

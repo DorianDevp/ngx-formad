@@ -118,7 +118,7 @@ class ProvHost {
                 s.createPage((p) =>
                   p.addComponent(ProvDock, { bindings: [inputBinding('count', () => ctx.flow.state().length)] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock' },
+              { label: 'Dock', dynamic: true },
             ),
       })
       .build();

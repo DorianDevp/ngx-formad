@@ -63,14 +63,15 @@ versions may carry breaking changes.
 - **`CommittedOf<typeof built>`.** `Stepper` now carries the accumulated step record
   (`TSteps`), so a host can narrow the erased `stepCommitted` record ONCE, at the
   boundary, to `{ [step]?: { [poolName]: model } }` instead of casting per field.
-- **Dynamic steps - the step callback's second parameter.** Declaring it —
-  `createStep((step, ctx) => ...)` — makes the step's STRUCTURE follow the live
-  context: the callback runs when the step is reached (a pure factory over the
-  entry context), so which pooled forms it places and what prose it shows can
-  depend on the user's earlier answers. One place for the context, no new
-  callbacks anywhere: a one-parameter callback stays plain data built once,
-  exactly as before. In-form conditionality stays `hidden()`/`visibleWhen` — the
-  dynamic step covers only what those cannot: the page's structure.
+- **Dynamic steps - `dynamic: true`.** `createStep((step, ctx) => ..., { dynamic:
+  true })` makes the step's STRUCTURE follow the live context: the callback runs when
+  the step is reached (a pure factory over the entry context), so which pooled forms
+  it places and what prose it shows can depend on the user's earlier answers. The flag
+  is the switch, not the callback's arity: a callback that takes `ctx` without the flag
+  is refused at compile time (an overload whose refusal names the flag) and at build
+  time. In-form
+  conditionality stays `hidden()`/`visibleWhen` — the dynamic step covers only what
+  those cannot: the page's structure.
 - **Refusals that name the fix.** Three mistakes that used to fail far from their cause
   are refused where they are made, with a `Rejected<...>` naming the fix: bindings for a
   field whose kind is unknown, not exact (a wide `ui`, an annotation `: FormConfig<M>`)

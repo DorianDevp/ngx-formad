@@ -678,12 +678,13 @@ new StepperBuilder()
   { revisit: StepRevisit.Fresh })` drops the step on entry and builds it again, pages
   and forms alike, so nothing typed there survives. Shared links are reapplied to
   pristine fields on every entry regardless.
-- **Dynamic steps** — a step callback that declares the context parameter,
-  `createStep((step, ctx) => …)`, runs when the step is entered, so which pooled forms
-  it places and what prose it shows can follow the user's earlier answers
-  (`ctx.steps`, `ctx.shared`). The callback must be pure. A one-parameter callback is
-  built once, at authoring time. In-form conditionality stays `hidden()` /
-  `visibleWhen`; a dynamic step covers only what those cannot: the page's structure.
+- **Dynamic steps** — a step declared `dynamic: true`, `createStep((step, ctx) => …,
+  { dynamic: true })`, builds its pages when it is entered, so which pooled forms it
+  places and what prose it shows can follow the user's earlier answers (`ctx.steps`,
+  `ctx.shared`). The callback must be pure. Without the flag a step is built once, at
+  authoring time, and a callback that takes `ctx` is refused at compile time. In-form
+  conditionality stays `hidden()` / `visibleWhen`; a dynamic step covers only what those
+  cannot: the page's structure.
 - **`defer`** renders the step's body inside an Angular `@defer` block
   (`DeferTrigger.Idle`, `.Viewport` or `.Interaction`) with a placeholder while it
   hydrates.
@@ -1072,11 +1073,13 @@ new StepperBuilder()
         .fold((devices, pass) => [...devices, toDevice(pass.steps.details?.details.model())])
         .completeWhen((devices) => devices.length > 0, 'Add at least one device')
         // the dock reads the folded state through the live context: a dynamic step
-        .dock((s, ctx) =>
-          s.createPage(
-            (p) => p.addComponent(DeviceList, { bindings: [inputBinding('devices', () => ctx.flow.state())] }),
-            { heading: 'Your devices' },
-          ),
+        .dock(
+          (s, ctx) =>
+            s.createPage(
+              (p) => p.addComponent(DeviceList, { bindings: [inputBinding('devices', () => ctx.flow.state())] }),
+              { heading: 'Your devices' },
+            ),
+          { dynamic: true },
         ),
   })
 ```
@@ -1447,8 +1450,9 @@ A built `Stepper` goes straight into `<ngx-formad-stepper [stepper]>`, or you wa
 The inner callbacks have small, fixed shapes:
 
 ```ts
-createStep((step, ctx?) => …, {              // step: StepBuilder; declare `ctx` and the step builds on entry
+createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only with dynamic: true
   name?: N,                                   // the key successors read this step under: ctx.steps.<name>
+  dynamic?: true,                             // build the pages on every entry, over the live ctx
   label?: Live<string>,                       // short name for a chrome's rail (controller.labels())
   when?: (ctx) => boolean,                    // ctx: GateContext — ctx.shared.key() a signal,
   optional?: boolean,                         //   ctx.steps.x?.form a live FormState

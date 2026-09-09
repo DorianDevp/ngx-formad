@@ -126,7 +126,7 @@ function deviceStepper(): RuntimeStepper {
                 s.createPage((p) =>
                   p.addComponent(DockPanel, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock' },
+              { label: 'Dock', dynamic: true },
             ),
       })
       .createStep(

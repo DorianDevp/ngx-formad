@@ -150,6 +150,7 @@ class CheckoutHost {
             s.createPage((p) =>
               p.addContent((c) => c.p(() => `Confirmation goes to ${ctx.shared.email()}`, { className: 'summary' })), { heading: 'Summary' },
             ),
+            { dynamic: true },
           )
           .result(({ shared }) => ({ mode: 'account' as const, email: shared.email() })),
       guest: (arm) =>
