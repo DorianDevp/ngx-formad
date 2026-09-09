@@ -243,6 +243,9 @@ export interface FormLayout<M extends Record<string, unknown> = Record<string, u
   readonly grid?: GridLayout;
 
   readonly items: readonly FormLayoutItem<M>[];
+
+  /** The fields left out on purpose; the dev-mode warning about unplaced fields skips them. */
+  readonly omitted?: readonly string[];
 }
 
 /** A form template as the runtime holds it: a fresh-model factory, the ui by structure, an optional schema and layout overlay. */

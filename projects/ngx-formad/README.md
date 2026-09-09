@@ -239,6 +239,11 @@ const signupForm: FormConfig<Signup> = {
 };
 ```
 
+An overlay draws only what it names: a field of `ui` that no `field()`, `fields()` or
+`control()` places is left out. In dev mode the form warns once per layout about such
+fields; a field left out on purpose (a value the model carries but the page never shows)
+is declared `.omit('key')`, and the warning skips it.
+
 A field whose editor is a specific `FormValueControl` component, not a registered kind,
 is declared `customField()` in `ui` and placed with `.control(key, config)`. The layout only
 places: the renderer binds `FormField` to the field itself, and everything else the

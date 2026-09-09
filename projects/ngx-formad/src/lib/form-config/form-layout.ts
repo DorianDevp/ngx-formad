@@ -26,14 +26,20 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
   constructor(
     private readonly items: readonly FormLayoutItem<M>[] = [],
     private readonly grid: GridLayout = {},
+    private readonly omitted: readonly string[] = [],
   ) {}
 
   cols(cols: GridLayout['cols']): FormLayoutBuilder<M, P> {
-    return new FormLayoutBuilder<M, P>(this.items, { ...this.grid, cols });
+    return new FormLayoutBuilder<M, P>(this.items, { ...this.grid, cols }, this.omitted);
   }
 
   gap(gap: number): FormLayoutBuilder<M, P> {
-    return new FormLayoutBuilder<M, P>(this.items, { ...this.grid, gap });
+    return new FormLayoutBuilder<M, P>(this.items, { ...this.grid, gap }, this.omitted);
+  }
+
+  /** Leaves the fields out of the view on purpose, so the dev-mode warning about unplaced fields stays quiet about them. */
+  omit(...keys: (keyof M & string)[]): FormLayoutBuilder<M, P> {
+    return new FormLayoutBuilder<M, P>(this.items, this.grid, [...this.omitted, ...keys]);
   }
 
   field(key: keyof M & string, item?: GridPlacement): FormLayoutBuilder<M, P> {
@@ -44,6 +50,7 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
     return new FormLayoutBuilder<M, P>(
       [...this.items, ...keys.map((key) => ({ kind: FormLayoutItemKind.Field, key }) as const)],
       this.grid,
+      this.omitted,
     );
   }
 
@@ -55,6 +62,7 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
     return new FormLayoutBuilder<M, P & Record<K, C>>(
       [...this.items, { kind: FormLayoutItemKind.Control, key, control: config }],
       this.grid,
+      this.omitted,
     );
   }
 
@@ -80,15 +88,16 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
     return new FormLayoutBuilder<M, P & P2>(
       [...this.items, { kind: FormLayoutItemKind.Row, grid, item: itemOf(cfg), children: row.items }],
       this.grid,
+      this.omitted,
     );
   }
 
   build(): FormLayout<M, P> {
-    return { grid: this.grid, items: this.items };
+    return { grid: this.grid, items: this.items, omitted: this.omitted };
   }
 
   private with(item: FormLayoutItem<M>): FormLayoutBuilder<M, P> {
-    return new FormLayoutBuilder<M, P>([...this.items, item], this.grid);
+    return new FormLayoutBuilder<M, P>([...this.items, item], this.grid, this.omitted);
   }
 }
 

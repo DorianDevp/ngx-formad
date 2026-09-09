@@ -78,6 +78,9 @@ versions may carry breaking changes.
   or has no component in `ControlComponents`; a `customField()` without a `control()`
   placement, in `defineForm`, `instantiateForm` and `createForm`; and
   `createPage(options, build)` with the arguments the other way round.
+- **`formLayout().omit(...keys)` and the unplaced-field warning.** An overlay draws only
+  what it names; in dev mode a form says once per layout which fields of `ui` it neither
+  places nor omits on purpose.
 - **Flow providers - `provide(...)` on both builders.** A wizard is its own
   injection environment: the providers declared at the flow's definition become an
   `EnvironmentInjector` (a nested flow's inherits its parent's, the root inherits

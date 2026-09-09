@@ -1,4 +1,4 @@
-import { computed, effect, EnvironmentInjector, inject, Injector, signal, WritableSignal } from '@angular/core';
+import { computed, effect, EnvironmentInjector, inject, Injector, isDevMode, signal, WritableSignal } from '@angular/core';
 import { form } from '@angular/forms/signals';
 import { BindingRecord, FormBindings, FormContext, FormEffect, FormEffectHook } from '../form-config/form-bindings';
 import {
@@ -7,7 +7,10 @@ import {
   ErasedUi,
   FieldConfig,
   FormConfig,
+  FormLayout,
   FormLayoutContext,
+  FormLayoutItem,
+  FormLayoutItemKind,
   flattenFields,
   LiveUiConfig,
   PlacesCustomFields,
@@ -60,6 +63,30 @@ export interface InstantiateOptions {
   readonly context?: object;
 }
 
+const warnedLayouts = new WeakSet<FormLayout>();
+
+function placedKeys(items: readonly FormLayoutItem[]): string[] {
+  return items.flatMap((item) => {
+    if (item.kind === FormLayoutItemKind.Row) return placedKeys(item.children);
+
+    return 'key' in item ? [item.key] : [];
+  });
+}
+
+/** Says once per layout, in dev mode, which fields of the ui the overlay neither places nor omits on purpose. */
+function warnUnplaced(config: RuntimeFormConfig): void {
+  const layout = config.layout;
+  if (!layout || !isDevMode() || warnedLayouts.has(layout)) return;
+
+  warnedLayouts.add(layout);
+  const placed = new Set([...placedKeys(layout.items), ...(layout.omitted ?? [])]);
+  const unplaced = Object.keys(config.ui).filter((key) => !placed.has(key));
+  if (unplaced.length === 0) return;
+
+  const names = unplaced.map((key) => `"${key}"`).join(', ');
+  console.warn(`ngx-formad: the layout leaves ${names} unplaced; place the field, or omit() it on purpose.`);
+}
+
 function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'fields' | 'grid'> {
   const items = config.layout?.items;
 
@@ -79,6 +106,7 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
   const erased: WritableSignal<Record<string, unknown>> = model;
   const schema = config.schema;
   const rootForm: FieldLevel = schema ? form(erased, schema) : form(erased);
+  warnUnplaced(config);
   const tree = renderTree(config);
 
   const injector = options.injector ?? inject(Injector);
