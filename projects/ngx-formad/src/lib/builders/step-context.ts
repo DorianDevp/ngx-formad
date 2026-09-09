@@ -1,9 +1,7 @@
 import { Signal } from '@angular/core';
 import { FormConfig, RuntimeFormConfig } from '../form-config/form-config';
+import { Rejected } from '../form-config/rejected';
 import { FormState } from '../renderer/instantiate-form';
-
-/** A compile-time refusal whose property name states the reason. */
-export type Rejected<Reason extends string> = { readonly 'ngx-formad': Reason };
 
 /** The config a pool entry resolves to: itself, or what its loader yields. */
 export type ConfigOf<F> = F extends () => Promise<infer C> ? C : F;

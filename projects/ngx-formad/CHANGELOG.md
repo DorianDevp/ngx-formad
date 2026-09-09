@@ -71,6 +71,12 @@ versions may carry breaking changes.
   callbacks anywhere: a one-parameter callback stays plain data built once,
   exactly as before. In-form conditionality stays `hidden()`/`visibleWhen` — the
   dynamic step covers only what those cannot: the page's structure.
+- **Refusals that name the fix.** Three mistakes that used to fail far from their cause
+  are refused where they are made, with a `Rejected<...>` naming the fix: bindings for a
+  field whose kind is unknown, not exact (a wide `ui`, an annotation `: FormConfig<M>`)
+  or has no component in `ControlComponents`; a `customField()` without a `control()`
+  placement, in `defineForm`, `instantiateForm` and `createForm`; and
+  `createPage(options, build)` with the arguments the other way round.
 - **Flow providers - `provide(...)` on both builders.** A wizard is its own
   injection environment: the providers declared at the flow's definition become an
   `EnvironmentInjector` (a nested flow's inherits its parent's, the root inherits

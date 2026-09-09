@@ -1,6 +1,7 @@
 import { Provider, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
-import { FormConfig } from '../form-config/form-config';
+import { FormConfig, PlacesCustomFields } from '../form-config/form-config';
+import { Rejected } from '../form-config/rejected';
 import { Live } from '../form-config/live';
 import { ControlTypeMap } from '../provide';
 import { FormState } from '../renderer/instantiate-form';
@@ -39,7 +40,6 @@ import {
   FormUi,
   GateContext,
   RecurrentSignals,
-  Rejected,
   RingContext,
   RootContext,
   RuntimeStepContext,
@@ -194,22 +194,39 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
   }
 }
 
+/** A page's build callback; what it places accumulates in `P`. */
+export type PageBuild<TForms, TCtx extends RuntimeStepContext, P> = (
+  page: PageBuilder<TForms, TCtx, {}>,
+) => PageBuilder<TForms, TCtx, P>;
+
+type MisplacedPageOptions = PageOptions | { readonly options: PageOptions };
+
+const PAGE_ARGUMENTS = 'createPage(build, options?): the page callback comes first, the heading and subheading second';
+
+function isPageBuild<TForms, TCtx extends RuntimeStepContext, P>(
+  value: PageBuild<TForms, TCtx, P> | MisplacedPageOptions,
+): value is PageBuild<TForms, TCtx, P> {
+  return typeof value === 'function';
+}
+
 /** Builds one step out of pages; `P` accumulates what the pages placed. */
 export class StepBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
   readonly __placed?: P;
 
   constructor(readonly pages: readonly PageNode[] = []) {}
 
+  createPage<P2>(build: PageBuild<TForms, TCtx, P2>, options?: PageOptions): StepBuilder<TForms, TCtx, P & P2>;
+  /** The arguments the other way round are refused here, where the mistake is, not in every step that reads this one. */
+  createPage(options: MisplacedPageOptions, build?: PageBuild<TForms, TCtx, {}>): Rejected<typeof PAGE_ARGUMENTS>;
   createPage<P2>(
-    build: (page: PageBuilder<TForms, TCtx, {}>) => PageBuilder<TForms, TCtx, P2>,
-    options: PageOptions = {},
-  ): StepBuilder<TForms, TCtx, P & P2> {
-    const page = build(new PageBuilder<TForms, TCtx, {}>());
+    first: PageBuild<TForms, TCtx, P2> | MisplacedPageOptions,
+    second: PageOptions | PageBuild<TForms, TCtx, {}> = {},
+  ): StepBuilder<TForms, TCtx, P & P2> | Rejected<typeof PAGE_ARGUMENTS> {
+    if (!isPageBuild(first) || typeof second === 'function') throw new Error(`ngx-formad: ${PAGE_ARGUMENTS}.`);
 
-    return new StepBuilder<TForms, TCtx, P & P2>([
-      ...this.pages,
-      { options, children: page.nodes },
-    ]);
+    const page = first(new PageBuilder<TForms, TCtx, {}>());
+
+    return new StepBuilder<TForms, TCtx, P & P2>([...this.pages, { options: second, children: page.nodes }]);
   }
 }
 
@@ -376,7 +393,7 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: F,
+    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
   ): ForkArmBuilder<TForms & Record<K, ConfigOf<F>>, TCtx, TAdded> {
     claimName(name, this.arm.forms);
 
@@ -613,7 +630,7 @@ export class StepperBuilder<
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: F,
+    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
   ): StepperBuilder<TForms & Record<K, ConfigOf<F>>, TKinds, TCtx> {
     claimName(name, this.chain.forms);
 
@@ -843,7 +860,7 @@ export class RecurrentStepperBuilder<
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: F,
+    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
   ): RecurrentStepperBuilder<TForms & Record<K, ConfigOf<F>>, C, TKinds, TCtx> {
     claimName(name, this.state.forms);
 

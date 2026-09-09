@@ -12,6 +12,7 @@ import { ContentChild } from '../builders/content';
 import { GridPlacement, GridLayout } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
 import { Live, read } from './live';
+import { Rejected } from './rejected';
 
 /** One option of a `select`/`multiselect` field, as formodel declares it. */
 export type SelectOption = SelectFormControlNode['options'][number];
@@ -263,9 +264,19 @@ export interface FormConfig<
   readonly layout?: FormLayout<M, P>;
 }
 
+type CustomKeys<U> = {
+  [K in keyof U]: U[K] extends { readonly type: typeof CUSTOM_FIELD } ? K : never;
+}[keyof U] &
+  string;
+
+/** `unknown` when every `customField()` in `U` has a `control()` placement in `P`; a refusal naming the field otherwise. */
+export type PlacesCustomFields<U, P> = [Exclude<CustomKeys<U>, keyof P>] extends [never]
+  ? unknown
+  : Rejected<`customField "${Exclude<CustomKeys<U>, keyof P>}" has no control() placement in the layout`>;
+
 /** Declares a form config while keeping the authored `ui` type and the placed components, so a signal put in comes back writable and the bindings are typed. */
 export function defineForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(
-  config: FormConfig<M, U, P>,
+  config: FormConfig<M, U, P> & PlacesCustomFields<U, P>,
 ): FormConfig<M, U, P> {
   return config;
 }

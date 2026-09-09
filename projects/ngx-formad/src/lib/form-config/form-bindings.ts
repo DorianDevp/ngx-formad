@@ -3,6 +3,7 @@ import { FormValueControl } from '@angular/forms/signals';
 import { ControlNodes, CustomControlNodes } from 'formodel';
 import { InputKeys, InputVal, OutputKeys, OutputVal } from '../builders/dynamic-component';
 import { Live } from './live';
+import { Rejected } from './rejected';
 
 /** Control kind → the component class the registry draws it with; augment it so the bindings of a registry-rendered field are typed. */
 export interface ControlComponents {}
@@ -82,6 +83,20 @@ type ComponentOfKind<K> = K extends keyof ControlComponents
 
 type NodeOf<U, K> = K extends keyof U ? U[K] : never;
 
+type IsUnion<T, U = T> = [T] extends [never] ? false : T extends unknown ? ([U] extends [T] ? false : true) : never;
+
+/** One field's bindings by its node, or a refusal naming the fix: an unknown kind, a kind that is not exact, a kind without a component. */
+type FieldBindingsOf<U, K extends string, Ctx> =
+  KindOf<NodeOf<U, K>> extends infer Kind
+    ? [Kind] extends [never]
+      ? Rejected<`the kind of field "${K}" is unknown: author its node from a registered kind, or place it with control()`>
+      : IsUnion<Kind> extends true
+        ? Rejected<`the kind of field "${K}" is not exact: author \`ui\` as a literal and keep the config in defineForm()`>
+        : [ComponentOfKind<Kind>] extends [never]
+          ? Rejected<`no component is registered in ControlComponents for the kind "${Kind & string}" of field "${K}"`>
+          : FieldBindings<ComponentOfKind<Kind>, Ctx>
+    : never;
+
 type GroupModel<T> = T extends Record<string, unknown> ? T : never;
 
 type ItemModel<T> = T extends readonly (infer I)[] ? (I extends Record<string, unknown> ? I : never) : never;
@@ -98,7 +113,7 @@ export type FormBindings<M, U, P, Ctx> = {
       ? FormBindings<GroupModel<M[K]>, CU, {}, Ctx>
       : NodeOf<U, K> extends { readonly itemConfig: infer IU }
         ? FormBindings<ItemModel<M[K]>, IU, {}, Ctx>
-        : FieldBindings<ComponentOfKind<KindOf<NodeOf<U, K>>>, Ctx>;
+        : FieldBindingsOf<U, K, Ctx>;
 };
 
 /** A bindings record as the runtime holds it, erased; the mount reads a field's `inputs` and `outputs` by its path. */

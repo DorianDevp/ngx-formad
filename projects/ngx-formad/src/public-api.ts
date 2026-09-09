@@ -9,6 +9,7 @@ export * from './lib/controls/control-adapter';
 export * from './lib/controls/default-controls';
 export * from './lib/controls/default-control-adapter';
 
+export * from './lib/form-config/rejected';
 export * from './lib/form-config/live';
 export * from './lib/form-config/form-config';
 export * from './lib/form-config/form-bindings';

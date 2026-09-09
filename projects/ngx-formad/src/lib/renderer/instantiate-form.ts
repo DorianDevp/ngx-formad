@@ -10,6 +10,7 @@ import {
   FormLayoutContext,
   flattenFields,
   LiveUiConfig,
+  PlacesCustomFields,
   RenderNode,
   RuntimeFormConfig,
 } from '../form-config/form-config';
@@ -109,7 +110,7 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 
 /** Builds a live form from a typed config, with its bindings and effects; runs in an injection context. */
 export function instantiateForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(
-  config: FormConfig<M, U, P> & RuntimeFormConfig,
+  config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
   bindings: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null = null,
   effects: readonly FormEffect<FormContext<M>>[] = [],
 ): FormState<M, U> {
