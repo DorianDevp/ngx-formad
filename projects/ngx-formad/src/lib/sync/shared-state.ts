@@ -1,5 +1,25 @@
 import { signal, Signal, WritableSignal } from '@angular/core';
 
+const STRUCTURED_CLONE = typeof structuredClone === 'function';
+
+/**
+ * Copies a stored value so the store hands out its own: the platform's `structuredClone` where it exists, a
+ * structural walk otherwise, since a test environment (jsdom under Jest) may not provide it.
+ */
+function clone<V>(value: V): V {
+  if (STRUCTURED_CLONE) return structuredClone(value);
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((entry) => clone(entry)) as V;
+  if (value instanceof Date) return new Date(value.getTime()) as V;
+  if (value instanceof Map) return new Map([...value].map(([key, entry]) => [clone(key), clone(entry)])) as V;
+  if (value instanceof Set) return new Set([...value].map((entry) => clone(entry))) as V;
+
+  const copy: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) copy[key] = clone(entry);
+
+  return copy as V;
+}
+
 /** The cross-step shared store: one writable signal per key, read through `select`, `get` and `signals`. */
 export class SharedState<T extends Record<string, unknown> = Record<string, unknown>> {
   private readonly cells = new Map<string, WritableSignal<T[string]>>();
@@ -7,12 +27,12 @@ export class SharedState<T extends Record<string, unknown> = Record<string, unkn
   private readonly initial: T;
 
   constructor(initial: T) {
-    this.initial = structuredClone(initial);
-    for (const key in initial) this.cells.set(key, signal(structuredClone(initial[key])));
+    this.initial = clone(initial);
+    for (const key in initial) this.cells.set(key, signal(clone(initial[key])));
   }
 
   reset(): void {
-    const fresh = structuredClone(this.initial);
+    const fresh = clone(this.initial);
     for (const key in fresh) this.cell(key).set(fresh[key]);
   }
 
