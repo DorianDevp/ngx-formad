@@ -2,7 +2,7 @@ export * from './lib/provide';
 
 export * from './lib/layout/layout-adapter';
 export * from './lib/layout/css-layout';
-export * from './lib/layout/class-layout';
+export * from './lib/layout/tailwind-layout';
 export * from './lib/layout/layout-item';
 
 export * from './lib/controls/control-adapter';
