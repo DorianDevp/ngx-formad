@@ -681,7 +681,11 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
     const cached = nav.stepOf(current);
     if (cached && current.revisit !== StepRevisit.Fresh) {
-      if (nav.shown !== current) for (const form of cached.forms) form.reseed(this.contextOf(nav.memo));
+      if (nav.shown !== current) {
+        // One context for the whole step, in the flow's injection context: `contextOf` reaches author callbacks.
+        const at = this.inContext(() => this.contextOf(nav.memo));
+        for (const form of cached.forms) form.reseed(at);
+      }
 
       return nav.shownAs(current);
     }

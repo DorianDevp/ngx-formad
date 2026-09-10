@@ -245,6 +245,20 @@ versions may carry breaking changes.
 
 ### Changed
 
+- **`fieldValueBindings` carries its path and key under registered symbols, and `link()`
+  says no to a copy.** `FieldRef` and `SharedSlot` keep them under `Symbol.for(...)`, so
+  no model field or store key shadows them and two loaded copies of the library still
+  agree; the reference proxy answers a field name and nothing else, and `link()` throws
+  where a spread reference lost the carrier instead of failing at step entry.
+- **A signal is text wherever a tag takes text.** `c.p('You picked ', chosen)` and
+  `c.p({ className }, chosen)` keep working: a signal in the slot after the text or the
+  options is text, as the renderer always drew it.
+- **`omit()` stays a view concern.** An earlier attempt to make it exempt a
+  `customField()` from `control()` also switched that refusal off everywhere it was
+  carried by a layout, so it is reverted: `omit()` silences the unplaced-field warning,
+  the field still validates, and the exemption would need the omitted keys threaded
+  through `FormConfig`. A row's own `omit()` now reaches the layout that holds it, where
+  it used to be dropped.
 - **Tailwind instead of a shipped stylesheet — `tailwindLayout`.** The class adapter
   and the SCSS generator are gone (`classLayout`, `ngx-formad/styles`): the responsive
   adapter now composes Tailwind's own utilities, so the build emits exactly the classes

@@ -152,15 +152,8 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 }
 
 /** Builds a live form from a typed config, with its bindings and effects; runs in an injection context. */
-export function instantiateForm<
-  M extends Record<string, unknown>,
-  U extends SignalUiConfig<M> & ErasedUi,
-  P extends {} = {},
-  O extends string = never,
->(
-  config: FormConfig<M, U, P> &
-    RuntimeFormConfig & { readonly layout?: { readonly __omitted?: O } } &
-    PlacesCustomFields<U, P, O>,
+export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
+  config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
   bindings: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null = null,
   effects: readonly FormEffect<FormContext<M>>[] = [],
 ): FormState<M, U> {

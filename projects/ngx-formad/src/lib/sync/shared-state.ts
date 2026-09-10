@@ -4,9 +4,10 @@ const STRUCTURED_CLONE = typeof structuredClone === 'function';
 
 /**
  * Copies a stored value so the store hands out its own: the platform's `structuredClone` where it exists, a
- * structural walk otherwise, since a test environment (jsdom under Jest) may not provide it. The walk remembers what
- * it has already copied, so a value that points back at itself comes out as one shape, not as a stack overflow -
- * `structuredClone` handles those, and the fallback must not be the weaker of the two.
+ * structural walk where it does not (an older browser, a bare jsdom). The walk remembers what it has copied, so a
+ * cycle comes out as one shape rather than a stack overflow, but it is a best effort and not `structuredClone`'s
+ * equal: a `Date` reached twice becomes two dates, and a `RegExp`, a typed array or an `Error` loses what is not an
+ * own enumerable property. Keep shared state plain and this never matters.
  */
 function clone<V>(value: V, seen: WeakMap<object, unknown> = new WeakMap()): V {
   if (STRUCTURED_CLONE) return structuredClone(value);

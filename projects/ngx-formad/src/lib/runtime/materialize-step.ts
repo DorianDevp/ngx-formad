@@ -166,7 +166,7 @@ function liveForm(
   placed: PlacedForm,
   options: MaterializeOptions,
   ctx: RuntimeStepContext,
-  instances: Readonly<Record<string, FormState>>,
+  seeded: Readonly<Record<string, FormState>>,
 ): LiveForm | null {
   const node = placed.node;
   const template = options.pool[node.name];
@@ -196,8 +196,10 @@ function liveForm(
       if (!field.dirty()) field.value.set(value);
     }
   };
+  // A seeding form sees itself and the siblings already seeded; one still waiting is absent, so reading it fails
+  // loudly instead of handing over a default that the seed after this one is about to replace.
   const local = (entry: RuntimeStepperContext): [readonly string[], unknown][] => {
-    const at: RuntimeStepContext = { ...entry, forms: instances };
+    const at: RuntimeStepContext = { ...entry, forms: { ...seeded, [node.name]: state } };
 
     return definedEntries(node.initial?.(at) ?? {}).map(([key, value]) => [[key], value]);
   };
@@ -262,17 +264,19 @@ function componentInjector(node: ComponentNode, options: MaterializeOptions, ctx
 export function materializeStep(pages: readonly PageNode[], options: MaterializeOptions): LiveStep {
   const registry = new InstanceRegistry();
   const instances: Record<string, FormState> = {};
+  const seeded: Record<string, FormState> = {};
   const ctx = liveContext(options, instances);
   const forms = placedForms(pages).flatMap((placed) => {
-    const live = liveForm(placed, options, ctx, instances);
+    const live = liveForm(placed, options, ctx, seeded);
 
     return live === null ? [] : [live];
   });
-  // Every instance is known before the first seed runs, so `ctx.forms` does not depend on placement order.
+  // What the page draws, and what a gate or a binding reads, is every instance the step placed - order-free.
   for (const form of forms) instances[form.name] = form.state;
   for (const form of forms) {
     registry.add({ rootForm: form.state.rootForm, visible: form.visible });
     form.seed(options.entry);
+    seeded[form.name] = form.state;
   }
 
   return {

@@ -189,3 +189,26 @@ describe('ContentBuilder', () => {
     expect(isContentTag('iframe')).toBe(false);
   });
 });
+
+// A signal is text wherever a tag takes text, second slot included: the runtime always drew it,
+// and narrowing ContentBuild's return type had made that a compile error.
+describe('a signal among a tag\'s arguments', () => {
+  it('draws a signal handed to the slot after the text', () => {
+    const chosen = signal('Ada');
+    const tree = buildContent((c) => c.p('You picked ', chosen));
+
+    const paragraph = tagAt(tree);
+    expect(paragraph.children).toHaveLength(2);
+    expect(textOf(paragraph.children[0])).toBe('You picked ');
+    expect(textOf(paragraph.children[1])).toBe('Ada');
+
+    chosen.set('Grace');
+    expect(textOf(paragraph.children[1])).toBe('Grace');
+  });
+
+  it('draws a signal handed after the options', () => {
+    const tree = buildContent((c) => c.p({ className: 'note' }, signal('inline')));
+
+    expect(textOf(tagAt(tree).children[0])).toBe('inline');
+  });
+});

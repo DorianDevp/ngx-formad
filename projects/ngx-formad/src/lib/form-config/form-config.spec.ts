@@ -1,15 +1,15 @@
 import { isSignal, signal } from '@angular/core';
-import { UiFormConfigBuilder, customField, email, select, text } from 'formodel';
+import { CustomFieldNode, UiFormConfigBuilder, email, select, text } from 'formodel';
 import {
   buildLayoutNodes,
   buildNodes,
-  defineForm,
   ErasedUi,
   extraInputsFor,
   FormLayoutItem,
   FormRowNode,
   flattenFields,
   GroupNode,
+  PlacesCustomFields,
   SignalControlNode,
   RenderNodeKind,
   SelectOption,
@@ -153,18 +153,40 @@ describe('buildLayoutNodes', () => {
   });
 });
 
-// A customField the layout omits on purpose needs no control() placement - nothing will
-// ever draw it - so `omit()` has to reach the type that refuses unplaced ones.
-describe('PlacesCustomFields and omit', () => {
-  it('accepts a customField the layout omits on purpose', () => {
-    type Hidden = { name: string; token: string };
-    const config = defineForm({
-      model: (): Hidden => ({ name: '', token: '' }),
-      ui: UiFormConfigBuilder.from({ name: '', token: '' }).name(text('Name')).token(customField()),
-      layout: formLayout<Hidden>().field('name').omit('token').build(),
-    });
+// The refusal for an unplaced `customField()` is a TYPE, so only a type can guard it - a
+// runtime assertion cannot tell `unknown` from `Rejected<...>`. This is the test that was
+// missing when a change to `PlacesCustomFields` silently switched the whole guard off.
+type IsRefusal<T> = T extends { readonly 'ngx-formad': string } ? true : false;
 
-    expect(config.layout?.omitted).toEqual(['token']);
-    expect(flattenFields(config.ui).map((field) => field.key)).toEqual(['name', 'token']);
+describe('PlacesCustomFields', () => {
+  it('refuses a customField() that no control() placed', () => {
+    const refused: IsRefusal<PlacesCustomFields<{ rating: CustomFieldNode }, {}>> = true;
+    expect(refused).toBe(true);
+  });
+
+  it('accepts one the layout placed with control()', () => {
+    const accepted: IsRefusal<PlacesCustomFields<{ rating: CustomFieldNode }, { rating: object }>> = false;
+    expect(accepted).toBe(false);
+  });
+
+  it('refuses one nested in a group, where no control() reaches it', () => {
+    type Ui = { address: { controlsConfig: { token: CustomFieldNode } } };
+    const refused: IsRefusal<PlacesCustomFields<Ui, {}>> = true;
+    expect(refused).toBe(true);
+  });
+
+  // `omit()` keeps the dev-mode warning quiet; it does not excuse a customField from placement.
+  it('records the omitted keys on the built layout', () => {
+    const layout = formLayout<{ name: string; token: string }>().field('name').omit('token').build();
+
+    expect(layout.omitted).toEqual(['token']);
+  });
+
+  it('takes a row\'s own omit() into the layout that holds it', () => {
+    const layout = formLayout<{ name: string; token: string }>()
+      .row((r) => r.omit('token').field('name'))
+      .build();
+
+    expect(layout.omitted).toEqual(['token']);
   });
 });

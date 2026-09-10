@@ -242,7 +242,13 @@ const signupForm: FormConfig<Signup> = {
 An overlay draws only what it names: a field of `ui` that no `field()`, `fields()` or
 `control()` places is left out. In dev mode the form warns once per layout about such
 fields; a field left out on purpose (a value the model carries but the page never shows)
-is declared `.omit('key')`, and the warning skips it.
+is declared `.omit('key')`, and the warning skips it. `omit()` is about the *view* and
+nothing else: the field is still in the schema, so it still validates and still counts
+towards the step's completion — a required field nobody draws holds Next forever.
+Excluding a field from validity is the schema's job (`hidden()`, below). And `omit()`
+does not excuse a `customField()` from `control()`: that refusal is a type, and a layout
+cannot carry its omitted keys into it without threading them through `FormConfig` too, so
+a `customField()` the page never draws should not be declared as one.
 
 A field whose editor is a specific `FormValueControl` component, not a registered kind,
 is declared `customField()` in `ui` and placed with `.control(key, config)`. The layout only

@@ -132,8 +132,8 @@ export type ContentBuild = (content: ContentBuilder) => ContentBuilder | void;
 /** The argument shapes a tag method accepts: text, options and nested children, in any sensible subset. */
 export type TagArgsOf<O extends ContentOptions> =
   | [text?: ContentText, options?: O, insert?: ContentBuild]
-  | [text: ContentText, insert: ContentBuild]
-  | [options: O, insert?: ContentBuild]
+  | [text: ContentText, insert: ContentBuild | ContentText]
+  | [options: O, insert?: ContentBuild | ContentText]
   | [insert: ContentBuild];
 
 /** The argument shapes of a tag with only the common options. */

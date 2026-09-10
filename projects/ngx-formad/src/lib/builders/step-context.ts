@@ -15,9 +15,6 @@ export type FormUi<F> = ConfigOf<F> extends { readonly ui: infer U } ? U : never
 /** The components a pooled form template's layout placed, by field. */
 export type FormPlaced<F> = ConfigOf<F> extends { readonly layout?: { readonly __placed?: infer P } } ? P : {};
 
-/** The fields a pooled form template's layout omits on purpose. */
-export type FormOmitted<F> =
-  ConfigOf<F> extends { readonly layout?: { readonly __omitted?: infer O extends string } } ? O : never;
 
 /** The pool names `addForm` may place. */
 export type FormKeys<TForms> = keyof TForms & string;

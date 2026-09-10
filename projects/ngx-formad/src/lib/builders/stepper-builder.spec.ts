@@ -209,3 +209,30 @@ describe('fieldValueBindings', () => {
     expect(node.links).toEqual([{ modelPath: ['path'], sharedKey: 'route' }]);
   });
 });
+
+// `link` takes what `fieldValueBindings` hands over; a copy has lost the carrier, and saying so
+// here beats an "undefined is not iterable" three files away at step entry.
+describe('link', () => {
+  it('refuses a field reference that was spread into a plain object', () => {
+    new StepperBuilder()
+      .withState({ route: '' })
+      .createForm('routed', {
+        model: () => ({ path: '' }),
+        ui: UiFormConfigBuilder.from({ path: '' }).path(text('Path')),
+      })
+      .createStep((step) =>
+        step.createPage(
+          (page) =>
+            page.addForm('routed', {
+              fieldValueBindings: (f, s) => {
+                expect(() => link({ ...f.path }, s.route)).toThrow(/takes the field and slot/);
+
+                return [link(f.path, s.route)];
+              },
+            }),
+          { heading: 'Route' },
+        ),
+      )
+      .build();
+  });
+});
