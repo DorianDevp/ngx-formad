@@ -13,6 +13,7 @@ import { FormadDockRestart } from './flow-dock';
 import { StepPageView } from './step-page-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
+import { link } from '../builders/shared-link';
 
 async function settle(fixture: ComponentFixture<object>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -67,7 +68,7 @@ function rootRing(): RuntimeFlow {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('name', { bind: { v: 'draft' } }), { heading: 'Name' },
+            p.addForm('name', { fieldValueBindings: (f, s) => [link(f.v, s.draft)] }), { heading: 'Name' },
           ),
         { label: 'Name' },
       )

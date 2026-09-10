@@ -8,6 +8,7 @@ import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { isLevel } from '../renderer/instantiate-form';
 import { formNodes, MaterializeOptions, materializeStep, resolveStepForms } from './materialize-step';
+import { link } from '../builders/shared-link';
 
 type Account = { email: string };
 type Billing = { email: string };
@@ -31,14 +32,14 @@ function buildStepper() {
     .createStep((step) =>
       step.createPage((page) =>
         page.addForm('account', {
-          bind: { email: 'email' },
+          fieldValueBindings: (f, s) => [link(f.email, s.email)],
         }),
       ),
     )
     .createStep((step) =>
       step.createPage((page) =>
         page.addForm('billing', {
-          bind: { email: 'email' },
+          fieldValueBindings: (f, s) => [link(f.email, s.email)],
         }),
       ),
     )
@@ -109,7 +110,7 @@ describe('materializeStep', () => {
         .createStep((step) =>
           step.createPage((page) =>
             page.addForm('addr', {
-              bind: { address: { city: 'city' } },
+              fieldValueBindings: (f, s) => [link(f.address.city, s.city)],
             }),
           ),
         )

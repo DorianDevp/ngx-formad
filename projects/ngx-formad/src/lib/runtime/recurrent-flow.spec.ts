@@ -8,6 +8,7 @@ import { FormadDockRestart } from './flow-dock';
 import { StepPageView } from './step-page-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
+import { link } from '../builders/shared-link';
 
 async function settle(fixture: ComponentFixture<object>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -72,7 +73,7 @@ function deviceStepper(): RuntimeStepper {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('intro', { bind: { v: 'source' } }), { heading: 'Intro' },
+            p.addForm('intro', { fieldValueBindings: (f, s) => [link(f.v, s.source)] }), { heading: 'Intro' },
           ),
         { label: 'Intro' },
       )
@@ -91,7 +92,7 @@ function deviceStepper(): RuntimeStepper {
                   .createStep(
                     (s) =>
                       s.createPage((p) =>
-                        p.addForm('name', { bind: { v: 'draftName' } }), { heading: 'Name' },
+                        p.addForm('name', { fieldValueBindings: (f, s) => [link(f.v, s.draftName)] }), { heading: 'Name' },
                       ),
                     { name: 'name', label: 'Name' },
                   )

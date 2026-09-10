@@ -4,6 +4,7 @@ import { UiFormConfigBuilder, checkbox, text } from 'formodel';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from './stepper.component';
+import { link } from '../builders/shared-link';
 
 // Two things the controller has to get right when a step's own commit changes the
 // shape of the flow: a step that gates *itself* off is not "the last step", and a
@@ -53,7 +54,7 @@ class SelfGatingHost {
         (s) =>
           s.createPage((p) =>
             p.addForm('gate', {
-              bind: { skip: 'skip' },
+              fieldValueBindings: (f, s) => [link(f.skip, s.skip)],
             }),
           { heading: '2' }),
         // The step is dropped by the very value its own form writes.
@@ -117,11 +118,11 @@ class BranchOnOneStepHost {
             p
               .addForm('personal', {
                 visibleWhen: () => !isCompany(),
-                bind: { city: 'city' },
+                fieldValueBindings: (f, s) => [link(f.city, s.city)],
               })
               .addForm('company', {
                 visibleWhen: () => isCompany(),
-                bind: { city: 'city' },
+                fieldValueBindings: (f, s) => [link(f.city, s.city)],
               }), { heading: 'Where' }
           ),
         { name: 'where' },

@@ -5,6 +5,7 @@ import { ComponentNode, FormNode, LayoutNodeKind, StepNode } from './nodes';
 import { isStepNode, SequenceNode } from './flow';
 import { DeferTrigger, RuntimeStepperContext } from './step-context';
 import { StepperBuilder } from './stepper-builder';
+import { link } from './shared-link';
 
 type Account = { email: string; password: string };
 type Billing = { email: string; vat: string };
@@ -40,14 +41,14 @@ describe('StepperBuilder', () => {
           page
             .addComponent(Banner, { bindings: [inputBinding('tone', () => 'info'), outputBinding('dismissed', () => {})] })
             .addForm('account', {
-              bind: { email: 'email' },
+              fieldValueBindings: (f, s) => [link(f.email, s.email)],
             }), { heading: 'Account' },
         ),
       )
       .createStep((step) =>
         step.createPage((page) =>
           page.addForm('billing', {
-            bind: { email: 'email' },
+            fieldValueBindings: (f, s) => [link(f.email, s.email)],
           }), { heading: 'Billing' },
         ),
       )
@@ -86,7 +87,7 @@ describe('StepperBuilder', () => {
       .createStep((step) =>
         step.createPage((page) =>
           page.addForm('billing', {
-            bind: { vat: 'vat' },
+            fieldValueBindings: (f, s) => [link(f.vat, s.vat)],
           }), { heading: 'Billing' },
         ),
       )

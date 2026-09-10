@@ -111,7 +111,7 @@ class EffectHost {
       s.createPage(
         (p) =>
           p.addForm('f', {
-            bindings: {
+            componentBindings: {
               taxId: { outputs: { resolved: (payload, ctx) => ctx.model.update((m) => ({ ...m, company: payload })) } },
             },
           }),

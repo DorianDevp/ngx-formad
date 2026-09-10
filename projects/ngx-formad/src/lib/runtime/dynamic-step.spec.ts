@@ -8,6 +8,7 @@ import { provideFormadSuite } from '../provide';
 import { StepFormsView } from './step-forms-view';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
+import { link } from '../builders/shared-link';
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -58,7 +59,7 @@ class DynHost {
       .createForm('fancy', oneForm('Fancy details'))
       .createStep((s) =>
         s.createPage((p) =>
-          p.addForm('pick', { bind: { v: 'pick' } }),
+          p.addForm('pick', { fieldValueBindings: (f, s) => [link(f.v, s.pick)] }),
           { heading: 'Pick'}),
         { label: 'Pick' },
       )

@@ -27,7 +27,7 @@ import {
   StepRevisit,
 } from './nodes';
 import { FormBindings, FormEffect } from '../form-config/form-bindings';
-import { recordLinks, SharedLinks } from './shared-link';
+import { fieldRefs, FieldRefs, LinkPair, sharedSlots, SharedSlots } from './shared-link';
 import {
   AnyFormProvider,
   ChildContext,
@@ -142,9 +142,12 @@ export type PlacedFormBindings<F, TCtx extends RuntimeStepperContext> = FormBind
 
 /** Placement options for a pooled form: its field bindings, shared links, effects, the local `initial` seed and what a revisit does with it. */
 export interface FormCfg<F, TCtx extends RuntimeStepperContext, TForms = {}> {
-  readonly bindings?: PlacedFormBindings<F, TCtx>;
+  readonly componentBindings?: PlacedFormBindings<F, TCtx>;
   readonly visibleWhen?: (ctx: StepContext<TCtx, TForms>) => boolean;
-  readonly bind?: SharedLinks<FormModel<F>, TCtx['shared']>;
+  readonly fieldValueBindings?: (
+    fields: FieldRefs<FormModel<F>>,
+    shared: SharedSlots<TCtx['shared']>,
+  ) => readonly LinkPair[];
   readonly effects?: readonly FormEffect<StepFormContext<F, TCtx, TForms>>[];
   readonly initial?: (ctx: StepContext<TCtx, TForms>) => Partial<FormModel<F>>;
   readonly revisit?: FormRevisit;
@@ -199,8 +202,8 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
         kind: LayoutNodeKind.Form,
         name,
         visibleWhen: cfg.visibleWhen,
-        links: cfg.bind ? recordLinks(cfg.bind) : [],
-        bindings: cfg.bindings ?? {},
+        links: cfg.fieldValueBindings?.(fieldRefs<FormModel<TForms[K]>>(), sharedSlots<TCtx['shared']>()) ?? [],
+        bindings: cfg.componentBindings ?? {},
         effects: (cfg.effects ?? []).map((run) => ({ run })),
         initial: cfg.initial,
         revisit: cfg.revisit,

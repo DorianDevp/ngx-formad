@@ -7,6 +7,7 @@ import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
+import { link } from '../builders/shared-link';
 
 type Labelled = { v: string };
 const labelForm = (label: string): FormConfig<Labelled> => ({
@@ -59,7 +60,7 @@ class Host {
       .createStep((step) =>
         step.createPage((page) =>
           page.addForm('account', {
-            bind: { email: 'email' },
+            fieldValueBindings: (f, s) => [link(f.email, s.email)],
           }),
         { heading: 'Account' },
         ),
@@ -67,7 +68,7 @@ class Host {
       .createStep((step) =>
         step.createPage((page) =>
           page.addForm('billing', {
-            bind: { email: 'email' },
+            fieldValueBindings: (f, s) => [link(f.email, s.email)],
           }), { heading: 'Billing' },
         ),
       )
@@ -288,7 +289,7 @@ class ForkHost {
       .createForm('start', kindForm)
       .createStep((s) =>
         s.createPage((p) =>
-          p.addForm('start', { bind: { kind: 'kind' } }), { heading: 'Start' },
+          p.addForm('start', { fieldValueBindings: (f, s) => [link(f.kind, s.kind)] }), { heading: 'Start' },
         ),
       )
       .fork((c) => c.shared.kind(), {

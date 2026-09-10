@@ -6,6 +6,7 @@ import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { defineForm, FormConfig } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { StepperComponent } from './stepper.component';
+import { link } from '../builders/shared-link';
 
 // One buyer's journey through a checkout, driven from the DOM the default chrome draws:
 // a cart with a repeating group, a fork on how to buy, an arm with its own steps,
@@ -132,7 +133,7 @@ class CheckoutHost {
     .createForm('shipping', shippingForm) // both arms place it, so it is declared once, before the fork
     .createStep((s) => s.createPage((p) => p.addForm('cart'), { heading: 'Your cart' }), { name: 'cart' })
     .createStep((s) =>
-      s.createPage((p) => p.addForm('mode', { bind: { mode: 'mode' } }), { heading: 'How to buy' }),
+      s.createPage((p) => p.addForm('mode', { fieldValueBindings: (f, s) => [link(f.mode, s.mode)] }), { heading: 'How to buy' }),
     )
     .fork((c) => c.shared.mode(), {
       account: (arm) =>
@@ -140,10 +141,10 @@ class CheckoutHost {
           .createForm('account', accountForm)
           .createStep((s) =>
             s.createPage((p) =>
-              p.addForm('account', { bind: { email: 'email' } }), { heading: 'Create an account' },
+              p.addForm('account', { fieldValueBindings: (f, s) => [link(f.email, s.email)] }), { heading: 'Create an account' },
             ),
           )
-          .createStep((s) => s.createPage((p) => p.addForm('shipping', { bindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
+          .createStep((s) => s.createPage((p) => p.addForm('shipping', { componentBindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
             name: 'accountShipping',
           })
           .createStep((s, ctx) =>
@@ -157,9 +158,9 @@ class CheckoutHost {
         arm
           .createForm('contact', contactForm)
           .createStep((s) =>
-            s.createPage((p) => p.addForm('contact', { bind: { email: 'email' } }), { heading: 'Your details' }),
+            s.createPage((p) => p.addForm('contact', { fieldValueBindings: (f, s) => [link(f.email, s.email)] }), { heading: 'Your details' }),
           )
-          .createStep((s) => s.createPage((p) => p.addForm('shipping', { bindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
+          .createStep((s) => s.createPage((p) => p.addForm('shipping', { componentBindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
             name: 'guestShipping',
           })
           .result(({ shared }) => ({ mode: 'guest' as const, email: shared.email() })),
