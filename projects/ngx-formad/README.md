@@ -293,26 +293,31 @@ the same tag builder [pages use](#content--prose-as-data), gated on the same con
 Fields left out of the overlay still validate (they are in the schema) but do not
 render — list every field you want shown.
 
-**Responsive layout needs the class adapter + stylesheet.** `colSpan`/`cols` accept a
-constant (`2`) or a per-breakpoint map (`{ base: 1, md: 2 }`). The zero-dependency
-default (`cssLayout`) resolves only the `base` value (inline styles can't carry media
-queries). For real responsive layouts, register `classLayout` (it emits class names)
-and generate the backing CSS for **your** breakpoints from the shipped stylesheet:
-
-```scss
-// styles.scss — pass your own breakpoints; we generate the utilities.
-@use 'ngx-formad/styles' as formad;
-@include formad.grid((sm: 40rem, md: 48rem, lg: 64rem, xl: 80rem));
-```
+**Responsive layout is Tailwind's job, not ours.** `colSpan`/`cols` accept a constant
+(`2`) or a per-breakpoint map (`{ base: 1, md: 2 }`). The zero-dependency default
+(`cssLayout`) resolves only the `base` value — inline styles cannot carry media
+queries. For real responsive layouts register `tailwindLayout`: it composes Tailwind's
+own utilities (`grid grid-cols-1 md:grid-cols-2`, `col-span-6`, `gap-4`), so the
+library ships no stylesheet and no generator, and your build emits exactly the classes
+your configs name.
 
 ```ts
-import { classLayout, provideFormadSuite } from 'ngx-formad';
+import { provideFormadSuite, tailwindLayout } from 'ngx-formad';
 
-provideFormadSuite({ layout: classLayout /* , controls, stepper */ });
+provideFormadSuite({ layout: tailwindLayout /* , controls, stepper */ });
 ```
 
-Breakpoints are yours to name and size; they are emitted mobile-first, so a value set
-at one breakpoint waterfalls to every wider one until overridden.
+Tailwind only sees literals in your source, and these class names are composed at
+runtime, so name them once beside your import — in v4 that is one line of CSS:
+
+```css
+@import 'tailwindcss';
+@source inline("{sm:,md:,lg:,xl:,}{grid-cols-,col-span-,col-start-}{1,2,3,4,5,6,7,8,9,10,11,12}");
+@source inline("gap-{0,1,2,3,4,5,6,8,10,12}");
+```
+
+The breakpoint keys of a responsive value are Tailwind's screens, so they waterfall
+upward the way Tailwind's do.
 
 ## Tour
 
@@ -697,14 +702,14 @@ new StepperBuilder()
   reads by itself. A container's gate takes its children with it, completion included:
   a form inside a hidden row (or on a hidden page) is not drawn *and* does not hold
   Next, so a required field nobody can see cannot block the wizard. Neither callback
-  needs `dynamic: true` — the page's structure does not depend on the context here,
-  only one input and one `@if` do.
-- **Dynamic steps** — a step declared `dynamic: true`, `createStep((step, ctx) => …,
-  { dynamic: true })`, builds its pages when it is entered, so which pooled forms it
+  needs `pages: StepPages.OnEntry` — the page's structure does not depend on the
+  context here, only one input and one `@if` do.
+- **Pages built on entry** — a step declared `pages: StepPages.OnEntry`,
+  `createStep((step, ctx) => …, { pages: StepPages.OnEntry })`, builds its pages when it is entered, so which pooled forms it
   places and what prose it shows can follow the user's earlier answers (`ctx.steps`,
-  `ctx.shared`). The callback must be pure. Without the flag a step is built once, at
+  `ctx.shared`). The callback must be pure. By default (`StepPages.Once`) a step is built once, at
   authoring time, and a callback that takes `ctx` is refused at compile time. In-form
-  conditionality stays `hidden()` / `visibleWhen`; a dynamic step covers only what those
+  conditionality stays `hidden()` / `visibleWhen`; building on entry covers only what those
   cannot: the page's structure. One input or one gate over the context is not that —
   those are the callbacks above.
 - **`defer`** renders the step's body inside an Angular `@defer` block
@@ -1373,6 +1378,24 @@ instantiateForm(orderForm, null, [
 ]);
 ```
 
+## When the library refuses
+
+Three ways to say no, one rule for which:
+
+- **A `Rejected<...>` type** where the mistake is visible in the types: bindings for a
+  field whose kind is unknown or not exact, a `customField()` no `control()` can place,
+  `createPage(options, build)` the wrong way round, a `(step, ctx)` callback without
+  `pages: StepPages.OnEntry`, `addControlType` on a kind that exists. The message names
+  the fix and sits on the offending argument, so the error is reported at that call.
+- **A `throw` at authoring time** for invariants a type cannot see: a step or form name
+  already taken, a second `dock`, arguments swapped past the type check, a field the
+  model does not carry. These run while the config is being built - before anything
+  renders - so they surface in the first test that touches the flow.
+- **A dev-mode `console.warn`** only where nothing can prove intent: fields a layout
+  neither places nor `omit()`s, a binding name the component's mirror does not declare
+  (host directives and inheritance put some names beyond it). Never for something the
+  library could have known.
+
 ## API
 
 Everything is exported from the package root (`ngx-formad`).
@@ -1411,6 +1434,8 @@ Everything is exported from the package root (`ngx-formad`).
 | `Stepper<TForms, TCtx, TResult>` | The built linear flow: `{ forms, steps, shared, controlTypes, providers, resolveResult? }`. `RecurrentStepper<TForms, TCtx, C>` is the ring counterpart. |
 | `RuntimeStepper` / `RuntimeFlow` | The same with the authoring types erased — what the shell's `[stepper]` input and the controller take. A built `Stepper` is assignable as it is. |
 | `CommittedOf<typeof built>` | The typed shape of what a built stepper commits: `{ [step]?: { [poolName]: model } }`. |
+| `StepPages` | When a step's pages are built: `Once` (default, at authoring time) or `OnEntry` (again on every entry, over the live context). |
+| `ControlKind` | The built-in control kinds as an enum (`ControlKind.Text`, …); `addControlType` refuses to redeclare one. |
 | `StepRevisit` / `FormRevisit` | The revisit policies: `StepRevisit.Keep \| Fresh` on a step, `FormRevisit.Keep \| Reseed` on a placement. |
 | `DeferTrigger` | `Idle \| Viewport \| Interaction` — the `@defer` trigger a step renders under. |
 | `FlowDock` / `FormadDockRestart` / `FormadDockNext` | What a dock component uses: the two-method service, or the `ngxFormadDockRestart` / `ngxFormadDockNext` attributes on its buttons. |
@@ -1437,7 +1462,7 @@ Everything is exported from the package root (`ngx-formad`).
 | Symbol | What it is |
 | --- | --- |
 | `provideFormadSuite(opts?)` | Registers the three adapters. No args = zero-dependency defaults + the bundled chrome. `controlTypes` (a `ControlTypeMap`) layers custom kinds over the base adapter, app-wide. |
-| `ControlAdapter` / `LayoutAdapter` | The control and layout axes; `defaultControls` and `cssLayout` are the defaults, `classLayout` the class-emitting alternative. |
+| `ControlAdapter` / `LayoutAdapter` | The control and layout axes; `defaultControls` and `cssLayout` are the defaults, `tailwindLayout` the class-emitting alternative. |
 | `CONTROL_ADAPTER` / `LAYOUT_ADAPTER` / `STEPPER_ADAPTER` | The three tokens; `DefaultStepperChrome` is the bundled chrome. |
 | `GridLayout` / `GridPlacement` / `Responsive<T>` / `responsiveEntries` | The layout specs an adapter resolves, and the helper that unfolds a responsive value. |
 | `LayoutItem` | The `[ngxFormadItem]` directive that puts a placement's class and style on the element it sits on; the renderer attaches it to every placed formField. |
@@ -1482,9 +1507,9 @@ A built `Stepper` goes straight into `<ngx-formad-stepper [stepper]>`, or you wa
 The inner callbacks have small, fixed shapes:
 
 ```ts
-createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only with dynamic: true
+createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only with pages: StepPages.OnEntry
   name?: N,                                   // the key successors read this step under: ctx.steps.<name>
-  dynamic?: true,                             // build the pages on every entry, over the live ctx
+  pages?: StepPages,                          // Once (default) | OnEntry                             // build the pages on every entry, over the live ctx
   label?: string | Signal<string>,            // short name for a chrome's rail (controller.labels())
   when?: (ctx) => boolean,                    // ctx: GateContext — ctx.shared.key() a signal,
   optional?: boolean,                         //   ctx.steps.x?.form a live FormState

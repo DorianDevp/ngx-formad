@@ -2,7 +2,7 @@ import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode } from '../builders/flow';
-import { StepperBuilder } from '../builders/stepper-builder';
+import { StepPages, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { StepFormsView } from './step-forms-view';
@@ -74,7 +74,7 @@ class DynHost {
           { heading: `Details: ${ctx.shared.pick()}` }
           );
         },
-        { label: 'Details', dynamic: true },
+        { label: 'Details', pages: StepPages.OnEntry },
       )
       .build();
 }

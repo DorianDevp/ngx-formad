@@ -1,11 +1,7 @@
 import { Component, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import {
-  RecurrentStepperBuilder,
-  RuntimeStepper,
-  StepperBuilder,
-} from '../builders/stepper-builder';
+import { RecurrentStepperBuilder, RuntimeStepper, StepPages, StepperBuilder } from '../builders/stepper-builder';
 import { RuntimeFlow } from '../builders/flow';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
@@ -129,7 +125,7 @@ function ringWithLinearPass(): RuntimeStepper {
                 s.createPage((p) =>
                   p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock', dynamic: true, completeWhen: (ctx) => ctx.flow.state().length > 0 },
+              { label: 'Dock', pages: StepPages.OnEntry, completeWhen: (ctx) => ctx.flow.state().length > 0 },
             ),
       })
       .build();

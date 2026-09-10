@@ -53,19 +53,20 @@ import {
 } from './step-context';
 
 /** The control kinds every stepper starts with; `addControlType` refuses to redeclare one. */
-export type BuiltInControlKind =
-  | 'text'
-  | 'email'
-  | 'password'
-  | 'tel'
-  | 'url'
-  | 'textarea'
-  | 'number'
-  | 'select'
-  | 'radio'
-  | 'checkbox'
-  | 'date'
-  | 'file';
+export enum ControlKind {
+  Text = 'text',
+  Email = 'email',
+  Password = 'password',
+  Tel = 'tel',
+  Url = 'url',
+  Textarea = 'textarea',
+  Number = 'number',
+  Select = 'select',
+  Radio = 'radio',
+  Checkbox = 'checkbox',
+  Date = 'date',
+  File = 'file',
+}
 
 type UnionToIntersection<U> = (U extends U ? (k: U) => void : never) extends (k: infer I) => void
   ? I
@@ -155,6 +156,7 @@ export interface FormCfg<F, TCtx extends RuntimeStepperContext, TForms = {}> {
 
 /** Builds one page: content, components and pooled forms; `P` accumulates the placed pool names. */
 export class PageBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
+  /** Phantom: the pool names this page placed. Carried by the type system, never read at runtime. */
   readonly __placed?: P;
 
   constructor(readonly nodes: readonly LayoutNode[] = []) {}
@@ -233,6 +235,7 @@ function isPageBuild<TForms, TCtx extends RuntimeStepperContext, P>(
 
 /** Builds one step out of pages; `P` accumulates what the pages placed. */
 export class StepBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
+  /** Phantom: the pool names this step's pages placed. Carried by the type system, never read at runtime. */
   readonly __placed?: P;
 
   constructor(readonly pages: readonly PageNode[] = []) {}
@@ -275,16 +278,22 @@ export type DynamicStepBuild<TForms, TCtx extends RuntimeStepperContext, P> = (
 /** A step's build callback as the runtime holds it; a static one fits, ignoring the context. */
 export type StepBuild<TForms, TCtx extends RuntimeStepperContext, P = {}> = DynamicStepBuild<TForms, TCtx, P>;
 
-const NOT_DYNAMIC = 'a step whose callback takes ctx must be declared dynamic: createStep(build, { dynamic: true })';
+/** When a step's pages are built: once, at authoring time, or again on every entry over the live context. */
+export enum StepPages {
+  Once = 'once',
+  OnEntry = 'on-entry',
+}
 
-/** The refusal a `(step, ctx)` callback meets when its step is not declared `dynamic: true`. */
+const NOT_DYNAMIC = 'a step whose callback takes ctx must declare pages: StepPages.OnEntry';
+
+/** The refusal a `(step, ctx)` callback meets when its step does not declare `pages: StepPages.OnEntry`. */
 export type NotDynamic = Rejected<typeof NOT_DYNAMIC>;
 
-/** Per-step options; `name` is the key successors read the step under, `dynamic` builds the pages on every entry over the live context. */
+/** Per-step config; `name` is the key successors read the step under, `pages` says when its pages are built. */
 export interface StepCfg<TCtx extends RuntimeStepperContext, N extends string = never> {
   readonly name?: N;
 
-  readonly dynamic?: true;
+  readonly pages?: StepPages;
 
   readonly label?: string | Signal<string>;
 
@@ -301,14 +310,14 @@ export interface StepCfg<TCtx extends RuntimeStepperContext, N extends string = 
   readonly revisit?: StepRevisit;
 }
 
-/** The options of a step built once; `dynamic` may not be set. */
+/** The config of a step built once; `pages` may only say so. */
 export type StaticStepCfg<TCtx extends RuntimeStepperContext, N extends string = never> = StepCfg<TCtx, N> & {
-  readonly dynamic?: never;
+  readonly pages?: StepPages.Once;
 };
 
-/** The options of a step built on every entry; `dynamic: true` is required. */
+/** The config of a step built on every entry; `pages: StepPages.OnEntry` is required. */
 export type DynamicStepCfg<TCtx extends RuntimeStepperContext, N extends string = never> = StepCfg<TCtx, N> & {
-  readonly dynamic: true;
+  readonly pages: StepPages.OnEntry;
 };
 
 /** A branch selector: the branch key, or null/undefined while undecided. */
@@ -333,16 +342,16 @@ interface StepSpec<TCtx extends RuntimeStepperContext> {
 
 const AUTHORING_CONTEXT: RuntimeStepperContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
-/** A step's pages: built once, now, unless the step is declared `dynamic`, then on every entry over the live context. */
+/** A step's pages: built once, now, unless the step declares `pages: StepPages.OnEntry`, then on every entry. */
 function pagesOf<TForms, TCtx extends RuntimeStepperContext, P>(
   build: StepBuild<TForms, TCtx, P>,
-  dynamic: boolean,
+  onEntry: boolean,
 ): readonly PageNode[] | DynamicPages {
-  if (!dynamic && build.length >= 2) throw new Error(`ngx-formad: ${NOT_DYNAMIC}.`);
+  if (!onEntry && build.length >= 2) throw new Error(`ngx-formad: ${NOT_DYNAMIC}.`);
 
   const pages: DynamicPages = { build: (ctx: TCtx) => build(new StepBuilder<TForms, TCtx, {}>(), ctx).pages };
 
-  return dynamic ? pages : pages.build(AUTHORING_CONTEXT);
+  return onEntry ? pages : pages.build(AUTHORING_CONTEXT);
 }
 
 function guardedBy(gate: StepGate, node: SequenceNode): SequenceNode {
@@ -375,6 +384,7 @@ function claimName(name: string, taken: object): void {
 
 /** Authors the steps of one branch; each is guarded by the branch condition. */
 export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = {}> {
+  /** Phantom: the step entries this arm adds to the context. Carried by the type system, never read at runtime. */
   readonly __added?: TAdded;
 
   constructor(
@@ -412,7 +422,7 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts: StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
-    this.push(stepNode({ pages: pagesOf(build, opts.dynamic === true), opts, gate: this.gate }));
+    this.push(stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts, gate: this.gate }));
 
     return new BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>(
       this.push,
@@ -516,7 +526,7 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
   ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
     return new ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>({
       ...this.arm,
-      steps: [...this.arm.steps, stepNode({ pages: pagesOf(build, opts.dynamic === true), opts })],
+      steps: [...this.arm.steps, stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts })],
     });
   }
 
@@ -612,7 +622,7 @@ export interface FlowSlotCfg<TCtx extends RuntimeStepperContext> {
 export interface RingCfg<C> {
   readonly state: () => C;
 
-  dockReachable?(state: C): boolean;
+  readonly dockReachable?: (state: C) => boolean;
 }
 
 /**
@@ -697,7 +707,7 @@ function claimedForm(
 /** The root of a linear chain; `build()` freezes it into a `Stepper`. */
 export class StepperBuilder<
   TForms = {},
-  TKinds extends string = BuiltInControlKind,
+  TKinds extends string = ControlKind,
   TCtx extends RuntimeStepperContext = RootContext,
 > {
   readonly __forms?: TForms;
@@ -780,7 +790,7 @@ export class StepperBuilder<
     opts?: O & { readonly name?: N },
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>> {
     return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>>(
-      this.appended([stepNode({ pages: pagesOf(build, opts?.dynamic === true), opts: opts ?? {} })]),
+      this.appended([stepNode({ pages: pagesOf(build, opts?.pages === StepPages.OnEntry), opts: opts ?? {} })]),
     );
   }
 
@@ -945,7 +955,7 @@ const dockGate: StepGate = { activeWhen: (ctx) => ctx.flow?.passOpen() !== true 
 export class RecurrentStepperBuilder<
   TForms = {},
   C = unknown,
-  TKinds extends string = BuiltInControlKind,
+  TKinds extends string = ControlKind,
   TCtx extends RingRuntimeContext<C> = RingContext<RootContext, C>,
 > {
   readonly __forms?: TForms;
@@ -1036,7 +1046,7 @@ export class RecurrentStepperBuilder<
     opts: StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>> {
     return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>(
-      this.appended([stepNode({ pages: pagesOf(build, opts.dynamic === true), opts, gate: passGate })]),
+      this.appended([stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts, gate: passGate })]),
     );
   }
 
@@ -1093,18 +1103,18 @@ export class RecurrentStepperBuilder<
   dock<
     N extends string = never,
     P = {},
-    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly dynamic?: never } = DockCfg<
+    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly pages?: StepPages.Once } = DockCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
-    > & { readonly dynamic?: never },
+    > & { readonly pages?: StepPages.Once },
   >(build: StaticStepBuild<TForms, TCtx, P>, opts?: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
   dock<
     N extends string = never,
     P = {},
-    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly dynamic: true } = DockCfg<
+    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly pages: StepPages.OnEntry } = DockCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
-    > & { readonly dynamic: true },
+    > & { readonly pages: StepPages.OnEntry },
   >(build: DynamicStepBuild<TForms, TCtx, P>, opts: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
   dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: DockCfg<TCtx, string>): never;
   dock<N extends string = never, P = {}>(
@@ -1115,7 +1125,7 @@ export class RecurrentStepperBuilder<
 
     this.docked = true;
     const docked = this.appended([
-      stepNode({ pages: pagesOf(build, opts.dynamic === true), opts, gate: dockGate }),
+      stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts, gate: dockGate }),
     ]);
     const definition: RecurrentFlowDefinition<C> = {
       recurrent: true,

@@ -2,7 +2,7 @@ import { Component, computed, input, model } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl, hidden, required } from '@angular/forms/signals';
 import { array, checkbox, customField, email, number, password, phone, radio, select, text, UiFormConfigBuilder } from 'formodel';
-import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepPages, StepperBuilder } from '../builders/stepper-builder';
 import { defineForm, FormConfig } from '../form-config/form-config';
 import { formLayout } from '../form-config/form-layout';
 import { StepperComponent } from './stepper.component';
@@ -151,7 +151,7 @@ class CheckoutHost {
             s.createPage((p) =>
               p.addContent((c) => c.p(computed(() => `Confirmation goes to ${ctx.shared.email()}`), { className: 'summary' })), { heading: 'Summary' },
             ),
-            { dynamic: true },
+            { pages: StepPages.OnEntry },
           )
           .result(({ shared }) => ({ mode: 'account' as const, email: shared.email() })),
       guest: (arm) =>

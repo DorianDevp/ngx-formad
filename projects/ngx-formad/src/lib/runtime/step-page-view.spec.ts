@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { required } from '@angular/forms/signals';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { StepRevisit } from '../builders/nodes';
-import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepPages, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from './stepper.component';
 
@@ -137,7 +137,7 @@ describe('StepPageView — completeWhen context', () => {
 
 // A component's bindings and its `visibleWhen` may be callbacks over the step context, so
 // a component on a STATIC step binds and gates on what an earlier step holds — no
-// `dynamic: true` for the sake of one input or one @if. The predecessor here revisits
+// `pages: StepPages.OnEntry` for the sake of one input or one @if. The predecessor here revisits
 // fresh, so its instance is a different object on the second pass: what the callbacks
 // close over must be the live context, not the record as it stood when the step was
 // entered.

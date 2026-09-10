@@ -1,7 +1,7 @@
 import { Component, inject, Injectable, InjectionToken, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { StepperBuilder } from '../builders/stepper-builder';
+import { StepPages, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { FormadDockRestart } from './flow-dock';
@@ -118,7 +118,7 @@ class ProvHost {
                 s.createPage((p) =>
                   p.addComponent(ProvDock, { bindings: [inputBinding('count', () => ctx.flow.state().length)] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock', dynamic: true },
+              { label: 'Dock', pages: StepPages.OnEntry },
             ),
       })
       .build();

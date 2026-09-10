@@ -1,7 +1,7 @@
 import { Component, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
+import { RuntimeStepper, StepPages, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { provideFormadSuite } from '../provide';
 import { FormadDockRestart } from './flow-dock';
@@ -126,7 +126,7 @@ function deviceStepper(): RuntimeStepper {
                 ),
               {
                 label: 'Dock',
-                dynamic: true,
+                pages: StepPages.OnEntry,
                 completeWhen: (ctx) => ctx.flow.state().length > 0,
                 incompleteMessage: 'Add at least one device',
               },

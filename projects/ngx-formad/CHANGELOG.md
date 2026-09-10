@@ -245,6 +245,17 @@ versions may carry breaking changes.
 
 ### Changed
 
+- **Tailwind instead of a shipped stylesheet — `tailwindLayout`.** The class adapter
+  and the SCSS generator are gone (`classLayout`, `ngx-formad/styles`): the responsive
+  adapter now composes Tailwind's own utilities, so the build emits exactly the classes
+  the configs name and the library ships no CSS at all. `cssLayout` stays the
+  zero-dependency default. One `@source inline(...)` line tells Tailwind about the
+  names composed at runtime; the README carries it.
+- **Policies are enums, not flags or unions.** `dynamic: true` is `pages:
+  StepPages.OnEntry` (`StepPages.Once` is the default and what a plain step does), and
+  the built-in control kinds are the `ControlKind` enum instead of a string union.
+  `RingCfg.dockReachable` is a property like its `state` neighbour, and the phantom
+  members that carry a builder's placements say so in one convention.
 - **Three contexts that build on one another.** The old step context is
   `StepperContext` (`steps`, `shared`, `flow`, `parent`) and `RuntimeStepContext` is
   `RuntimeStepperContext`; one level in, a step's own callbacks read

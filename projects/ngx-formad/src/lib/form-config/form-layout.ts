@@ -21,6 +21,7 @@ function itemOf(cfg: GridPlacement): GridPlacement | undefined {
 
 /** Arranges a form's declared fields: grid, order, placed components, prose and nested rows; `P` accumulates the components `control()` placed, by field. */
 export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} = {}> {
+  /** Phantom: the components this layout placed, by field. Carried by the type system, never read at runtime. */
   readonly __placed?: P;
 
   constructor(
