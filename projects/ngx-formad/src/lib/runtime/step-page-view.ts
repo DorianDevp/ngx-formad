@@ -31,7 +31,7 @@ interface PageNodeRow {
           }
         }
         @case (kinds.Row) {
-          <div class="ngx-formad-row" [class]="row.node.layout">
+          <div class="ngx-formad-row" [class]="row.node.layout ?? ''">
             <ngx-formad-page-nodes [nodes]="row.node.children" [step]="step()" />
           </div>
         }
@@ -61,7 +61,7 @@ export class PageNodesView {
     const ctx = this.step().context;
 
     return this.nodes()
-      .filter((node) => node.kind === LayoutNodeKind.Row || (node.visibleWhen?.(ctx) ?? true))
+      .filter((node) => node.visibleWhen?.(ctx) ?? true)
       .map((node) => ({
         node,
         live: node.kind === LayoutNodeKind.Form ? (this.forms().get(node.name) ?? null) : null,
@@ -76,7 +76,7 @@ export class PageNodesView {
   imports: [PageNodesView],
   host: { style: 'display: contents' },
   template: `
-    @for (page of step().pages; track $index) {
+    @for (page of pages(); track $index) {
       @if (page.options.layout; as layout) {
         <div class="ngx-formad-page" [class]="layout">
           <ngx-formad-page-nodes [nodes]="page.children" [step]="step()" />
@@ -89,4 +89,10 @@ export class PageNodesView {
 })
 export class StepPageView {
   readonly step = input.required<LiveStep>();
+
+  protected readonly pages = computed(() => {
+    const live = this.step();
+
+    return live.pages.filter((page) => page.options.visibleWhen?.(live.context) ?? true);
+  });
 }

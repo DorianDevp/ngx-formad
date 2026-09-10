@@ -1,5 +1,6 @@
 import { Component, input, inputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { required } from '@angular/forms/signals';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { StepRevisit } from '../builders/nodes';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
@@ -32,6 +33,12 @@ type Only = { v: string };
 const onlyForm: FormConfig<Only> = {
   model: () => ({ v: '' }),
   ui: UiFormConfigBuilder.from({ v: '' }).v(text('Field')),
+};
+
+const requiredForm: FormConfig<Only> = {
+  model: () => ({ v: '' }),
+  ui: UiFormConfigBuilder.from({ v: '' }).v(text('Must fill')),
+  schema: (p) => required(p.v),
 };
 
 @Component({
@@ -207,12 +214,59 @@ class GatedNodesHost {
         (p) =>
           p
             .addContent((c) => c.p('extras'), { visibleWhen: (ctx) => ctx.steps.typed.only.model().v === 'more' })
-            .addForm('only', null, { visibleWhen: (ctx) => ctx.steps.typed.only.model().v === 'more' }),
+            .addForm('only', { visibleWhen: (ctx) => ctx.steps.typed.only.model().v === 'more' }),
         { heading: 'Extras' },
       ),
     )
     .build();
 }
+
+// A row and a whole page gate on the context too. The gate of a container is not only a
+// matter of drawing: a form inside a hidden row must not hold Next either, so `mustFill`
+// below is empty and required while its row is away, and Next still moves.
+const rowOpen = signal(false);
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class GatedContainersHost {
+  readonly stepper: RuntimeStepper = new StepperBuilder()
+    .withState({})
+    .createForm('mustFill', requiredForm)
+    .createStep((s) =>
+      s
+        .createPage(
+          (p) => p.insertRow((row) => row.addForm('mustFill'), { layout: 'cols-1', visibleWhen: () => rowOpen() }),
+          { heading: 'One' },
+        )
+        .createPage((p) => p.addContent((c) => c.p('second page')), { visibleWhen: () => rowOpen() }),
+    )
+    .createStep((s) => s.createPage((p) => p.addContent((c) => c.p('done')), { heading: 'Done' }))
+    .build();
+}
+
+describe('StepPageView — a row and a page gated on the context', () => {
+  it('keeps the hidden row out of the DOM and out of the completion gate', async () => {
+    rowOpen.set(false);
+    const fixture = TestBed.createComponent(GatedContainersHost);
+    await settle(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.querySelector('.ngx-formad-row')).toBeNull();
+    expect(root.querySelector('input')).toBeNull();
+    expect(root.textContent).not.toContain('second page');
+    // The required field is empty, but nobody can see it: Next is free.
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('false');
+
+    rowOpen.set(true);
+    await settle(fixture);
+
+    expect(root.querySelector('.ngx-formad-row input')).toBeTruthy();
+    expect(root.textContent).toContain('second page');
+    expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('true');
+  });
+});
 
 describe('StepPageView — a form and a content block gated on the step context', () => {
   it('draws neither until the predecessor says so, then both', async () => {

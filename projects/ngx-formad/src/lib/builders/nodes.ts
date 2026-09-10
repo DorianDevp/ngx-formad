@@ -1,5 +1,4 @@
-import { Binding, Type } from '@angular/core';
-import { Live } from '../form-config/live';
+import { Binding, Signal, Type } from '@angular/core';
 import { ContentChild } from './content';
 import { BindingRecord, FormEffectHook } from '../form-config/form-bindings';
 import { LinkPair } from './shared-link';
@@ -13,7 +12,7 @@ export enum LayoutNodeKind {
   Row = 'row',
 }
 
-/** A content block in a layout slot of its own; empty `children` is a bare spacer. */
+/** A content block in a layout slot of its own. */
 export interface ContentNode {
   readonly kind: LayoutNodeKind.Content;
 
@@ -52,8 +51,6 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
 
   readonly name: string;
 
-  readonly submitLabel?: string;
-
   visibleWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly links: readonly LinkPair[];
@@ -67,11 +64,13 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
   readonly revisit?: FormRevisit;
 }
 
-/** A nested layout row. */
+/** A nested layout row; its gate takes its children with it, completion included. */
 export interface RowNode {
   readonly kind: LayoutNodeKind.Row;
 
-  readonly layout: string;
+  readonly layout?: string;
+
+  visibleWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly children: readonly LayoutNode[];
 }
@@ -79,13 +78,15 @@ export interface RowNode {
 /** Anything that can sit in a page. */
 export type LayoutNode = ContentNode | ComponentNode | FormNode | RowNode;
 
-/** A page's heading and subheading (both may follow a signal) and its layout class. */
+/** A page's heading and subheading (both may follow a signal), its layout class and its own gate. */
 export interface PageOptions {
-  readonly heading?: Live<string>;
+  readonly heading?: Signal<string>;
 
-  readonly subheading?: Live<string>;
+  readonly subheading?: Signal<string>;
 
   readonly layout?: string;
+
+  visibleWhen?(ctx: RuntimeStepContext): boolean;
 }
 
 /** A page: its options and the nodes it lays out. */
@@ -122,7 +123,7 @@ export interface StepNode {
 
   readonly pages: readonly PageNode[] | DynamicPages;
 
-  readonly label?: Live<string>;
+  readonly label?: Signal<string>;
 
   when?(ctx: RuntimeStepContext): boolean;
 

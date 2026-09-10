@@ -58,8 +58,7 @@ class DynHost {
       .createForm('fancy', oneForm('Fancy details'))
       .createStep((s) =>
         s.createPage((p) =>
-          p.addForm('pick', null,
-            { bind: { v: 'pick' } }),
+          p.addForm('pick', { bind: { v: 'pick' } }),
           { heading: 'Pick'}),
         { label: 'Pick' },
       )

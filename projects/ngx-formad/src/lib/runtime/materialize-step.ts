@@ -57,6 +57,38 @@ export interface LiveStep {
   readonly context: RuntimeStepContext;
 }
 
+/** A gate as a node holds it, erased. */
+type Gate = (ctx: RuntimeStepContext) => boolean;
+
+/** One placed form with the gates it sits under: its page's, then each enclosing row's, then its own. */
+interface PlacedForm {
+  readonly node: FormNode;
+
+  readonly gates: readonly Gate[];
+}
+
+/**
+ * The forms the pages place, each with the gates that decide whether it is there at all. A form inside a hidden row or
+ * on a hidden page is not just undrawn: it must not hold Next either, so the enclosing gates travel with it.
+ */
+function placedForms(pages: readonly PageNode[]): PlacedForm[] {
+  const walk = (nodes: readonly LayoutNode[], gates: readonly Gate[]): PlacedForm[] =>
+    nodes.flatMap((node) => {
+      if (node.kind === LayoutNodeKind.Form) {
+        return [{ node, gates: node.visibleWhen ? [...gates, node.visibleWhen] : gates }];
+      }
+      if (node.kind !== LayoutNodeKind.Row) return [];
+
+      return walk(node.children, node.visibleWhen ? [...gates, node.visibleWhen] : gates);
+    });
+
+  return pages.flatMap((page) => {
+    const own = page.options.visibleWhen;
+
+    return walk(page.children, own ? [own] : []);
+  });
+}
+
 function walkPages<N extends LayoutNode>(pages: readonly PageNode[], kind: N['kind']): N[] {
   const walk = (nodes: readonly LayoutNode[]): N[] =>
     nodes.flatMap((node) => {
@@ -127,7 +159,8 @@ function definedEntries(seed: Record<string, unknown>): [string, unknown][] {
   return Object.entries(seed).filter(([, value]) => value !== undefined);
 }
 
-function liveForm(node: FormNode, options: MaterializeOptions, ctx: RuntimeStepContext): LiveForm | null {
+function liveForm(placed: PlacedForm, options: MaterializeOptions, ctx: RuntimeStepContext): LiveForm | null {
+  const node = placed.node;
   const template = options.pool[node.name];
   if (!template) return null;
 
@@ -141,8 +174,7 @@ function liveForm(node: FormNode, options: MaterializeOptions, ctx: RuntimeStepC
     }),
   );
   const root = state.rootForm;
-  const gate = node.visibleWhen;
-  const visible: Signal<boolean> = gate ? computed(() => gate(ctx)) : computed(() => true);
+  const visible: Signal<boolean> = computed(() => placed.gates.every((gate) => gate(ctx)));
   const issues = computed<readonly StepIssue[]>(() =>
     root()
       .errorSummary()
@@ -216,8 +248,8 @@ function componentInjector(node: ComponentNode, options: MaterializeOptions, ctx
 export function materializeStep(pages: readonly PageNode[], options: MaterializeOptions): LiveStep {
   const registry = new InstanceRegistry();
   const ctx = liveContext(options);
-  const forms = formNodes(pages).flatMap((node) => {
-    const live = liveForm(node, options, ctx);
+  const forms = placedForms(pages).flatMap((placed) => {
+    const live = liveForm(placed, options, ctx);
 
     return live === null ? [] : [live];
   });

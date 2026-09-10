@@ -30,14 +30,14 @@ function buildStepper() {
     .createForm('billing', billing)
     .createStep((step) =>
       step.createPage((page) =>
-        page.addForm('account', null, {
+        page.addForm('account', {
           bind: { email: 'email' },
         }),
       ),
     )
     .createStep((step) =>
       step.createPage((page) =>
-        page.addForm('billing', null, {
+        page.addForm('billing', {
           bind: { email: 'email' },
         }),
       ),
@@ -108,7 +108,7 @@ describe('materializeStep', () => {
         .createForm('addr', addrForm)
         .createStep((step) =>
           step.createPage((page) =>
-            page.addForm('addr', null, {
+            page.addForm('addr', {
               bind: { address: { city: 'city' } },
             }),
           ),

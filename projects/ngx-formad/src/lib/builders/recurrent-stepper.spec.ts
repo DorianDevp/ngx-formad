@@ -54,16 +54,16 @@ const built = new StepperBuilder()
         .createForm('bulk', form('Bulk'))
         .branch((c) => c.shared.source(), {
           manual: (b) =>
-            b.step((s) => s.createPage((p) => p.addForm('name'), { heading: 'Name' }), {
+            b.createStep((s) => s.createPage((p) => p.addForm('name'), { heading: 'Name' }), {
               label: 'Name',
             }),
           invoice: (b) =>
-            b.step((s) => s.createPage((p) => p.addForm('bulk'), { heading: 'Bulk' }), {
+            b.createStep((s) => s.createPage((p) => p.addForm('bulk'), { heading: 'Bulk' }), {
               label: 'Bulk',
             }),
         })
         .completeWhen((items) => items.length > 0, 'Add at least one device')
-        .dock((s) => s.createPage((p) => p.addContent(), { heading: 'Collected' }), {
+        .dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected')), { heading: 'Collected' }), {
           label: 'Dock',
         }),
   })
@@ -151,7 +151,7 @@ describe('RecurrentStepperBuilder - authoring errors', () => {
         })
         .createRecurrentStepper('devices', {
           initial: (): Item[] => [],
-          build: (loop) => loop.dock((s) => s.createPage((p) => p.addContent())),
+          build: (loop) => loop.dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected')))),
         }),
     ).toThrow(/already taken/);
   });
@@ -163,9 +163,9 @@ describe('RecurrentStepperBuilder - authoring errors', () => {
 
   it('refuses a second dock', () => {
     const loop = new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] });
-    loop.dock((s) => s.createPage((p) => p.addContent()));
+    loop.dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected'))));
     expect(() =>
-      loop.dock((s) => s.createPage((p) => p.addContent())),
+      loop.dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected')))),
     ).toThrow(/exactly one dock/);
   });
 });

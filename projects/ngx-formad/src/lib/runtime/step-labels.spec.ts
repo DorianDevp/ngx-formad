@@ -1,4 +1,4 @@
-import { Component, input, signal } from '@angular/core';
+import { Component, computed, input, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
@@ -53,7 +53,7 @@ class LabelledHost {
           s.createPage(
             (p) => p.addForm('a'),
         {
-          heading: () => `Pick products (${productCount()})`,
+          heading: computed(() => `Pick products (${productCount()})`),
           subheading: 'Delivery comes next.',
         }
           ),

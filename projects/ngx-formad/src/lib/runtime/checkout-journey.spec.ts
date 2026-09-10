@@ -1,4 +1,4 @@
-import { Component, input, model } from '@angular/core';
+import { Component, computed, input, model } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl, hidden, required } from '@angular/forms/signals';
 import { array, checkbox, customField, email, number, password, phone, radio, select, text, UiFormConfigBuilder } from 'formodel';
@@ -132,7 +132,7 @@ class CheckoutHost {
     .createForm('shipping', shippingForm) // both arms place it, so it is declared once, before the fork
     .createStep((s) => s.createPage((p) => p.addForm('cart'), { heading: 'Your cart' }), { name: 'cart' })
     .createStep((s) =>
-      s.createPage((p) => p.addForm('mode', null, { bind: { mode: 'mode' } }), { heading: 'How to buy' }),
+      s.createPage((p) => p.addForm('mode', { bind: { mode: 'mode' } }), { heading: 'How to buy' }),
     )
     .fork((c) => c.shared.mode(), {
       account: (arm) =>
@@ -140,15 +140,15 @@ class CheckoutHost {
           .createForm('account', accountForm)
           .createStep((s) =>
             s.createPage((p) =>
-              p.addForm('account', null, { bind: { email: 'email' } }), { heading: 'Create an account' },
+              p.addForm('account', { bind: { email: 'email' } }), { heading: 'Create an account' },
             ),
           )
-          .createStep((s) => s.createPage((p) => p.addForm('shipping', { window: { inputs: { windows: WINDOWS } } }), { heading: 'Shipping' }), {
+          .createStep((s) => s.createPage((p) => p.addForm('shipping', { bindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
             name: 'accountShipping',
           })
           .createStep((s, ctx) =>
             s.createPage((p) =>
-              p.addContent((c) => c.p(() => `Confirmation goes to ${ctx.shared.email()}`, { className: 'summary' })), { heading: 'Summary' },
+              p.addContent((c) => c.p(computed(() => `Confirmation goes to ${ctx.shared.email()}`), { className: 'summary' })), { heading: 'Summary' },
             ),
             { dynamic: true },
           )
@@ -157,9 +157,9 @@ class CheckoutHost {
         arm
           .createForm('contact', contactForm)
           .createStep((s) =>
-            s.createPage((p) => p.addForm('contact', null, { bind: { email: 'email' } }), { heading: 'Your details' }),
+            s.createPage((p) => p.addForm('contact', { bind: { email: 'email' } }), { heading: 'Your details' }),
           )
-          .createStep((s) => s.createPage((p) => p.addForm('shipping', { window: { inputs: { windows: WINDOWS } } }), { heading: 'Shipping' }), {
+          .createStep((s) => s.createPage((p) => p.addForm('shipping', { bindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
             name: 'guestShipping',
           })
           .result(({ shared }) => ({ mode: 'guest' as const, email: shared.email() })),

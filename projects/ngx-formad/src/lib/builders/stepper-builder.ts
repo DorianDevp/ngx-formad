@@ -1,8 +1,7 @@
-import { Provider, Type } from '@angular/core';
+import { isSignal, Provider, signal, Signal, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { PlacesCustomFields } from '../form-config/form-config';
 import { Rejected } from '../form-config/rejected';
-import { Live } from '../form-config/live';
 import { ControlTypeMap } from '../provide';
 import { FormState } from '../renderer/instantiate-form';
 import { SharedState } from '../sync/shared-state';
@@ -110,6 +109,24 @@ export interface ContentCfg<TCtx = unknown> {
   readonly visibleWhen?: (ctx: TCtx) => boolean;
 }
 
+/** Placement options for a layout row; its gate takes the row's children with it. */
+export interface RowCfg<TCtx = unknown> {
+  readonly layout?: string;
+
+  readonly visibleWhen?: (ctx: TCtx) => boolean;
+}
+
+/** A page as authored: its headings, its layout class and its own gate over the step context. */
+export interface PageCfg<TCtx = unknown> {
+  readonly heading?: string | Signal<string>;
+
+  readonly subheading?: string | Signal<string>;
+
+  readonly layout?: string;
+
+  readonly visibleWhen?: (ctx: TCtx) => boolean;
+}
+
 /** The context a placed form's handlers and effects read: the step's, with the form's own writable model. */
 export type StepFormContext<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> = TCtx & FormContext<M>;
 
@@ -121,13 +138,13 @@ export type PlacedFormBindings<F, TCtx extends RuntimeStepContext> = FormBinding
   StepFormContext<FormModel<F>, TCtx>
 >;
 
-/** Placement options for a pooled form: shared links, effects, the local `initial` seed and what a revisit does with it. */
-export interface FormCfg<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> {
-  readonly submitLabel?: string;
+/** Placement options for a pooled form: its field bindings, shared links, effects, the local `initial` seed and what a revisit does with it. */
+export interface FormCfg<F, TCtx extends RuntimeStepContext> {
+  readonly bindings?: PlacedFormBindings<F, TCtx>;
   readonly visibleWhen?: (ctx: TCtx) => boolean;
-  readonly bind?: SharedLinks<M, TCtx['shared']>;
-  readonly effects?: readonly FormEffect<StepFormContext<M, TCtx>>[];
-  readonly initial?: (ctx: TCtx) => Partial<M>;
+  readonly bind?: SharedLinks<FormModel<F>, TCtx['shared']>;
+  readonly effects?: readonly FormEffect<StepFormContext<FormModel<F>, TCtx>>[];
+  readonly initial?: (ctx: TCtx) => Partial<FormModel<F>>;
   readonly revisit?: FormRevisit;
 }
 
@@ -137,12 +154,12 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 
   constructor(readonly nodes: readonly LayoutNode[] = []) {}
 
-  addContent(build?: ContentBuild, cfg: ContentCfg<TCtx> = {}): PageBuilder<TForms, TCtx, P> {
+  addContent(build: ContentBuild, cfg: ContentCfg<TCtx> = {}): PageBuilder<TForms, TCtx, P> {
     return this.with({
       kind: LayoutNodeKind.Content,
       layout: cfg.layout,
       visibleWhen: cfg.visibleWhen,
-      children: build ? buildContent(build) : [],
+      children: buildContent(build),
     });
   }
 
@@ -159,34 +176,32 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
   }
 
   insertRow<P2>(
-    layout: string,
     build: (row: PageBuilder<TForms, TCtx, {}>) => PageBuilder<TForms, TCtx, P2>,
+    cfg: RowCfg<TCtx> = {},
   ): PageBuilder<TForms, TCtx, P & P2> {
     const row = build(new PageBuilder<TForms, TCtx, {}>());
 
     return new PageBuilder<TForms, TCtx, P & P2>([
       ...this.nodes,
-      { kind: LayoutNodeKind.Row, layout, children: row.nodes },
+      { kind: LayoutNodeKind.Row, layout: cfg.layout, visibleWhen: cfg.visibleWhen, children: row.nodes },
     ]);
   }
 
   addForm<K extends FormKeys<TForms>>(
     name: K,
-    bindings: PlacedFormBindings<TForms[K], TCtx> | null = null,
-    opts: FormCfg<FormModel<TForms[K]>, TCtx> = {},
+    cfg: FormCfg<TForms[K], TCtx> = {},
   ): PageBuilder<TForms, TCtx, P & Record<K, true>> {
     return new PageBuilder<TForms, TCtx, P & Record<K, true>>([
       ...this.nodes,
       {
         kind: LayoutNodeKind.Form,
         name,
-        submitLabel: opts.submitLabel,
-        visibleWhen: opts.visibleWhen,
-        links: opts.bind ? recordLinks(opts.bind) : [],
-        bindings: bindings ?? {},
-        effects: (opts.effects ?? []).map((run) => ({ run })),
-        initial: opts.initial,
-        revisit: opts.revisit,
+        visibleWhen: cfg.visibleWhen,
+        links: cfg.bind ? recordLinks(cfg.bind) : [],
+        bindings: cfg.bindings ?? {},
+        effects: (cfg.effects ?? []).map((run) => ({ run })),
+        initial: cfg.initial,
+        revisit: cfg.revisit,
       },
     ]);
   }
@@ -217,18 +232,27 @@ export class StepBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 
   constructor(readonly pages: readonly PageNode[] = []) {}
 
-  createPage<P2>(build: PageBuild<TForms, TCtx, P2>, options?: PageOptions): StepBuilder<TForms, TCtx, P & P2>;
+  createPage<P2>(build: PageBuild<TForms, TCtx, P2>, options?: PageCfg<TCtx>): StepBuilder<TForms, TCtx, P & P2>;
   /** The arguments the other way round are refused here, where the mistake is, not in every step that reads this one. */
   createPage(options: MisplacedPageOptions, build?: PageBuild<TForms, TCtx, {}>): Rejected<typeof PAGE_ARGUMENTS>;
   createPage<P2>(
     first: PageBuild<TForms, TCtx, P2> | MisplacedPageOptions,
-    second: PageOptions | PageBuild<TForms, TCtx, {}> = {},
+    second: PageCfg<TCtx> | PageBuild<TForms, TCtx, {}> = {},
   ): StepBuilder<TForms, TCtx, P & P2> | Rejected<typeof PAGE_ARGUMENTS> {
     if (!isPageBuild(first) || typeof second === 'function') throw new Error(`ngx-formad: ${PAGE_ARGUMENTS}.`);
 
     const page = first(new PageBuilder<TForms, TCtx, {}>());
 
-    return new StepBuilder<TForms, TCtx, P & P2>([...this.pages, { options: second, children: page.nodes }]);
+    const options: PageOptions = {
+      layout: second.layout,
+      visibleWhen: second.visibleWhen,
+      ...(second.heading === undefined ? {} : { heading: isSignal(second.heading) ? second.heading : signal(second.heading) }),
+      ...(second.subheading === undefined
+        ? {}
+        : { subheading: isSignal(second.subheading) ? second.subheading : signal(second.subheading) }),
+    };
+
+    return new StepBuilder<TForms, TCtx, P & P2>([...this.pages, { options, children: page.nodes }]);
   }
 }
 
@@ -257,7 +281,7 @@ export interface StepOptions<TCtx extends RuntimeStepContext, N extends string =
 
   readonly dynamic?: true;
 
-  readonly label?: Live<string>;
+  readonly label?: string | Signal<string>;
 
   readonly when?: StepCondition<TCtx>;
 
@@ -328,7 +352,7 @@ function stepNode<TCtx extends RuntimeStepContext>(spec: StepSpec<TCtx>): Sequen
     kind: SequenceNodeKind.Step,
     name: opts.name,
     pages,
-    label: opts.label,
+    ...(opts.label === undefined ? {} : { label: isSignal(opts.label) ? opts.label : signal(opts.label) }),
     when: opts.when,
     optional: opts.optional,
     defer: opts.defer,
@@ -353,7 +377,7 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}>
     private readonly gate: StepGate,
   ) {}
 
-  step<
+  createStep<
     N extends string = never,
     P = {},
     O extends StaticStepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepOptions<
@@ -364,7 +388,7 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}>
     build: StaticStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts?: O & { readonly name?: N },
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
-  step<
+  createStep<
     N extends string = never,
     P = {},
     O extends DynamicStepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepOptions<
@@ -375,11 +399,11 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}>
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts: O & { readonly name?: N },
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
-  step(
+  createStep(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, {}> & NotDynamic,
     opts?: StepOptions<WithSteps<TCtx, TAdded>, string>,
   ): never;
-  step<N extends string = never, P = {}>(
+  createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts: StepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
@@ -572,7 +596,7 @@ export type RuntimeStepper = Stepper;
 
 /** The parent-side options of a nested flow slot. */
 export interface FlowStepOptions<TCtx extends RuntimeStepContext> {
-  readonly label?: Live<string>;
+  readonly label?: string | Signal<string>;
 
   readonly when?: StepCondition<TCtx>;
 
@@ -613,7 +637,7 @@ function flowStepNode<TCtx extends RuntimeStepContext>(slot: FlowSlot<TCtx>): Fl
     kind: SequenceNodeKind.Flow,
     name: slot.name,
     flow: slot.flow,
-    label: slot.opts.label,
+    ...(slot.opts.label === undefined ? {} : { label: isSignal(slot.opts.label) ? slot.opts.label : signal(slot.opts.label) }),
     when: slot.opts.when,
     defer: slot.opts.defer,
     completeWhen: ring && complete ? (ctx) => complete(ctx.steps[slot.name] ?? ring.initial()) : undefined,

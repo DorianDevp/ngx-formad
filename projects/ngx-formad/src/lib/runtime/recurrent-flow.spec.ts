@@ -72,8 +72,7 @@ function deviceStepper(): RuntimeStepper {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('intro', null,
-              { bind: { v: 'source' } }), { heading: 'Intro' },
+            p.addForm('intro', { bind: { v: 'source' } }), { heading: 'Intro' },
           ),
         { label: 'Intro' },
       )
@@ -89,15 +88,14 @@ function deviceStepper(): RuntimeStepper {
             .branch((c) => (c.shared.source() === 'invoice' ? 'invoice' : 'manual'), {
               manual: (b) =>
                 b
-                  .step(
+                  .createStep(
                     (s) =>
                       s.createPage((p) =>
-                        p.addForm('name', null,
-                          { bind: { v: 'draftName' } }), { heading: 'Name' },
+                        p.addForm('name', { bind: { v: 'draftName' } }), { heading: 'Name' },
                       ),
                     { name: 'name', label: 'Name' },
                   )
-                  .step(
+                  .createStep(
                     (s) =>
                       s.createPage((p) =>
                         p.addForm('details'), { heading: 'Details' },
@@ -105,7 +103,7 @@ function deviceStepper(): RuntimeStepper {
                     { name: 'details', label: 'Details' },
                   ),
               invoice: (b) =>
-                b.step(
+                b.createStep(
                   (s) =>
                     s.createPage((p) => p.addForm('bulk'), { heading: 'Bulk' }),
                   { name: 'bulk', label: 'Bulk' },

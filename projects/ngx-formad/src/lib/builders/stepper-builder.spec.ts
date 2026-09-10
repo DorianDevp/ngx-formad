@@ -39,15 +39,14 @@ describe('StepperBuilder', () => {
         step.createPage((page) =>
           page
             .addComponent(Banner, { bindings: [inputBinding('tone', () => 'info'), outputBinding('dismissed', () => {})] })
-            .addForm('account', null, {
-              submitLabel: 'Next',
+            .addForm('account', {
               bind: { email: 'email' },
             }), { heading: 'Account' },
         ),
       )
       .createStep((step) =>
         step.createPage((page) =>
-          page.addForm('billing', null, {
+          page.addForm('billing', {
             bind: { email: 'email' },
           }), { heading: 'Billing' },
         ),
@@ -63,7 +62,7 @@ describe('StepperBuilder', () => {
   it('emits one step node per createStep, with a page each', () => {
     const stepper = buildStepper();
     expect(stepper.steps.length).toBe(2);
-    expect(pagesAt(stepper.steps, 0)[0].options.heading).toBe('Account');
+    expect(pagesAt(stepper.steps, 0)[0].options.heading?.()).toBe('Account');
   });
 
   it('records a form node selected by callback, with its shared links', () => {
@@ -72,7 +71,6 @@ describe('StepperBuilder', () => {
     const formNode = children.find((c) => c.kind === LayoutNodeKind.Form) as FormNode;
 
     expect(formNode.name).toBe('account');
-    expect(formNode.submitLabel).toBe('Next');
     expect(formNode.links).toEqual([{ modelPath: ['email'], sharedKey: 'email' }]);
   });
 
@@ -87,7 +85,7 @@ describe('StepperBuilder', () => {
       .createForm('billing', billing)
       .createStep((step) =>
         step.createPage((page) =>
-          page.addForm('billing', null, {
+          page.addForm('billing', {
             bind: { vat: 'vat' },
           }), { heading: 'Billing' },
         ),

@@ -58,7 +58,7 @@ class Host {
       .createForm('billing', billing)
       .createStep((step) =>
         step.createPage((page) =>
-          page.addForm('account', null, {
+          page.addForm('account', {
             bind: { email: 'email' },
           }),
         { heading: 'Account' },
@@ -66,7 +66,7 @@ class Host {
       )
       .createStep((step) =>
         step.createPage((page) =>
-          page.addForm('billing', null, {
+          page.addForm('billing', {
             bind: { email: 'email' },
           }), { heading: 'Billing' },
         ),
@@ -288,7 +288,7 @@ class ForkHost {
       .createForm('start', kindForm)
       .createStep((s) =>
         s.createPage((p) =>
-          p.addForm('start', null, { bind: { kind: 'kind' } }), { heading: 'Start' },
+          p.addForm('start', { bind: { kind: 'kind' } }), { heading: 'Start' },
         ),
       )
       .fork((c) => c.shared.kind(), {

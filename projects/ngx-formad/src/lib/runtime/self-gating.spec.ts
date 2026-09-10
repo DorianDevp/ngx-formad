@@ -52,7 +52,7 @@ class SelfGatingHost {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('gate', null, {
+            p.addForm('gate', {
               bind: { skip: 'skip' },
             }),
           { heading: '2' }),
@@ -115,11 +115,11 @@ class BranchOnOneStepHost {
         (s) =>
           s.createPage((p) =>
             p
-              .addForm('personal', null, {
+              .addForm('personal', {
                 visibleWhen: () => !isCompany(),
                 bind: { city: 'city' },
               })
-              .addForm('company', null, {
+              .addForm('company', {
                 visibleWhen: () => isCompany(),
                 bind: { city: 'city' },
               }), { heading: 'Where' }

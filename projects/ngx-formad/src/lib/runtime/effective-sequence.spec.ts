@@ -109,12 +109,12 @@ const branched = new StepperBuilder()
   .branch((c) => c.shared.plan(), {
     pro: (b) =>
       b
-        .step((s) => s.createPage((p) => p.addForm('pro'), { heading: 'Pro' }))
+        .createStep((s) => s.createPage((p) => p.addForm('pro'), { heading: 'Pro' }))
         // a step inside the branch with its own extra condition (ANDed with the guard)
-        .step((s) => s.createPage((p) => p.addForm('addons'), { heading: 'Addons' }), {
+        .createStep((s) => s.createPage((p) => p.addForm('addons'), { heading: 'Addons' }), {
           when: ({ shared }) => shared.addons() === true,
         }),
-    free: (b) => b.step((s) => s.createPage((p) => p.addForm('free'), { heading: 'Free' })),
+    free: (b) => b.createStep((s) => s.createPage((p) => p.addForm('free'), { heading: 'Free' })),
   })
   .createStep((s) => s.createPage((p) => p.addForm('done'), { heading: 'Done' }))
   .build();

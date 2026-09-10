@@ -67,8 +67,7 @@ function rootRing(): RuntimeFlow {
       .createStep(
         (s) =>
           s.createPage((p) =>
-            p.addForm('name', null,
-              { bind: { v: 'draft' } }), { heading: 'Name' },
+            p.addForm('name', { bind: { v: 'draft' } }), { heading: 'Name' },
           ),
         { label: 'Name' },
       )
