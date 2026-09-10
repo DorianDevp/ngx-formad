@@ -18,7 +18,7 @@ import {
 } from '../builders/flow';
 import { DeferTrigger, RecurrentSignals, RuntimeStepContext, SharedSignals } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
-import { Live, read } from '../form-config/live';
+
 import { FormState } from '../renderer/instantiate-form';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
@@ -183,8 +183,8 @@ export interface StepperController<TResult = unknown> {
   dockRestart(): void;
 }
 
-function resolveText(value: Live<string> | undefined): string {
-  return value === undefined ? '' : read(value);
+function resolveText(value: Signal<string> | undefined): string {
+  return value?.() ?? '';
 }
 
 type ResolvedForms = Record<string, RuntimeFormConfig>;

@@ -1,4 +1,4 @@
-import { computed, Type } from '@angular/core';
+import { computed, isSignal, signal, Signal, Type } from '@angular/core';
 import { FormValueControl, SchemaPathTree } from '@angular/forms/signals';
 import {
   CUSTOM_FIELD,
@@ -11,7 +11,6 @@ import {
 import { ContentChild } from '../builders/content';
 import { GridPlacement, GridLayout } from '../layout/layout-adapter';
 import { SharedState } from '../sync/shared-state';
-import { Live, read } from './live';
 import { Rejected } from './rejected';
 
 /** One option of a `select`/`multiselect` field, as formodel declares it. */
@@ -39,35 +38,39 @@ export interface ErasedArrayNode<TItem extends Record<string, unknown> = Record<
   readonly itemConfig: ErasedUi;
 }
 
-/** A registered custom control node as the renderer sees it: its kind and its typed props bag. */
+/** A registered custom control node as the renderer sees it: its kind and its typed props bag, plain — a kind's props are static. */
 export interface CustomKindNode<P extends Record<string, unknown> = Record<string, unknown>> {
   readonly type: string;
 
-  readonly props: Live<P>;
+  readonly props: P;
 }
 
-/** A formodel control node with every presentational prop accepting a live value; `type` stays plain, optional stays optional. */
-export type LiveControlNode<N extends UiFormControlNode = UiFormControlNode> = N extends UiFormControlNode
-  ? { [K in keyof N]: K extends 'type' ? N[K] : Live<Exclude<N[K], undefined>> }
+/** A formodel control node with every presentational prop accepting a signal beside its plain value; `type` stays plain. */
+export type SignalControlNode<N extends UiFormControlNode = UiFormControlNode> = N extends UiFormControlNode
+  ? {
+      [K in keyof N]: K extends 'type'
+        ? N[K]
+        : Exclude<N[K], undefined> | Signal<Exclude<N[K], undefined>>;
+    }
   : never;
 
-type LiveUiNode<V> = V extends UiFormGroupNode<infer T>
-  ? Omit<V, 'controlsConfig'> & { readonly controlsConfig: LiveUiConfig<T> }
+type SignalUiNode<V> = V extends UiFormGroupNode<infer T>
+  ? Omit<V, 'controlsConfig'> & { readonly controlsConfig: SignalUiConfig<T> }
   : V extends RepeatingGroupNode<infer I>
-    ? Omit<V, 'itemConfig'> & { readonly itemConfig: LiveUiConfig<I> }
+    ? Omit<V, 'itemConfig'> & { readonly itemConfig: SignalUiConfig<I> }
     : V extends { readonly props: infer P extends Record<string, unknown> }
-      ? Omit<V, 'props'> & { readonly props: Live<P> }
+      ? Omit<V, 'props'> & { readonly props: P }
       : V extends UiFormControlNode
-        ? LiveControlNode<V>
+        ? SignalControlNode<V>
         : V;
 
-/** `UiFormGroupConfig<M>` with control props widened to `Live`; every plain formodel config is assignable as it is. */
-export type LiveUiConfig<M> = {
-  [K in keyof UiFormGroupConfig<M>]: LiveUiNode<UiFormGroupConfig<M>[K]>;
+/** `UiFormGroupConfig<M>` with control props widened to accept signals; every plain formodel config is assignable as it is. */
+export type SignalUiConfig<M> = {
+  [K in keyof UiFormGroupConfig<M>]: SignalUiNode<UiFormGroupConfig<M>[K]>;
 };
 
-/** A scalar field's node: a formodel control node, live props allowed, or a registered custom kind. */
-export type FieldNode = LiveControlNode | CustomKindNode;
+/** A scalar field's node: a formodel control node, signals allowed among its props, or a registered custom kind. */
+export type FieldNode = SignalControlNode | CustomKindNode;
 
 /** One node of the erased ui: a scalar field, a group or a repeating group. */
 export type ErasedUiNode = FieldNode | ErasedGroupNode | ErasedArrayNode;
@@ -259,7 +262,7 @@ export interface RuntimeFormConfig<M extends Record<string, unknown> = Record<st
 /** One form as authored: the template with its ui type kept, so live props come back as declared, and the components its layout placed. */
 export interface FormConfig<
   M extends Record<string, unknown>,
-  U extends LiveUiConfig<M> & ErasedUi = LiveUiConfig<M> & ErasedUi,
+  U extends SignalUiConfig<M> & ErasedUi = SignalUiConfig<M> & ErasedUi,
   P extends {} = {},
 > extends RuntimeFormConfig<M> {
   readonly ui: U;
@@ -290,7 +293,7 @@ export type PlacesCustomFields<U, P> = [Nested<CustomPaths<U>>] extends [never]
   : Rejected<`customField "${Nested<CustomPaths<U>>}" sits inside a group or an array item, where no control() can place it`>;
 
 /** Declares a form config while keeping the authored `ui` type and the placed components, so a signal put in comes back writable and the bindings are typed. */
-export function defineForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(
+export function defineForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
   config: FormConfig<M, U, P> & PlacesCustomFields<U, P>,
 ): FormConfig<M, U, P> {
   return config;
@@ -423,12 +426,12 @@ export function flattenFields(ui: ErasedUi): FieldConfig[] {
   return leavesOf(buildNodes(ui));
 }
 
-/** The presentational inputs a control receives beyond the field binding, each possibly live. */
-export type ControlInputs<V = unknown> = Readonly<Record<string, Live<V>>>;
+/** The presentational inputs a control receives beyond the field binding: signals, so the mount binds them as they are. */
+export type ControlInputs<V = unknown> = Readonly<Record<string, Signal<V>>>;
 
-type PresentationalNode = Exclude<LiveControlNode, { readonly type: typeof CUSTOM_FIELD }>;
+type PresentationalNode = Exclude<SignalControlNode, { readonly type: typeof CUSTOM_FIELD }>;
 
-/** The inputs a kind adds; a derived one is a `computed`, so its identity holds until the source moves. */
+/** The inputs a kind adds, each a signal; a derived one is a `computed`, so its identity holds until the source moves. */
 function kindInputs(node: PresentationalNode): ControlInputs {
   switch (node.type) {
     case 'text':
@@ -436,34 +439,40 @@ function kindInputs(node: PresentationalNode): ControlInputs {
     case 'password':
     case 'tel':
     case 'url':
-      return { type: node.type };
+      return { type: signal(node.type) };
     case 'textarea':
-      return node.rows != null ? { rows: node.rows } : {};
-    case 'select':
-      return {
-        options: computed((): ControlOption[] =>
-          read(node.options).map((option) => ({ value: option.value, label: option.description })),
-        ),
-      };
-    case 'radio':
-      return {
-        options: computed((): ControlOption[] =>
-          read(node.options).map((option) => ({ value: option.value, label: option.label })),
-        ),
-      };
-    case 'date': {
-      const limit = node.limit;
+      return node.rows != null ? { rows: isSignal(node.rows) ? node.rows : signal(node.rows) } : {};
+    case 'select': {
+      const options = isSignal(node.options) ? node.options : signal(node.options);
 
-      return limit ? { minDate: computed(() => read(limit).min), maxDate: computed(() => read(limit).max) } : {};
+      return {
+        options: computed((): ControlOption[] =>
+          options().map((option) => ({ value: option.value, label: option.description })),
+        ),
+      };
+    }
+    case 'radio': {
+      const options = isSignal(node.options) ? node.options : signal(node.options);
+
+      return {
+        options: computed((): ControlOption[] => options().map((option) => ({ value: option.value, label: option.label }))),
+      };
+    }
+    case 'date': {
+      if (node.limit === undefined) return {};
+
+      const limit = isSignal(node.limit) ? node.limit : signal(node.limit);
+
+      return { minDate: computed(() => limit().min), maxDate: computed(() => limit().max) };
     }
     case 'file':
       return {
-        ...(node.accept ? { accept: node.accept } : {}),
-        ...(node.multiple != null ? { multiple: node.multiple } : {}),
-        ...(node.maxFiles != null ? { maxFiles: node.maxFiles } : {}),
+        ...(node.accept ? { accept: isSignal(node.accept) ? node.accept : signal(node.accept) } : {}),
+        ...(node.multiple != null ? { multiple: isSignal(node.multiple) ? node.multiple : signal(node.multiple) } : {}),
+        ...(node.maxFiles != null ? { maxFiles: isSignal(node.maxFiles) ? node.maxFiles : signal(node.maxFiles) } : {}),
       };
     case 'checkbox':
-      return node.innerHTML ? { innerHTML: node.innerHTML } : {};
+      return node.innerHTML ? { innerHTML: isSignal(node.innerHTML) ? node.innerHTML : signal(node.innerHTML) } : {};
     default:
       return {};
   }
@@ -471,12 +480,12 @@ function kindInputs(node: PresentationalNode): ControlInputs {
 
 /** The inputs a control receives beyond the field binding: a custom node's `props`, or the node's presentational props. */
 export function extraInputsFor(node: FieldNode): ControlInputs {
-  if ('props' in node) return { props: node.props };
+  if ('props' in node) return { props: signal(node.props) };
   if (node.type === CUSTOM_FIELD) return {};
 
   return {
-    ...(node.label != null ? { label: node.label } : {}),
-    ...(node.placeholder ? { placeholder: node.placeholder } : {}),
+    ...(node.label != null ? { label: isSignal(node.label) ? node.label : signal(node.label) } : {}),
+    ...(node.placeholder ? { placeholder: isSignal(node.placeholder) ? node.placeholder : signal(node.placeholder) } : {}),
     ...kindInputs(node),
   };
 }

@@ -28,7 +28,7 @@ import {
   RenderNode,
   RenderNodeKind,
 } from '../form-config/form-config';
-import { read } from '../form-config/live';
+
 import { GridLayout, GridPlacement, LayoutAdapter, LayoutClasses } from '../layout/layout-adapter';
 import { LayoutItem } from '../layout/layout-item';
 import { FieldItems, FieldLeaf, FieldLevel, isItems, isLevel } from './field-tree';
@@ -160,7 +160,7 @@ function componentFor(node: ControlNode, controls: ControlAdapter): Type<object>
 /** A field's declared inputs as `createComponent` takes them, each read live. */
 function declaredInputs(inputs: BindingRecord): Binding[] {
   return Object.entries(inputs).flatMap(([name, value]) =>
-    value === undefined ? [] : [inputBinding(name, () => read(value))],
+    value === undefined ? [] : [inputBinding(name, () => value)],
   );
 }
 
@@ -203,11 +203,13 @@ function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): Comp
   const placement = itemOf(scope, node.layout);
   const inputs = bindingsAt(scope.bindings, [...node.path, 'inputs']);
   const outputs = bindingsAt(scope.bindings, [...node.path, 'outputs']);
+  const authored = bindingsAt(scope.bindings, [...node.path, 'bindings']);
+  const own: readonly Binding[] = Array.isArray(authored) ? authored : [];
   const props = node.control
     ? []
     : Object.entries(extraInputsFor(node.node))
         .filter(([name]) => !(name in inputs))
-        .map(([name, value]) => inputBinding(name, () => read(value)));
+        .map(([name, value]) => inputBinding(name, value));
   const component = componentFor(node, scope.controls);
   checkNames(component, node.key, inputs, outputs);
 
@@ -217,7 +219,7 @@ function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): Comp
       { type: FormField, bindings: [inputBinding('formField', () => field)] },
       { type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => placement)] },
     ],
-    bindings: [...props, ...declaredInputs(inputs), ...declaredOutputs(outputs, scope.handlerContext)],
+    bindings: [...props, ...declaredInputs(inputs), ...declaredOutputs(outputs, scope.handlerContext), ...own],
     environment: scope.environment,
   };
 }

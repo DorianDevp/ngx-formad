@@ -9,12 +9,11 @@ import {
   FormRowNode,
   flattenFields,
   GroupNode,
-  LiveControlNode,
+  SignalControlNode,
   RenderNodeKind,
   SelectOption,
 } from './form-config';
 import { formLayout } from './form-layout';
-import { read } from './live';
 
 type Names = { first: string; last: string; password: string };
 
@@ -59,11 +58,11 @@ describe('buildNodes', () => {
 });
 
 describe('extraInputsFor', () => {
-  it('passes the native input type through for text-like kinds', () => {
-    expect(extraInputsFor(email('Email'))).toMatchObject({
-      label: 'Email',
-      type: 'email',
-    });
+  it('passes the native input type through for text-like kinds, as signals', () => {
+    const inputs = extraInputsFor(email('Email'));
+
+    expect(inputs['label']()).toBe('Email');
+    expect(inputs['type']()).toBe('email');
   });
 
   it('maps select options from description to label', () => {
@@ -72,7 +71,7 @@ describe('extraInputsFor', () => {
       { value: 'user', description: 'User' },
     ]);
 
-    expect(read(extraInputsFor(node)['options'])).toEqual([
+    expect(extraInputsFor(node)['options']()).toEqual([
       { value: 'admin', label: 'Admin' },
       { value: 'user', label: 'User' },
     ]);
@@ -80,25 +79,25 @@ describe('extraInputsFor', () => {
 
   it('includes a placeholder only when the node carries one', () => {
     expect(extraInputsFor(text('Name'))).not.toHaveProperty('placeholder');
-    expect(extraInputsFor(text('Name', { placeholder: 'Jane' }))).toHaveProperty('placeholder', 'Jane');
+    expect(extraInputsFor(text('Name', { placeholder: 'Jane' }))['placeholder']()).toBe('Jane');
   });
 });
 
 describe('extraInputsFor - live props', () => {
   it('follows signal-backed select options through a computed', () => {
     const options = signal<SelectOption[]>([{ value: 'admin', description: 'Admin' }]);
-    const node: LiveControlNode = { type: 'select', label: 'Role', options };
+    const node: SignalControlNode = { type: 'select', label: 'Role', options };
 
     const mapped = extraInputsFor(node)['options'];
 
     expect(isSignal(mapped)).toBe(true);
-    expect(read(mapped)).toEqual([{ value: 'admin', label: 'Admin' }]);
+    expect(mapped()).toEqual([{ value: 'admin', label: 'Admin' }]);
 
     options.set([
       { value: 'admin', description: 'Admin' },
       { value: 'user', description: 'User' },
     ]);
-    expect(read(mapped)).toEqual([
+    expect(mapped()).toEqual([
       { value: 'admin', label: 'Admin' },
       { value: 'user', label: 'User' },
     ]);
@@ -106,13 +105,13 @@ describe('extraInputsFor - live props', () => {
 
   it('reads a live label and a plain one alike', () => {
     const label = signal('Role');
-    const node: LiveControlNode = { type: 'text', label };
+    const node: SignalControlNode = { type: 'text', label };
 
-    expect(read(extraInputsFor(node)['label'])).toBe('Role');
+    expect(extraInputsFor(node)['label']()).toBe('Role');
 
     label.set('Function');
-    expect(read(extraInputsFor(node)['label'])).toBe('Function');
-    expect(read(extraInputsFor(text('Name'))['label'])).toBe('Name');
+    expect(extraInputsFor(node)['label']()).toBe('Function');
+    expect(extraInputsFor(text('Name'))['label']()).toBe('Name');
   });
 });
 

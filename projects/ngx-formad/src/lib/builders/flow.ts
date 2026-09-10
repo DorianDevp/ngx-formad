@@ -1,5 +1,4 @@
-import { Provider } from '@angular/core';
-import { Live } from '../form-config/live';
+import { Provider, Signal } from '@angular/core';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
 import { SequenceNodeKind, StepNode } from './nodes';
@@ -48,7 +47,7 @@ export interface FlowStepNode {
 
   readonly flow: RuntimeFlow;
 
-  readonly label?: Live<string>;
+  readonly label?: Signal<string>;
 
   when?(ctx: RuntimeStepContext): boolean;
 

@@ -1,4 +1,4 @@
-import { Live } from '../form-config/live';
+import { isSignal, Signal } from '@angular/core';
 
 /** The tags a content block may draw: structure, text, lists, links, images, a button. */
 export const CONTENT_TAGS = [
@@ -45,13 +45,13 @@ export function isContentTag(tag: string): tag is ContentTag {
 export type AttrValue = string | number | boolean | null | undefined;
 
 /** Text a content node draws: a value, or a getter for text that changes. */
-export type ContentText = Live<string | number>;
+export type ContentText = string | number | Signal<string | number>;
 
 /** Attributes, listeners and visibility any content tag accepts. */
 export interface ContentOptions {
-  readonly className?: Live<string>;
+  readonly className?: string | Signal<string>;
 
-  readonly attrs?: Readonly<Record<string, Live<AttrValue>>>;
+  readonly attrs?: Readonly<Record<string, AttrValue | Signal<AttrValue>>>;
 
   readonly on?: Readonly<Record<string, (event: Event) => void>>;
 
@@ -60,18 +60,18 @@ export interface ContentOptions {
 
 /** Anchor options: `href`, `target` and `rel` on top of the common ones. */
 export interface AnchorOptions extends ContentOptions {
-  readonly href?: Live<string>;
+  readonly href?: string | Signal<string>;
 
-  readonly target?: Live<string>;
+  readonly target?: string | Signal<string>;
 
-  readonly rel?: Live<string>;
+  readonly rel?: string | Signal<string>;
 }
 
 /** Image options: a required `src` and an `alt`. */
 export interface ImageOptions extends ContentOptions {
-  readonly src: Live<string>;
+  readonly src: string | Signal<string>;
 
-  readonly alt?: Live<string>;
+  readonly alt?: string | Signal<string>;
 }
 
 /** Button options; `type` defaults to `button` so a button in prose never submits by accident. */
@@ -83,7 +83,7 @@ export interface ButtonOptions extends ContentOptions {
 export interface ContentAttr {
   readonly name: string;
 
-  readonly value: Live<AttrValue>;
+  readonly value: AttrValue | Signal<AttrValue>;
 }
 
 /** One DOM listener: the event name and its handler. */
@@ -112,7 +112,7 @@ export interface ContentTagChild {
 
   readonly tag: ContentTag;
 
-  readonly className?: Live<string>;
+  readonly className?: string | Signal<string>;
 
   readonly attrs: readonly ContentAttr[];
 
@@ -142,7 +142,7 @@ export type TagArgs = TagArgsOf<ContentOptions>;
 interface MutableTag {
   kind: ContentChildKind.Tag;
   tag: ContentTag;
-  className?: Live<string>;
+  className?: string | Signal<string>;
   attrs: ContentAttr[];
   listeners: ContentListener[];
   visibleWhen?: () => boolean;
@@ -157,25 +157,19 @@ interface TagParts<O extends ContentOptions> {
 type TagArg<O extends ContentOptions> = ContentText | O | ContentBuild;
 
 function isOptions<O extends ContentOptions>(arg: TagArg<O>): arg is O {
-  return typeof arg === 'object';
+  return typeof arg === 'object' && !isSignal(arg);
 }
 
+/** Text or children: a signal and a plain value are text, a callback takes the builder and draws children. */
 function childrenFrom(source: ContentBuild | ContentText): ContentChild[] {
-  if (typeof source !== 'function') return [{ kind: ContentChildKind.Text, value: source }];
+  if (isSignal(source) || typeof source !== 'function') {
+    return [{ kind: ContentChildKind.Text, value: source }];
+  }
 
   const nested = new ContentBuilder();
-  const returned = source(nested);
-  const nodes = nested.drain();
-  if (nodes.length) return nodes;
-  if (typeof returned !== 'string' && typeof returned !== 'number') return nodes;
+  source(nested);
 
-  const text = (): string | number => {
-    const read = source(nested);
-
-    return typeof read === 'string' || typeof read === 'number' ? read : returned;
-  };
-
-  return [{ kind: ContentChildKind.Text, value: text }];
+  return nested.drain();
 }
 
 function classify<O extends ContentOptions>(args: TagArgsOf<O>): TagParts<O> {
@@ -189,7 +183,7 @@ function classify<O extends ContentOptions>(args: TagArgsOf<O>): TagParts<O> {
 
 function withAttrs(
   options: ContentOptions | undefined,
-  named: Readonly<Record<string, Live<AttrValue>>>,
+  named: Readonly<Record<string, AttrValue | Signal<AttrValue>>>,
 ): ContentOptions {
   const declared = Object.entries(named).filter(([, value]) => value !== undefined);
 

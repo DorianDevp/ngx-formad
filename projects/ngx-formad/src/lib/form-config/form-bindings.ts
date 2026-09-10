@@ -1,8 +1,7 @@
-import { ModelSignal, Type } from '@angular/core';
+import { Binding, ModelSignal, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { ControlNodes, CustomControlNodes } from 'formodel';
 import { InputKeys, InputVal, OutputKeys, OutputVal } from '../builders/dynamic-component';
-import { Live } from './live';
 import { Rejected } from './rejected';
 
 /** Control kind → the component class the registry draws it with; augment it so the bindings of a registry-rendered field are typed. */
@@ -39,8 +38,8 @@ type ModelKeys<C> = { [K in keyof C]: C[K] extends ModelSignal<infer _V> ? K : n
 
 type ModelVal<C, K extends keyof C> = C[K] extends ModelSignal<infer V> ? V : never;
 
-/** The inputs a field's component takes beyond what `FormField` binds, each possibly live. */
-export type FieldInputs<C> = { readonly [K in Exclude<InputKeys<C>, FormFieldManaged>]?: Live<InputVal<C, K>> };
+/** The static inputs a field's component takes beyond what `FormField` binds; a reactive one is a `Binding`. */
+export type FieldInputs<C> = { readonly [K in Exclude<InputKeys<C>, FormFieldManaged>]?: InputVal<C, K> };
 
 /** The output handlers a field's component takes: its emitters and the change outputs of its own model signals. */
 export type FieldOutputs<C, Ctx> = {
@@ -52,11 +51,16 @@ export type FieldOutputs<C, Ctx> = {
   ) => void;
 };
 
-/** What one field's component is bound with: its inputs and its output handlers, each keyed by the component's own names. */
+/**
+ * What one field's component is bound with: its static inputs and its output handlers, each keyed by the component's
+ * own names, plus Angular's own bindings for anything reactive - `bindings: [inputBinding('options', theSignal)]`.
+ */
 export interface FieldBindings<C, Ctx> {
   readonly inputs?: FieldInputs<C>;
 
   readonly outputs?: FieldOutputs<C, Ctx>;
+
+  readonly bindings?: readonly Binding[];
 }
 
 /** Every node type formodel knows a kind for: the built-ins with their overrides, and the application's custom kinds. */

@@ -536,7 +536,7 @@ const ratedConfig = defineForm({
   template: `<ngx-formad-form [state]="state" />`,
 })
 class RatedHost {
-  readonly state = instantiateForm(ratedConfig, { rating: { inputs: { stars: limit } } });
+  readonly state = instantiateForm(ratedConfig, { rating: { bindings: [inputBinding('stars', limit)] } });
 }
 
 const bareConfig: FormConfig<Rated> = {

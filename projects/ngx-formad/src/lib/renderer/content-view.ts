@@ -1,6 +1,9 @@
 import {
   Component,
+  computed,
   effect,
+  isSignal,
+  Signal,
   EffectRef,
   ElementRef,
   inject,
@@ -9,8 +12,8 @@ import {
   Renderer2,
   untracked,
 } from '@angular/core';
-import { ContentAttr, ContentChild, ContentChildKind, ContentTagChild, isContentTag } from '../builders/content';
-import { Live, read } from '../form-config/live';
+import { AttrValue, ContentAttr, ContentChild, ContentChildKind, ContentTagChild, isContentTag } from '../builders/content';
+
 
 const BOOLEAN_ATTRS = new Set([
   'autofocus',
@@ -102,7 +105,7 @@ export class ContentView {
   private mount(child: ContentChild, parent: Node): void {
     if (child.kind === ContentChildKind.Text) {
       const text = this.renderer.createText('');
-      this.bind(child.value, (value) => this.renderer.setValue(text, String(value)));
+      this.bind<string | number>(child.value, (value) => this.renderer.setValue(text, String(value)));
       this.renderer.appendChild(parent, text);
 
       return;
@@ -111,7 +114,7 @@ export class ContentView {
 
     const el: HTMLElement = this.renderer.createElement(child.tag);
     if (child.className !== undefined) {
-      this.bind(child.className, (value) => this.renderer.setAttribute(el, 'class', value));
+      this.bind<string>(child.className, (value) => this.renderer.setAttribute(el, 'class', value));
     }
     for (const attr of child.attrs ?? []) this.bindAttr(el, attr);
     for (const listener of child.listeners ?? []) {
@@ -126,7 +129,7 @@ export class ContentView {
     const visibleWhen = child.visibleWhen;
     if (!visibleWhen) return;
 
-    this.bind(visibleWhen, (visible) => {
+    this.bind(computed(visibleWhen), (visible) => {
       if (visible) {
         this.renderer.removeAttribute(el, 'hidden');
         this.renderer.removeStyle(el, 'display');
@@ -142,7 +145,7 @@ export class ContentView {
     if (!isSafeAttrName(attr.name)) return;
 
     const guarded = URL_ATTRS.has(attr.name.toLowerCase());
-    this.bind(attr.value, (value) => {
+    this.bind<AttrValue>(attr.value, (value) => {
       if (value === null || value === undefined) {
         this.renderer.removeAttribute(el, attr.name);
 
@@ -164,13 +167,13 @@ export class ContentView {
   }
 
   /** A constant is applied once; a live value is applied now and then followed by its own effect. */
-  private bind<V>(source: Live<V>, apply: (value: V) => void): void {
-    if (typeof source !== 'function') {
+  private bind<V>(source: V | Signal<V>, apply: (value: V) => void): void {
+    if (!isSignal(source)) {
       apply(source);
 
       return;
     }
-    apply(untracked(() => read(source)));
-    this.bindings = [...this.bindings, effect(() => apply(read(source)), { injector: this.injector })];
+    apply(untracked(source));
+    this.bindings = [...this.bindings, effect(() => apply(source()), { injector: this.injector })];
   }
 }

@@ -22,12 +22,12 @@ import {
   FormLayoutItem,
   FormLayoutItemKind,
   flattenFields,
-  LiveUiConfig,
+  SignalUiConfig,
   PlacesCustomFields,
   RenderNode,
   RuntimeFormConfig,
 } from '../form-config/form-config';
-import { Live, read } from '../form-config/live';
+
 import { GridLayout } from '../layout/layout-adapter';
 import { CONTROL_ADAPTER, LAYOUT_ADAPTER } from '../provide';
 import { FormadWizard } from '../runtime/wizard-context';
@@ -72,7 +72,7 @@ export interface InstantiateOptions {
   readonly effects?: readonly FormEffectHook[];
 
   /** What a handler and an effect read beside the model; a getter is read again on every call, so a step context stays live. */
-  readonly context?: Live<object>;
+  readonly context?: () => object;
 }
 
 const warnedLayouts = new WeakSet<FormLayout>();
@@ -123,7 +123,7 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 
   const injector = options.injector ?? inject(Injector);
   const shared = options.shared ?? injector.get(FormadWizard, null)?.sharedOrNull() ?? null;
-  const handlerContext = (): FormContext => ({ ...read(options.context ?? {}), model: erased });
+  const handlerContext = (): FormContext => ({ ...(options.context?.() ?? {}), model: erased });
   const scope: ViewScope = {
     injector,
     environment: injector.get(EnvironmentInjector),
@@ -151,7 +151,7 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 }
 
 /** Builds a live form from a typed config, with its bindings and effects; runs in an injection context. */
-export function instantiateForm<M extends Record<string, unknown>, U extends LiveUiConfig<M> & ErasedUi, P extends {} = {}>(
+export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
   config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
   bindings: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null = null,
   effects: readonly FormEffect<FormContext<M>>[] = [],

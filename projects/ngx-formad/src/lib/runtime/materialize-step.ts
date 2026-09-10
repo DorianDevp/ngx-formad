@@ -1,10 +1,9 @@
-import { computed, EnvironmentInjector, Injector, runInInjectionContext, Signal } from '@angular/core';
+import { computed, EnvironmentInjector, Injector, isSignal, runInInjectionContext, Signal } from '@angular/core';
 import { ValidationError } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
 import { ComponentNode, FormNode, FormRevisit, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
 import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
-import { read } from '../form-config/live';
 import { mountInjector } from '../renderer/form-view';
 import { FieldLeaf, FieldLevel, FormState, instantiateRuntimeForm, isLevel } from '../renderer/instantiate-form';
 import { InstanceRegistry } from '../registry/instance-registry';
@@ -132,7 +131,7 @@ function issueLabel(error: ValidationError.WithFieldTree, state: FormState): str
 
   const label = field.node.label;
 
-  return label === undefined ? field.key : read(label);
+  return label === undefined ? field.key : isSignal(label) ? label() : label;
 }
 
 /**

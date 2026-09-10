@@ -1,4 +1,4 @@
-import { signal } from '@angular/core';
+import { computed, isSignal, signal, Signal } from '@angular/core';
 import { ContentChild, ContentChildKind, ContentTagChild, buildContent, isContentTag } from './content';
 
 // The builder's whole job is to turn method calls into the node tree the renderer
@@ -12,10 +12,10 @@ function tagAt(children: readonly ContentChild[], index = 0): ContentTagChild {
   return child;
 }
 
-// A node keeps its value exactly as authored - a string stays a string, a getter
-// stays a getter - so a test reads it the way the renderer does.
-function read<V>(source: V | (() => V)): V {
-  return typeof source === 'function' ? (source as () => V)() : source;
+// A node keeps its value exactly as authored - a string stays a string, a signal
+// stays a signal - so a test reads it the way the renderer does.
+function read<V>(source: V | Signal<V>): V {
+  return isSignal(source) ? (source as Signal<V>)() : (source as V);
 }
 
 function textOf(child: ContentChild): string {
@@ -43,10 +43,10 @@ describe('ContentBuilder', () => {
     expect(tagAt(callout.children).tag).toBe('span');
   });
 
-  it('takes a text getter in first position, children in the last', () => {
+  it('takes a text signal in first position, children in the last', () => {
     const line = signal('live');
     const tree = buildContent((c) =>
-      c.p(() => line()).p('Signed, ', { className: 'sig' }, (p) => p.strong('COMPANY')),
+      c.p(line).p('Signed, ', { className: 'sig' }, (p) => p.strong('COMPANY')),
     );
 
     expect(textOf(tagAt(tree, 0).children[0])).toBe('live');
@@ -125,11 +125,11 @@ describe('ContentBuilder', () => {
   it('keeps classes and attributes reactive', () => {
     const tone = signal('info');
     const tree = buildContent((c) =>
-      c.div({ className: () => `callout ${tone()}`, attrs: { 'aria-live': 'polite' } }),
+      c.div({ className: computed(() => `callout ${tone()}`), attrs: { 'aria-live': 'polite' } }),
     );
 
     const block = tagAt(tree);
-    expect(read(block.className)).toBe('callout info');
+    expect((block.className as Signal<string>)()).toBe('callout info');
     // A constant attribute stays a constant on the node - nothing to subscribe to.
     expect(block.attrs).toEqual([{ name: 'aria-live', value: 'polite' }]);
 
@@ -157,11 +157,11 @@ describe('ContentBuilder', () => {
     expect(attrs(tagAt(tree, 2))).toEqual({ src: '/plate.png', alt: '' });
   });
 
-  it('keeps a callback that only returns text as reactive text', () => {
+  it('inserts reactive text as a signal, a callback being children only', () => {
     const count = signal(2);
-    // `() => …` is both a text getter and a build callback as far as TS can tell;
-    // this one added nothing and returned a string, so it was text.
-    const tree = buildContent((c) => c.p('We found ').insert(() => `${count()} products`));
+    // A callback takes the builder and draws children; text that follows a value is a
+    // signal, so the two shapes no longer collide.
+    const tree = buildContent((c) => c.p('We found ').insert((p) => p.text(computed(() => `${count()} products`))));
 
     const paragraph = tagAt(tree);
     expect(paragraph.children).toHaveLength(2);

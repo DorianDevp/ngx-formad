@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { Component, computed, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { ContentChild, ContentChildKind, buildContent } from '../builders/content';
@@ -32,11 +32,11 @@ class ContentHost {
   readonly tree = buildContent((c) =>
     c
       .div(
-        { className: () => `callout ${tone()}`, attrs: { role: 'note', 'aria-live': 'polite' } },
+        { className: computed(() => `callout ${tone()}`), attrs: { role: 'note', 'aria-live': 'polite' } },
         (d) =>
           d
             .p('We found ')
-            .insert((p) => p.strong(() => `${count()} products`))
+            .insert((p) => p.strong(computed(() => `${count()} products`)))
             .continue(' in your basket'),
       )
       .ul((list) => list.li('On the product page').li('In your order confirmation'))
@@ -135,7 +135,7 @@ class UnknownTagHost {
       tag: 'p',
       attrs: [],
       listeners: [],
-      children: [{ kind: ContentChildKind.Text, value: () => 'drawn' }],
+      children: [{ kind: ContentChildKind.Text, value: computed(() => 'drawn') }],
     },
   ];
 }
@@ -325,7 +325,7 @@ describe('ContentView - attribute values', () => {
 })
 class FirstPaintHost {
   readonly tree = buildContent((c) =>
-    c.p(() => 'live text').p('gated', { visibleWhen: () => false, className: 'flex-row' }),
+    c.p(signal('live text')).p('gated', { visibleWhen: () => false, className: 'flex-row' }),
   );
 }
 
