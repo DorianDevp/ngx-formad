@@ -245,6 +245,33 @@ versions may carry breaking changes.
 
 ### Changed
 
+- **Three contexts that build on one another.** The old step context is
+  `StepperContext` (`steps`, `shared`, `flow`, `parent`) and `RuntimeStepContext` is
+  `RuntimeStepperContext`; one level in, a step's own callbacks read
+  `StepContext<TCtx, TForms>` — the same plus **`ctx.forms`**, the instances that step
+  placed, so a gate no longer has to name its own step to read its own forms. One
+  `FormContext<M, U>` (`model: WritableSignal<M>`, `ui`, `fields`) replaces
+  `FormLayoutContext`, the old `FormContext` and `WritableModel`, so `model` means one
+  thing everywhere and a layout gate reads `ctx.model().field`; the store no longer
+  rides in the form context — reaching it is the placement's job, where its keys are
+  typed.
+- **One config per owner, with the flags that owner can honour.** `StepOptions` is
+  `StepCfg`, `FlowStepOptions` is `FlowSlotCfg`, and `when` is **`activeWhen`** — three
+  words for three jobs, read plainly: `activeWhen` (in the sequence), `visibleWhen` (in
+  the DOM), `completeWhen` (contract met). The dock has its own `DockCfg` without
+  `activeWhen`, `optional` or `revisit`: it is the ring's only exit, so gating it away,
+  skipping it or rebuilding it behind the user makes no sense. The ring's
+  `completeWhen(state, message)` is gone with it — the flow's contract is the dock's
+  `completeWhen` over `ctx.flow.state()`, and a nested slot derives no guard of its own.
+  A ring's accumulator starts from `state`, since `initial` means one thing: a form's
+  seed.
+- **A placement binds two named things, neither by string.** `addForm`'s `bindings` is
+  `componentBindings` (what a field's component gets) and `bind` is
+  `fieldValueBindings` — a callback over typed field references and store slots joined
+  by `link`: `fieldValueBindings: (f, s) => [link(f.email, s.email)]`. `SharedLinks`,
+  `SharedKeyFor`, `LinkRecord` and `recordLinks` are gone; `FieldRefs`, `SharedSlots`,
+  `FieldRef`, `SharedSlot` and `link` replace them, and a renamed field or key is a
+  compile error instead of a link that silently stops matching.
 - **A field's `inputs` are static; a reactive one is Angular's own binding.**
   `FieldInputs<C>` is typed by the component's input type, so `inputs: { label: 'VAT ID'
   }` is data. A value that changes uses the other signature — `bindings:

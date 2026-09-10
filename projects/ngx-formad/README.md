@@ -69,12 +69,12 @@ const wizard = new StepperBuilder()
   .createForm('lead', leadForm)
   .createForm('billing', billingForm) // another FormConfig with a `company` field
   .createStep((step) =>
-    step.createPage((page) => page.addForm('lead', { bind: { company: 'company' } }), {
+    step.createPage((page) => page.addForm('lead', { fieldValueBindings: (f, s) => [link(f.company, s.company)] }), {
       heading: 'Your details',
     }),
   )
   .createStep((step) =>
-    step.createPage((page) => page.addForm('billing', { bind: { company: 'company' } }), {
+    step.createPage((page) => page.addForm('billing', { fieldValueBindings: (f, s) => [link(f.company, s.company)] }), {
       heading: 'Billing',
     }),
   )
@@ -451,13 +451,13 @@ const wizard = new StepperBuilder()
   .createForm('seo', seoForm)
   .createStep((step) =>
     step.createPage(
-      (page) => page.addForm('article', { bind: { slug: 'slug' } }), // article.slug ↔ shared.slug
+      (page) => page.addForm('article', { fieldValueBindings: (f, s) => [link(f.slug, s.slug)] }), // article.slug ↔ shared.slug
       { heading: 'Basics' },
     ),
   )
   .createStep((step) =>
     step.createPage(
-      (page) => page.addForm('seo', { bind: { slug: 'slug' } }), // shared.slug → seo.slug (prefill)
+      (page) => page.addForm('seo', { fieldValueBindings: (f, s) => [link(f.slug, s.slug)] }), // shared.slug → seo.slug (prefill)
       { heading: 'SEO' },
     ),
   )
@@ -474,7 +474,7 @@ export class PublishWizard {
 
 `bind` is a record from model field to shared key, checked both ways: the key must
 exist in `withState` and carry the field's value type. A nested group binds through a
-nested record (`bind: { address: { city: 'city' } }`).
+nested record (`fieldValueBindings: (f, s) => [link(f.address.city, s.city)]`).
 
 At runtime the shell shows **Basics** with its heading and a Next that refuses to
 advance until the step is valid — that is the completion gate. Type a slug and
@@ -585,7 +585,7 @@ That renders `Name`, then an **Address** fieldset with City/Street/ZIP in a 2-co
 grid. Groups nest arbitrarily deep. Each leaf in `state.fields` carries its full
 `path` (`['address','city']`), so a custom chrome's validation summary can address
 nested fields, and the completion gate already counts them. **`bind` reaches nested
-fields too** — `bind: { address: { city: 'city' } }` links a nested field to a shared
+fields too** — `fieldValueBindings: (f, s) => [link(f.address.city, s.city)]` links a nested field to a shared
 key, so cross-step prefill works at any depth.
 
 ### Repeating arrays
@@ -633,18 +633,18 @@ new StepperBuilder()
   .createForm('review', reviewForm)
   .createStep((s) => s.createPage(/* Basics */), { name: 'basics' })
   .createStep((s) => s.createPage(/* Advanced */), {
-    when: ({ steps }) => steps.basics?.basics.model().accountType === 'admin', // (a) a prior step
+    activeWhen: ({ steps }) => steps.basics?.basics.model().accountType === 'admin', // (a) a prior step
     defer: DeferTrigger.Idle, // render this heavy step inside @defer
   })
   .createStep((s) => s.createPage(/* Settings */), {
-    when: ({ shared }) => shared.accountType() !== 'admin', // (b) shared state
+    activeWhen: ({ shared }) => shared.accountType() !== 'admin', // (b) shared state
   })
   .createStep((s) => s.createPage(/* Notes */), { optional: true }) // shows a Skip button
   .createStep((s) => s.createPage(/* Review */)) // ungated — admin & user paths rejoin here
   .build();
 ```
 
-- **`when(ctx)`** is typed against the wizard you're building — `ctx.steps` is the
+- **`activeWhen(ctx)`** is typed against the wizard you're building — `ctx.steps` is the
   record of the NAMED steps before this one, each exposing the live instances it
   placed by pool name (`steps.basics.basics` is a `FormState`: `.model()`,
   `.rootForm`), and `ctx.shared` is your `withState` shape as one signal per key (both
@@ -738,7 +738,7 @@ new StepperBuilder()
     pro: (b) =>
       b
         .createStep((s) => s.createPage(/* Billing */))
-        .createStep((s) => s.createPage(/* Seats */), { when: ({ shared }) => shared.plan() === 'pro' }),
+        .createStep((s) => s.createPage(/* Seats */), { activeWhen: ({ shared }) => shared.plan() === 'pro' }),
     free: (b) => b.createStep((s) => s.createPage(/* Free note */)),
   })
   .createStep((s) => s.createPage(/* Done */)) // ungated — both branches rejoin here
@@ -1085,7 +1085,7 @@ new StepperBuilder()
   .withState({ source: '' })
   .createRecurrentStepper('devices', {
     label: 'Devices',
-    initial: (): Device[] => [],
+    state: (): Device[] => [],
     dockReachable: (devices) => devices.length > 0,
     build: (loop) =>
       loop
@@ -1093,13 +1093,15 @@ new StepperBuilder()
         .createStep((s) => s.createPage((p) => p.addForm('details')), { name: 'details' })
         // the pass context: the pass's own named steps, live — fresh every pass
         .fold((devices, pass) => [...devices, toDevice(pass.steps.details?.details.model())])
-        .completeWhen((devices) => devices.length > 0, 'Add at least one device')
-        // the dock reads the folded state through the bindings callback: a plain step
-        .dock((s) =>
-          s.createPage(
-            (p) => p.addComponent(DeviceList, { bindings: (ctx) => [inputBinding('devices', () => ctx.flow.state())] }),
-            { heading: 'Your devices' },
-          ),
+        // the dock reads the folded state through the bindings callback, and its own
+        // completeWhen IS the flow's contract - there is no way out of a ring but the dock
+        .dock(
+          (s) =>
+            s.createPage(
+              (p) => p.addComponent(DeviceList, { bindings: (ctx) => [inputBinding('devices', () => ctx.flow.state())] }),
+              { heading: 'Your devices' },
+            ),
+          { completeWhen: (ctx) => ctx.flow.state().length > 0, incompleteMessage: 'Add at least one device' },
         ),
   })
 ```
@@ -1379,13 +1381,16 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `FormConfig<M, U, P>` | A form as data: `{ model: () => M; ui: U; schema?: SchemaOrSchemaFn<M>; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `LiveUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
+| `FormConfig<M, U, P>` | A form as data: `{ model: () => M; ui: U; schema?: SchemaOrSchemaFn<M>; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `SignalUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
 | `defineForm(config)` | Identity that keeps `U` and `P`, so `state.ui.<field>.<prop>` hands a signal back writable and the bindings are typed. |
 | `instantiateForm(config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. Needs an injection context. |
 | `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, shared?, bindings?, effects?, context? }`. |
 | `FormBindings<M, U, P, Ctx>` | What `instantiateForm` and `addForm` take: field name → `{ inputs?, outputs?, bindings? }` — static inputs typed by the component, output handlers (`(payload, ctx) => void`), and Angular `Binding[]` for reactive ones, typed by the placed component or by `ControlComponents[kind]`. |
 | `ControlComponents` | The typed side of the control registry, kind → component class; augment it in the application. |
 | `FormEffect<Ctx>` | `(ctx) => void`, run as an `effect()` for the life of the instance. |
+| `FormContext<M, U>` | What a callback inside one form reads: `{ model: WritableSignal<M>; ui; fields }` — a layout gate, a field's output handler and an effect alike. Inside a stepper the object also carries the step's level, which the placement types (`StepFormContext`). |
+| `StepperContext` / `StepContext<TCtx, TForms>` | The context of a flow (`steps`, `shared`, `flow`, `parent`) and, one level in, the same plus `forms` — the instances that very step placed. `activeWhen` and `completeWhen` read the first, a page's gates and bindings the second. |
+| `link(field, slot)` / `FieldRefs<M>` / `SharedSlots<TShared>` | `fieldValueBindings`' vocabulary: typed field references and store slots, joined by `link`, so a link names nothing by string. |
 | `FormState<M, U>` | `{ model; rootForm; ui; nodes; fields; grid?; view; destroy() }` — `nodes` is the render tree, `fields` the flat leaves (each with `path`), `view` the `FormLevel` the renderer draws, `destroy()` ends the effects. |
 | `FormLevel` / `ViewRow` | One level's container classes and its rows: `ControlRow` (a formField and the injector its mount point creates it from), `GroupRow`, `ArrayRow` (`items()`, `add()`, `remove(i)`), `LayoutRow`, `ContentRow`. |
 | `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` \| `ArrayNode` \| `FormContentNode` \| `FormRowNode`. `buildNodes(ui)` builds it from the ui, `buildLayoutNodes(ui, items)` from an overlay. |
@@ -1399,7 +1404,7 @@ Everything is exported from the package root (`ngx-formad`).
 | Symbol | What it is |
 | --- | --- |
 | `StepperBuilder` | The fluent chain: `withState`, `createForm`, `provide`, `addControlType`/`overrideControlType` (typed: add rejects an existing kind, override requires one), `createStep`, `branch`, `createStepper`, `createRecurrentStepper`, `fork` (terminal) and `build()`. Each method narrows the type (see below). |
-| `RecurrentStepperBuilder` | The ring's chain: the same members plus `fold`, `completeWhen` and the terminal `dock`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ initial })` starts a ring at the root. |
+| `RecurrentStepperBuilder` | The ring's chain: the same members plus `fold` and the terminal `dock`, whose config carries the flow's `completeWhen`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ state })` starts a ring at the root. |
 | `FormadWizard` | Injectable per stepper — `committed()`, `controller()`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
 | `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `step()` and nested `branch()`. |
 | `ForkArmBuilder` / `ForkArm` | Authors one fork arm (`withState`/`createForm`/`createStep`/`branch`) ending in `result(...)`. |
@@ -1484,7 +1489,7 @@ createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only 
   when?: (ctx) => boolean,                    // ctx: GateContext — ctx.shared.key() a signal,
   optional?: boolean,                         //   ctx.steps.x?.form a live FormState
   defer?: DeferTrigger,                       // Idle | Viewport | Interaction
-  completeWhen?: (ctx) => boolean,            // extra gate ANDed with the form fold; same ctx as `when`
+  completeWhen?: (ctx) => boolean,            // extra gate ANDed with the form fold; same ctx as `activeWhen`
   incompleteMessage?: string,                 // what `blockers` says when completeWhen is what holds
   revisit?: StepRevisit,                      // Keep (default) | Fresh
 })
@@ -1496,16 +1501,18 @@ fork((ctx) => key, {                          // TERMINAL — only build() after
     .createStep((step) => …)
     .result((ctx) => ({ kind: key, … })),     // each arm's result → union into TResult
 })
-createStepper('name', { build: (sub) => sub…, label?, when?, defer? })   // a linear flow as ONE step
+createStepper('name', { build: (sub) => sub…, label?, activeWhen?, defer? })   // a linear flow as ONE step
 createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends in dock()
-  initial: () => C, dockReachable?: (state) => boolean, build: (loop) => loop…, label?, when?, defer?,
+  state: () => C, dockReachable?: (state) => boolean, build: (loop) => loop…, label?, activeWhen?, defer?,
 })
+loop.dock((step) => …, { name?, label?, dynamic?, defer?, completeWhen?, incompleteMessage? })  // DockCfg: no
+//   activeWhen, optional or revisit - the dock is the only way out of the ring
 step.createPage((page) => …, { heading?, subheading?, layout?, visibleWhen?: (ctx) => boolean })  // page: PageBuilder; headings take a string or a Signal<string>
 page.addForm('name', {                        // a pool name — declared forms only
-  bindings?: { field: { inputs?: { name: T }, outputs?: { name: (payload, ctx) => … }, bindings?: Binding[] } },
-  visibleWhen?: (ctx) => boolean,             // auto-@if'd by the renderer; the step context, or nothing
-  bind?: { field: 'sharedKey', group: { field: 'key' } },  // model field ↔ shared key of the same type
-  effects?: [(ctx) => …],                     // Angular effects over the step context + the form's model
+  componentBindings?: { field: { inputs?: { name: T }, outputs?: { name: (payload, ctx) => … }, bindings?: Binding[] } },
+  fieldValueBindings?: (f, s) => [link(f.field, s.sharedKey)],  // field ↔ store slot, both typed, no strings
+  visibleWhen?: (ctx) => boolean,             // auto-@if'd by the renderer; the step context, ctx.forms included
+  effects?: [(ctx) => …],                     // Angular effects over the step context + the form's own
   initial?: (ctx) => Partial<M>,              // the LOCAL seed, applied once
   revisit?: FormRevisit,                      // Keep (default) | Reseed
 })
@@ -1554,7 +1561,7 @@ declarations and `<mat-form-field>` markup collapse into config.
 | --- | --- |
 | Async `<select>` options (country / region) | A signal as the node's `options` — see [Reactive props](#reactive-props--seed-a-select-after-the-form-exists); set it when the data lands. |
 | "Apply promo code" / "look up by SKU" mid-form | A dynamic component slot, `page.addComponent(PromoCard, …)`, that writes into shared/fields. |
-| Member-only fields, conditional sections | `visibleWhen` on a field/component, `when` on a step. |
+| Member-only fields, conditional sections | `visibleWhen` on a field/component, `activeWhen` on a step. |
 | Guest vs. business-account checkout | [`branch`](#branching) (rejoins) or [`fork`](#forking) (different result). |
 | Nested address objects, line-item repeaters | [Nested groups](#nested-groups) and [repeating arrays](#repeating-arrays) — both render and bind natively. |
 
