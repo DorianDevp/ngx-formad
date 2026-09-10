@@ -1,6 +1,7 @@
 import { Component, input, inputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
+import { StepRevisit } from '../builders/nodes';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { StepperComponent } from './stepper.component';
@@ -124,5 +125,121 @@ describe('StepPageView — completeWhen context', () => {
     await settle(fixture);
 
     expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('false');
+  });
+});
+
+// A component's bindings and its `visibleWhen` may be callbacks over the step context, so
+// a component on a STATIC step binds and gates on what an earlier step holds — no
+// `dynamic: true` for the sake of one input or one @if. The predecessor here revisits
+// fresh, so its instance is a different object on the second pass: what the callbacks
+// close over must be the live context, not the record as it stood when the step was
+// entered.
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class ContextBoundHost {
+  readonly stepper: RuntimeStepper = new StepperBuilder()
+    .createForm('only', onlyForm)
+    .createStep((s) => s.createPage((p) => p.addForm('only'), { heading: 'Type' }), {
+      name: 'typed',
+      revisit: StepRevisit.Fresh,
+    })
+    .createStep((s) =>
+      s.createPage(
+        (p) =>
+          p
+            .addComponent(Banner, {
+              bindings: (ctx) => [inputBinding('note', () => ctx.steps.typed.only.model().v)],
+            })
+            .addComponent(Banner, {
+              bindings: [inputBinding('note', () => 'gated')],
+              visibleWhen: (ctx) => ctx.steps.typed.only.model().v === 'Beta',
+            }),
+        { heading: 'Echo' },
+      ),
+    )
+    .build();
+}
+
+describe('StepPageView — component bindings over the step context', () => {
+  it('binds and gates a component on a predecessor form, and follows the step that is built again', async () => {
+    const fixture = TestBed.createComponent(ContextBoundHost);
+    await settle(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    const field = () => root.querySelector('input') as HTMLInputElement;
+    const banners = () => Array.from(root.querySelectorAll('.x-banner')).map((b) => b.textContent?.trim());
+    const press = async (label: string) => {
+      buttonByText(fixture, label)!.click();
+      await settle(fixture);
+    };
+    const type = async (value: string) => {
+      field().value = value;
+      field().dispatchEvent(new Event('input'));
+      await settle(fixture);
+    };
+
+    await type('Acme');
+    await press('Next');
+    expect(banners()).toEqual(['Acme']);
+
+    await press('Back');
+    await type('Beta');
+    await press('Next');
+    expect(banners()).toEqual(['Beta', 'gated']);
+  });
+});
+
+// The same for the other two page nodes: a pooled form and a content block gate on the
+// step context. Both are drawn by the page renderer's own @if, so nothing about the
+// step's structure follows the context — only whether these two are in the DOM.
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class GatedNodesHost {
+  readonly stepper: RuntimeStepper = new StepperBuilder()
+    .createForm('only', onlyForm)
+    .createStep((s) => s.createPage((p) => p.addForm('only'), { heading: 'Type' }), { name: 'typed' })
+    .createStep((s) =>
+      s.createPage(
+        (p) =>
+          p
+            .addContent((c) => c.p('extras'), { visibleWhen: (ctx) => ctx.steps.typed.only.model().v === 'more' })
+            .addForm('only', null, { visibleWhen: (ctx) => ctx.steps.typed.only.model().v === 'more' }),
+        { heading: 'Extras' },
+      ),
+    )
+    .build();
+}
+
+describe('StepPageView — a form and a content block gated on the step context', () => {
+  it('draws neither until the predecessor says so, then both', async () => {
+    const fixture = TestBed.createComponent(GatedNodesHost);
+    await settle(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    const field = () => root.querySelector('input') as HTMLInputElement;
+    const press = async (label: string) => {
+      buttonByText(fixture, label)!.click();
+      await settle(fixture);
+    };
+    const type = async (value: string) => {
+      field().value = value;
+      field().dispatchEvent(new Event('input'));
+      await settle(fixture);
+    };
+
+    await type('plain');
+    await press('Next');
+    expect(root.querySelector('.ngx-formad-content p')).toBeNull();
+    expect(root.querySelector('input')).toBeNull();
+
+    await press('Back');
+    await type('more');
+    await press('Next');
+    expect(root.querySelector('.ngx-formad-content p')?.textContent).toBe('extras');
+    expect(root.querySelector('input')).toBeTruthy();
   });
 });

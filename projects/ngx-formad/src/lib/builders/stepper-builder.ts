@@ -1,6 +1,6 @@
 import { Provider, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
-import { FormConfig, PlacesCustomFields } from '../form-config/form-config';
+import { PlacesCustomFields } from '../form-config/form-config';
 import { Rejected } from '../form-config/rejected';
 import { Live } from '../form-config/live';
 import { ControlTypeMap } from '../provide';
@@ -104,10 +104,10 @@ export type CommittedOf<S> =
   S extends Stepper<infer _F, infer TCtx, infer _R> ? StepsCommitted<TCtx['steps']> : never;
 
 /** Placement options for a page content block. */
-export interface ContentCfg {
+export interface ContentCfg<TCtx = unknown> {
   readonly layout?: string;
 
-  readonly visibleWhen?: () => boolean;
+  readonly visibleWhen?: (ctx: TCtx) => boolean;
 }
 
 /** The context a placed form's handlers and effects read: the step's, with the form's own writable model. */
@@ -124,7 +124,7 @@ export type PlacedFormBindings<F, TCtx extends RuntimeStepContext> = FormBinding
 /** Placement options for a pooled form: shared links, effects, the local `initial` seed and what a revisit does with it. */
 export interface FormCfg<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> {
   readonly submitLabel?: string;
-  readonly visibleWhen?: () => boolean;
+  readonly visibleWhen?: (ctx: TCtx) => boolean;
   readonly bind?: SharedLinks<M, TCtx['shared']>;
   readonly effects?: readonly FormEffect<StepFormContext<M, TCtx>>[];
   readonly initial?: (ctx: TCtx) => Partial<M>;
@@ -137,7 +137,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 
   constructor(readonly nodes: readonly LayoutNode[] = []) {}
 
-  addContent(build?: ContentBuild, cfg: ContentCfg = {}): PageBuilder<TForms, TCtx, P> {
+  addContent(build?: ContentBuild, cfg: ContentCfg<TCtx> = {}): PageBuilder<TForms, TCtx, P> {
     return this.with({
       kind: LayoutNodeKind.Content,
       layout: cfg.layout,
@@ -146,11 +146,13 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
     });
   }
 
-  addComponent(component: Type<object>, cfg: ComponentCfg = {}): PageBuilder<TForms, TCtx, P> {
+  addComponent(component: Type<object>, cfg: ComponentCfg<TCtx> = {}): PageBuilder<TForms, TCtx, P> {
+    const bindings = cfg.bindings ?? [];
+
     return this.with({
       kind: LayoutNodeKind.Component,
       component,
-      bindings: cfg.bindings ?? [],
+      bindings: typeof bindings === 'function' ? bindings : () => bindings,
       visibleWhen: cfg.visibleWhen,
       layout: cfg.layout,
     });

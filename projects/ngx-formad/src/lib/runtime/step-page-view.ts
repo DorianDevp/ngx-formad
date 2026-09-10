@@ -57,15 +57,17 @@ export class PageNodesView {
 
   private readonly forms = computed(() => new Map(this.step().forms.map((form) => [form.name, form])));
 
-  protected readonly rows = computed<readonly PageNodeRow[]>(() =>
-    this.nodes()
-      .filter((node) => node.kind === LayoutNodeKind.Row || (node.visibleWhen?.() ?? true))
+  protected readonly rows = computed<readonly PageNodeRow[]>(() => {
+    const ctx = this.step().context;
+
+    return this.nodes()
+      .filter((node) => node.kind === LayoutNodeKind.Row || (node.visibleWhen?.(ctx) ?? true))
       .map((node) => ({
         node,
         live: node.kind === LayoutNodeKind.Form ? (this.forms().get(node.name) ?? null) : null,
         injector: node.kind === LayoutNodeKind.Component ? (this.step().components.get(node) ?? null) : null,
-      })),
-  );
+      }));
+  });
 }
 
 /** Draws every page of a live step. */

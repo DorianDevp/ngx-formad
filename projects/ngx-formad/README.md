@@ -683,13 +683,25 @@ new StepperBuilder()
   { revisit: StepRevisit.Fresh })` drops the step on entry and builds it again, pages
   and forms alike, so nothing typed there survives. Shared links are reapplied to
   pristine fields on every entry regardless.
+- **A page node bound and gated on the context** — `addComponent`'s `bindings` takes a
+  callback over the same typed context beside the plain array, so a component on an
+  ordinary step binds to what earlier steps hold: `bindings: (ctx) =>
+  [inputBinding('plan', () => ctx.steps.basics.basics.model().plan)]`. The callback runs
+  once, when the step is materialized, over a context of getters — read it *inside* the
+  binding's own getter and the input follows the live tree afterwards, a predecessor
+  rebuilt by `StepRevisit.Fresh` included. **`visibleWhen` takes the same context** on
+  all three page nodes (`addComponent`, `addForm`, `addContent`); it is a `computed` the
+  renderer `@if`s on, so it follows what it reads by itself. Neither needs `dynamic:
+  true` — the page's structure does not depend on the context here, only one input and
+  one `@if` do.
 - **Dynamic steps** — a step declared `dynamic: true`, `createStep((step, ctx) => …,
   { dynamic: true })`, builds its pages when it is entered, so which pooled forms it
   places and what prose it shows can follow the user's earlier answers (`ctx.steps`,
   `ctx.shared`). The callback must be pure. Without the flag a step is built once, at
   authoring time, and a callback that takes `ctx` is refused at compile time. In-form
   conditionality stays `hidden()` / `visibleWhen`; a dynamic step covers only what those
-  cannot: the page's structure.
+  cannot: the page's structure. One input or one gate over the context is not that —
+  those are the callbacks above.
 - **`defer`** renders the step's body inside an Angular `@defer` block
   (`DeferTrigger.Idle`, `.Viewport` or `.Interaction`) with a placeholder while it
   hydrates.
@@ -1077,14 +1089,12 @@ new StepperBuilder()
         // the pass context: the pass's own named steps, live — fresh every pass
         .fold((devices, pass) => [...devices, toDevice(pass.steps.details?.details.model())])
         .completeWhen((devices) => devices.length > 0, 'Add at least one device')
-        // the dock reads the folded state through the live context: a dynamic step
-        .dock(
-          (s, ctx) =>
-            s.createPage(
-              (p) => p.addComponent(DeviceList, { bindings: [inputBinding('devices', () => ctx.flow.state())] }),
-              { heading: 'Your devices' },
-            ),
-          { dynamic: true },
+        // the dock reads the folded state through the bindings callback: a plain step
+        .dock((s) =>
+          s.createPage(
+            (p) => p.addComponent(DeviceList, { bindings: (ctx) => [inputBinding('devices', () => ctx.flow.state())] }),
+            { heading: 'Your devices' },
+          ),
         ),
   })
 ```
@@ -1484,14 +1494,17 @@ createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends
 step.createPage((page) => …, { heading?, subheading?, layout? })  // page: PageBuilder; headings may be Live
 page.addForm('name', bindings | null, {       // a pool name — declared forms only
   submitLabel?: string,                       // bindings: { field: { inputs?: { name: Live<T> }, outputs?: { name: (payload, ctx) => … } } }
-  visibleWhen?: () => boolean,                // auto-@if'd by the renderer
+  visibleWhen?: (ctx) => boolean,             // auto-@if'd by the renderer; the step context, or nothing
   bind?: { field: 'sharedKey', group: { field: 'key' } },  // model field ↔ shared key of the same type
   effects?: [(ctx) => …],                     // Angular effects over the step context + the form's model
   initial?: (ctx) => Partial<M>,              // the LOCAL seed, applied once
   revisit?: FormRevisit,                      // Keep (default) | Reseed
 })
-page.addComponent(Component, { bindings?: Binding[], visibleWhen?, layout? })  // inputBinding/outputBinding from @angular/core
-page.addContent((c) => …, { layout?, visibleWhen? })  // prose as data; c: ContentBuilder
+page.addComponent(Component, {                // inputBinding/outputBinding from @angular/core
+  bindings?: Binding[] | ((ctx) => Binding[]),  // an array, or built over the step context when the step is entered
+  visibleWhen?: (ctx) => boolean, layout?,
+})
+page.addContent((c) => …, { layout?, visibleWhen?: (ctx) => boolean })  // prose as data; c: ContentBuilder
 //  c.p('Text', { className?, attrs?, on?, visibleWhen? }, (p) => …)   // text, options, children
 //  c.div({ className }, (d) => …)   c.ul((list) => …)        // containers: options and/or children
 //  c.a('Terms', { href })  c.button('Retry', { on: { click } })  c.img({ src, alt })

@@ -15,8 +15,9 @@ versions may carry breaking changes.
   of *pass steps* around a *dock*. Finishing a pass folds its values into the flow's
   own state through the author's pure `fold` and lands on the dock; the dock can only
   reopen the ring or complete the flow. State is the flow's own: `initial` declares
-  the accumulator, it lives inside the ring as `ctx.flow.state()` (a dynamic dock step
-  hands it to its components), and nothing outside mutates it. Entry is conditional -
+  the accumulator, it lives inside the ring as `ctx.flow.state()` (a dock hands it to
+  its components through `addComponent`'s bindings callback), and nothing outside
+  mutates it. Entry is conditional -
   a state for which `dockReachable` holds lands on the dock, any other opens a pass on
   its first step (without `dockReachable`, the dock is reachable once a pass has
   folded) - and validity derives from the state (`completeWhen`), never from the path
@@ -72,6 +73,20 @@ versions may carry breaking changes.
   time. In-form
   conditionality stays `hidden()`/`visibleWhen` — the dynamic step covers only what
   those cannot: the page's structure.
+- **A page node bound and gated on the step context — `addComponent(Cmp, { bindings:
+  (ctx) => [...], visibleWhen: (ctx) => … })`.** `bindings` takes a callback over the
+  step's typed context beside the plain `Binding[]`, so a component on an ordinary step
+  binds to what earlier steps hold: a dock reads its ring with `(ctx) =>
+  [inputBinding('devices', () => ctx.flow.state())]`, a later step reads a predecessor
+  with `ctx.steps.basics.basics.model()`. The callback runs once, when the step is
+  materialized, over a context of getters (`ComponentBindings`,
+  `ComponentNode.bindings(ctx)`): read the context *inside* the binding's own getter and
+  the input follows the live tree afterwards, a predecessor rebuilt by
+  `StepRevisit.Fresh` included. **`visibleWhen` takes the same context** on all three
+  page nodes — `addComponent`, `addForm` and `addContent` — and stays what it was: a
+  `computed` the renderer `@if`s on, so it follows what it reads. `LiveStep.context`
+  carries that context to the page renderer. `dynamic: true` is left to what it is for —
+  a page whose STRUCTURE depends on the context, not one input or one gate that does.
 - **Refusals that name the fix.** Three mistakes that used to fail far from their cause
   are refused where they are made, with a `Rejected<...>` naming the fix: bindings for a
   field whose kind is unknown, not exact (a wide `ui`, an annotation `: FormConfig<M>`)

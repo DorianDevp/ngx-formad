@@ -107,7 +107,43 @@ describe('StepperBuilder', () => {
 
     expect(componentNode.component).toBe(Banner);
     // One input binding (tone) and one output binding (dismissed).
-    expect(componentNode.bindings.length).toBe(2);
+    expect(componentNode.bindings(EMPTY_CONTEXT).length).toBe(2);
+  });
+
+  it('keeps a bindings callback and hands it the step context', () => {
+    const seen: RuntimeStepContext[] = [];
+    const stepper = new StepperBuilder()
+      .withState({ email: '' })
+      .createStep((step) =>
+        step.createPage(
+          (page) =>
+            page.addComponent(Banner, {
+              bindings: (ctx) => [inputBinding('tone', () => (ctx.shared.email() ? 'warn' : 'info'))],
+            }),
+          { heading: 'Account' },
+        ),
+      )
+      .createStep((step) =>
+        step.createPage(
+          (page) =>
+            page.addComponent(Banner, {
+              bindings: (ctx) => {
+                seen.push(ctx);
+
+                return [];
+              },
+            }),
+          { heading: 'Billing' },
+        ),
+      )
+      .build();
+
+    const componentAt = (index: number) =>
+      pagesAt(stepper.steps, index)[0].children.find((c) => c.kind === LayoutNodeKind.Component) as ComponentNode;
+
+    expect(componentAt(0).bindings(EMPTY_CONTEXT).length).toBe(1);
+    expect(componentAt(1).bindings(EMPTY_CONTEXT)).toEqual([]);
+    expect(seen[0]).toBe(EMPTY_CONTEXT);
   });
 
   it('seeds the shared store from withState', () => {

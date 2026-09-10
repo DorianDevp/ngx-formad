@@ -74,12 +74,14 @@ function rootRing(): RuntimeFlow {
       )
       .fold((state, pass) => [...state, { name: pass.shared.draft() }])
       .completeWhen((items) => items.length > 0, 'Add at least one')
+      // A static dock: the bindings callback reads the ring's state, so nothing about the
+      // page's STRUCTURE depends on the context and the step need not be dynamic.
       .dock(
-        (s, ctx) =>
+        (s) =>
           s.createPage((p) =>
-            p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
+            p.addComponent(NestDock, { bindings: (ctx) => [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
           ),
-        { label: 'Dock', dynamic: true },
+        { label: 'Dock' },
       )
       .build();
 }

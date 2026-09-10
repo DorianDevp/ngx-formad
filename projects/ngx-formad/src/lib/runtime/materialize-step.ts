@@ -52,6 +52,9 @@ export interface LiveStep {
   readonly instances: Readonly<Record<string, FormState>>;
 
   readonly pages: readonly PageNode[];
+
+  /** The step's live context, as the page's own `visibleWhen` gates and bindings read it. */
+  readonly context: RuntimeStepContext;
 }
 
 function walkPages<N extends LayoutNode>(pages: readonly PageNode[], kind: N['kind']): N[] {
@@ -124,7 +127,7 @@ function definedEntries(seed: Record<string, unknown>): [string, unknown][] {
   return Object.entries(seed).filter(([, value]) => value !== undefined);
 }
 
-function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null {
+function liveForm(node: FormNode, options: MaterializeOptions, ctx: RuntimeStepContext): LiveForm | null {
   const template = options.pool[node.name];
   if (!template) return null;
 
@@ -138,7 +141,8 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
     }),
   );
   const root = state.rootForm;
-  const visible: Signal<boolean> = node.visibleWhen ? computed(node.visibleWhen) : computed(() => true);
+  const gate = node.visibleWhen;
+  const visible: Signal<boolean> = gate ? computed(() => gate(ctx)) : computed(() => true);
   const issues = computed<readonly StepIssue[]>(() =>
     root()
       .errorSummary()
@@ -177,10 +181,33 @@ function liveForm(node: FormNode, options: MaterializeOptions): LiveForm | null 
   };
 }
 
+/**
+ * The context a page component's bindings are built over: getters, not a snapshot, so a binding created once at mount
+ * reads the steps alive when it is evaluated - as long as the binding reads the context inside its own getter.
+ */
+function liveContext(options: MaterializeOptions): RuntimeStepContext {
+  const now = options.context ?? (() => options.entry);
+
+  return {
+    get steps() {
+      return now().steps;
+    },
+    get shared() {
+      return now().shared;
+    },
+    get flow() {
+      return now().flow;
+    },
+    get parent() {
+      return now().parent;
+    },
+  };
+}
+
 /** A page component's mount, for the mount point its row draws: the component with its bindings, in the flow's environment. */
-function componentInjector(node: ComponentNode, options: MaterializeOptions): Injector {
+function componentInjector(node: ComponentNode, options: MaterializeOptions, ctx: RuntimeStepContext): Injector {
   return mountInjector(
-    { component: node.component, directives: [], bindings: node.bindings, environment: options.environment },
+    { component: node.component, directives: [], bindings: node.bindings(ctx), environment: options.environment },
     options.injector ?? options.environment,
   );
 }
@@ -188,8 +215,9 @@ function componentInjector(node: ComponentNode, options: MaterializeOptions): In
 /** Instantiates a step's placed forms and components, registers the forms for completion and wires their shared links. */
 export function materializeStep(pages: readonly PageNode[], options: MaterializeOptions): LiveStep {
   const registry = new InstanceRegistry();
+  const ctx = liveContext(options);
   const forms = formNodes(pages).flatMap((node) => {
-    const live = liveForm(node, options);
+    const live = liveForm(node, options, ctx);
 
     return live === null ? [] : [live];
   });
@@ -202,10 +230,14 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
     registry,
     forms,
     components: new Map(
-      walkPages<ComponentNode>(pages, LayoutNodeKind.Component).map((node) => [node, componentInjector(node, options)]),
+      walkPages<ComponentNode>(pages, LayoutNodeKind.Component).map((node) => [
+        node,
+        componentInjector(node, options, ctx),
+      ]),
     ),
     instances: Object.fromEntries(forms.map((form) => [form.name, form.state])),
     pages,
+    context: ctx,
   };
 }
 

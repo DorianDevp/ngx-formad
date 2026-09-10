@@ -19,20 +19,21 @@ export interface ContentNode {
 
   readonly layout?: string;
 
-  readonly visibleWhen?: () => boolean;
+  visibleWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly children: readonly ContentChild[];
 }
 
-/** A dynamic component with its pre-normalized bindings and visibility. */
+/** A dynamic component with its bindings over the step context and its visibility. */
 export interface ComponentNode {
   readonly kind: LayoutNodeKind.Component;
 
   readonly component: Type<object>;
 
-  readonly bindings: readonly Binding[];
+  /** A method, so a callback typed on a richer context fits; an authored array is wrapped in one. */
+  bindings(ctx: RuntimeStepContext): readonly Binding[];
 
-  readonly visibleWhen?: () => boolean;
+  visibleWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly layout?: string;
 }
@@ -53,7 +54,7 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
 
   readonly submitLabel?: string;
 
-  readonly visibleWhen?: () => boolean;
+  visibleWhen?(ctx: RuntimeStepContext): boolean;
 
   readonly links: readonly LinkPair[];
 
