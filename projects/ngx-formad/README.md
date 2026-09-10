@@ -321,8 +321,9 @@ side, a dynamic component or two (a publish-status banner, a live preview), and 
 that appear only when relevant — arranged in a layout. You author a page with the
 builder. `createPage` hands you a callback where you `addForm` (by name, from a typed
 pool), `addComponent`, `addContent` (prose - see [below](#content--prose-as-data)),
-`insertRow`, and gate any node with `visibleWhen`. Visibility is *data*: the renderer
-auto-`@if`s on it, so you never write the `@if`. The same
+`insertRow`, and gate any node — a row and the page itself included — with
+`visibleWhen`. Visibility is *data*: the renderer auto-`@if`s on it, so you never write
+the `@if`. The same
 builder scales to many steps — here we use a single one.
 
 ```ts
@@ -339,7 +340,7 @@ const editorPage = new StepperBuilder()
       (page) =>
         page
           .addForm('article') // place the article form by name
-          .insertRow('cols-2', (row) => row.addForm('seo')) // a layout row
+          .insertRow((row) => row.addForm('seo'), { layout: 'cols-2' }) // a layout row
           .addComponent(ScheduleNotice, {
             bindings: [inputBinding('when', () => status())], // Angular's own bindings, as createComponent takes them
             visibleWhen: () => status() === 'scheduled', // conditional, as data
@@ -376,11 +377,11 @@ content slot was a bare `<div>`. `addContent` closes that hole: the builder's me
 page
   .addContent(
     (c) =>
-      c.div({ className: () => `callout ${tone()}` }, (d) =>
+      c.div({ className: computed(() => `callout ${tone()}`) }, (d) =>
         d
           .span('info', { className: 'material-symbols-outlined', attrs: { 'aria-hidden': true } })
           .p('We found ')
-          .insert((p) => p.strong(() => `${products().length} products`))
+          .insert((p) => p.strong(computed(() => `${products().length} products`)))
           .continue(' in your basket.'),
       ),
     { layout: 'callout' },
@@ -397,17 +398,18 @@ page
 
 - **A tag takes its text, its options and its children** - `p('A line', { className },
   (p) => …)` - each optional, sorted out by shape: an object is options, a callback
-  that takes the builder is the children, and a getter (which takes nothing) is text.
+  that takes the builder is the children, and a signal is text.
   So a container is `div({ className }, (d) => …)`, or just `ul((list) => …)`.
 - **`insert(build, at?)` writes *inside* the tag you just added, and leaves the cursor
   there**; `continue(text, at?)` keeps writing text in it. That is how a sentence with
   a link or a `<strong>` in the middle stays one flat chain instead of nesting itself
   in a callback - and both can repeat, so a paragraph can hold two links and the words
   between them. `at` puts the run at a position among that tag's children.
-- **Text may be a getter.** `p(() => count() + ' products')` follows the signal, and a
-  getter is its own binding, so a change touches one DOM node. A constant stays a
+- **Text may be a signal.** `p(computed(() => count() + ' products'))` follows it, and a
+  signal is its own binding, so a change touches one DOM node. A constant stays a
   constant on the node - written once, subscribed to never - which also means a fully
-  static block is plain data, JSON included.
+  static block is plain data, JSON included. Nothing here takes a bare closure: a value
+  that changes is `Signal<T>`, Angular's own type.
 - **Content renders as part of change detection**, so it is in server-rendered output;
   hydration of a content block has not been verified yet, so treat SSR + hydration as
   untested rather than supported.
@@ -689,11 +691,14 @@ new StepperBuilder()
   [inputBinding('plan', () => ctx.steps.basics.basics.model().plan)]`. The callback runs
   once, when the step is materialized, over a context of getters — read it *inside* the
   binding's own getter and the input follows the live tree afterwards, a predecessor
-  rebuilt by `StepRevisit.Fresh` included. **`visibleWhen` takes the same context** on
-  all three page nodes (`addComponent`, `addForm`, `addContent`); it is a `computed` the
-  renderer `@if`s on, so it follows what it reads by itself. Neither needs `dynamic:
-  true` — the page's structure does not depend on the context here, only one input and
-  one `@if` do.
+  rebuilt by `StepRevisit.Fresh` included. **`visibleWhen` takes the same context**
+  everywhere a page has one — `addComponent`, `addForm`, `addContent`, `insertRow` and
+  `createPage` itself; it is a `computed` the renderer `@if`s on, so it follows what it
+  reads by itself. A container's gate takes its children with it, completion included:
+  a form inside a hidden row (or on a hidden page) is not drawn *and* does not hold
+  Next, so a required field nobody can see cannot block the wizard. Neither callback
+  needs `dynamic: true` — the page's structure does not depend on the context here,
+  only one input and one `@if` do.
 - **Dynamic steps** — a step declared `dynamic: true`, `createStep((step, ctx) => …,
   { dynamic: true })`, builds its pages when it is entered, so which pooled forms it
   places and what prose it shows can follow the user's earlier answers (`ctx.steps`,
@@ -732,9 +737,9 @@ new StepperBuilder()
     //        ▲ ctx is the same typed context as `when`: read shared or steps
     pro: (b) =>
       b
-        .step((s) => s.createPage(/* Billing */))
-        .step((s) => s.createPage(/* Seats */), { when: ({ shared }) => shared.plan() === 'pro' }),
-    free: (b) => b.step((s) => s.createPage(/* Free note */)),
+        .createStep((s) => s.createPage(/* Billing */))
+        .createStep((s) => s.createPage(/* Seats */), { when: ({ shared }) => shared.plan() === 'pro' }),
+    free: (b) => b.createStep((s) => s.createPage(/* Free note */)),
   })
   .createStep((s) => s.createPage(/* Done */)) // ungated — both branches rejoin here
   .build();
@@ -1251,17 +1256,18 @@ state.ui.country.options.set(await api.countries()); // the rendered select upda
 ```
 
 formodel itself stays plain and framework-agnostic: its helpers (`select`, `text`, …)
-take values, not signals. The widening lives in ngx-formad's `Live<T>` type, which
-`FormConfig` applies over the whole ui, so a field whose prop should follow a signal is
-authored as a literal node, like `country` above, next to builder-made siblings.
+take values, not signals. The widening lives in ngx-formad's `SignalUiConfig<M>`, which
+`FormConfig` applies over the whole ui: every prop accepts `T | Signal<T>`, so a field
+whose prop should follow a signal is authored as a literal node, like `country` above,
+next to builder-made siblings.
 
-This costs nothing where you don't use it: the widening is type-level, and a prop
-authored as a value is bound as a value. Only a *derived* prop (mapped select options,
-a date's bounds) is a `computed` either way. Structural config stays static by design (`type`,
-group/array shape): fields that appear and disappear are the schema's job
-(`hidden()`, below), not a prop binding. If you fold over `FormState.fields`
-yourself (say, for an error summary), read node props through `read(...)`, which
-passes plain values through and calls a signal or getter.
+This costs nothing where you don't use it: the widening is type-level. A prop is taken
+in **once**, where the field is mounted (`extraInputsFor`): a plain value is wrapped in
+a `signal()` there and everything downstream — the mount, the adapters, the error
+summary — holds a `Signal<T>` and just calls it. Nothing asks again what shape the value
+arrived in. Structural config stays static by design (`type`, group/array shape, a
+custom kind's `props`): fields that appear and disappear are the schema's job
+(`hidden()`, below), not a prop binding.
 
 ## Conditional fields
 
@@ -1304,13 +1310,14 @@ you like.
 
 Everything a field's component is bound with beyond what `FormField` binds — its
 inputs, its outputs, its two-way ones — is declared in ONE place per abstraction: the
-second argument of `instantiateForm(config, bindings)` for a form on its own, the
-second argument of `page.addForm(name, bindings, cfg)` inside a stepper. The record is
+second argument of `instantiateForm(config, bindings)` for a form on its own,
+`bindings` in `page.addForm(name, cfg)` inside a stepper. The record is
 keyed by the form's field names; under a field sit `inputs` and `outputs`, each keyed by
 the component's own names, so the keys are typed by the component that draws the field:
 the one the layout placed with `control()`, or the one `ControlComponents` registers for
-the field's kind. An input takes a value or a getter (`Live<T>`), an output takes a
-handler over the payload and the context:
+the field's kind. `inputs` takes the input's own type — a static value — `outputs` a
+handler over the payload and the context, and anything reactive goes through Angular's
+own `bindings: [inputBinding('options', theSignal)]`:
 
 ```ts
 // the registry, typed once: kind → component class
@@ -1322,11 +1329,13 @@ declare module 'ngx-formad' {
 }
 
 page.addForm('thirdParty', {
-  taxId: {
-    inputs: { label: 'VAT ID' },
-    outputs: {
-      resolved: (company: Company, ctx) =>
-        ctx.model.update((m) => ({ ...m, companyName: company.name, address: company.address })),
+  bindings: {
+    taxId: {
+      inputs: { label: 'VAT ID' },
+      outputs: {
+        resolved: (company: Company, ctx) =>
+          ctx.model.update((m) => ({ ...m, companyName: company.name, address: company.address })),
+      },
     },
   },
 });
@@ -1351,7 +1360,7 @@ record; a repeating group binds every item's fields alike.
 
 What the form's state has to reach outside the signal graph (a draft kept in storage, an
 analytics event, a focus) is an effect: `instantiateForm(config, bindings, effects)` takes
-them as its third argument, `addForm(name, bindings, { effects })` inside a stepper. Each
+them as its third argument, `addForm(name, { effects })` inside a stepper. Each
 is `(ctx) => void` over the same context handlers get, run as an Angular `effect()`
 created when the instance is, and ended with it - a step that is dropped (`StepRevisit.Fresh`,
 a restarted pass) ends its forms' effects too.
@@ -1374,7 +1383,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `defineForm(config)` | Identity that keeps `U` and `P`, so `state.ui.<field>.<prop>` hands a signal back writable and the bindings are typed. |
 | `instantiateForm(config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. Needs an injection context. |
 | `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, shared?, bindings?, effects?, context? }`. |
-| `FormBindings<M, U, P, Ctx>` | What `instantiateForm` and `addForm` take: field name → `{ inputs?, outputs? }`, the component's inputs (`Live<T>`) and output handlers (`(payload, ctx) => void`), typed by the placed component or by `ControlComponents[kind]`. |
+| `FormBindings<M, U, P, Ctx>` | What `instantiateForm` and `addForm` take: field name → `{ inputs?, outputs?, bindings? }` — static inputs typed by the component, output handlers (`(payload, ctx) => void`), and Angular `Binding[]` for reactive ones, typed by the placed component or by `ControlComponents[kind]`. |
 | `ControlComponents` | The typed side of the control registry, kind → component class; augment it in the application. |
 | `FormEffect<Ctx>` | `(ctx) => void`, run as an `effect()` for the life of the instance. |
 | `FormState<M, U>` | `{ model; rootForm; ui; nodes; fields; grid?; view; destroy() }` — `nodes` is the render tree, `fields` the flat leaves (each with `path`), `view` the `FormLevel` the renderer draws, `destroy()` ends the effects. |
@@ -1382,7 +1391,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` \| `ArrayNode` \| `FormContentNode` \| `FormRowNode`. `buildNodes(ui)` builds it from the ui, `buildLayoutNodes(ui, items)` from an overlay. |
 | `formLayout<M>()` | The layout overlay builder: `cols`, `gap`, `field`, `fields`, `control`, `content`, `row`, `build()`. |
 | `FieldComponentConfig<T, C>` | What `control(key, …)` takes: `{ component: Type<C>; placement?: GridPlacement }`, `C` a `FormValueControl<T>`. |
-| `Live<T>` / `read(value)` | `T \| (() => T)`: a prop that may follow a signal, and the one function that reads either. |
+| `SignalUiConfig<M>` | `ui` with every control prop widened to `T \| Signal<T>`; taken in as a signal where the field mounts, so the runtime holds signals only. |
 | `FormRenderer` | The `<ngx-formad-form [state] />` component. Pure view — the formFields were created with the state. |
 
 ### Author a multi-step wizard
@@ -1471,7 +1480,7 @@ The inner callbacks have small, fixed shapes:
 createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only with dynamic: true
   name?: N,                                   // the key successors read this step under: ctx.steps.<name>
   dynamic?: true,                             // build the pages on every entry, over the live ctx
-  label?: Live<string>,                       // short name for a chrome's rail (controller.labels())
+  label?: string | Signal<string>,            // short name for a chrome's rail (controller.labels())
   when?: (ctx) => boolean,                    // ctx: GateContext — ctx.shared.key() a signal,
   optional?: boolean,                         //   ctx.steps.x?.form a live FormState
   defer?: DeferTrigger,                       // Idle | Viewport | Interaction
@@ -1480,7 +1489,7 @@ createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only 
   revisit?: StepRevisit,                      // Keep (default) | Fresh
 })
 branch((ctx) => key, {                        // key narrows `branches`; null/undefined selects none
-  [key]: (b) => b.step((step) => …, opts?)    // b: BranchBuilder — guarded steps; nests via b.branch()
+  [key]: (b) => b.createStep((step) => …, opts?)  // b: BranchBuilder — guarded steps; nests via b.branch()
 })
 fork((ctx) => key, {                          // TERMINAL — only build() after; arms don't rejoin
   [key]: (arm) => arm                         // arm: ForkArmBuilder — its own state/forms/steps
@@ -1491,9 +1500,9 @@ createStepper('name', { build: (sub) => sub…, label?, when?, defer? })   // a 
 createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends in dock()
   initial: () => C, dockReachable?: (state) => boolean, build: (loop) => loop…, label?, when?, defer?,
 })
-step.createPage((page) => …, { heading?, subheading?, layout? })  // page: PageBuilder; headings may be Live
-page.addForm('name', bindings | null, {       // a pool name — declared forms only
-  submitLabel?: string,                       // bindings: { field: { inputs?: { name: Live<T> }, outputs?: { name: (payload, ctx) => … } } }
+step.createPage((page) => …, { heading?, subheading?, layout?, visibleWhen?: (ctx) => boolean })  // page: PageBuilder; headings take a string or a Signal<string>
+page.addForm('name', {                        // a pool name — declared forms only
+  bindings?: { field: { inputs?: { name: T }, outputs?: { name: (payload, ctx) => … }, bindings?: Binding[] } },
   visibleWhen?: (ctx) => boolean,             // auto-@if'd by the renderer; the step context, or nothing
   bind?: { field: 'sharedKey', group: { field: 'key' } },  // model field ↔ shared key of the same type
   effects?: [(ctx) => …],                     // Angular effects over the step context + the form's model
@@ -1510,8 +1519,7 @@ page.addContent((c) => …, { layout?, visibleWhen?: (ctx) => boolean })  // pro
 //  c.a('Terms', { href })  c.button('Retry', { on: { click } })  c.img({ src, alt })
 //  c.text(() => live())                                     // a bare run at this level
 //  c.insert((p) => p.strong('2'), at?).continue(' left')     // into the tag before; cursor stays
-page.addContent(undefined, { layout })        // no build callback ⇒ the bare layout slot
-page.insertRow('grid-cols-2', (row) => …)     // a nested PageBuilder
+page.insertRow((row) => …, { layout?, visibleWhen?: (ctx) => boolean })  // a nested PageBuilder; the gate takes the row's children with it
 ```
 
 ## Migrating an existing form

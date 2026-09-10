@@ -82,11 +82,20 @@ versions may carry breaking changes.
   materialized, over a context of getters (`ComponentBindings`,
   `ComponentNode.bindings(ctx)`): read the context *inside* the binding's own getter and
   the input follows the live tree afterwards, a predecessor rebuilt by
-  `StepRevisit.Fresh` included. **`visibleWhen` takes the same context** on all three
-  page nodes — `addComponent`, `addForm` and `addContent` — and stays what it was: a
-  `computed` the renderer `@if`s on, so it follows what it reads. `LiveStep.context`
-  carries that context to the page renderer. `dynamic: true` is left to what it is for —
-  a page whose STRUCTURE depends on the context, not one input or one gate that does.
+  `StepRevisit.Fresh` included. **`visibleWhen` takes the same context** everywhere a
+  page has one — `addComponent`, `addForm`, `addContent`, `insertRow` and `createPage`
+  itself — and stays what it was: a `computed` the renderer `@if`s on, so it follows
+  what it reads. `LiveStep.context` carries that context to the page renderer.
+  `dynamic: true` is left to what it is for — a page whose STRUCTURE depends on the
+  context, not one input or one gate that does.
+- **Gates on the containers, and they count — `insertRow(build, { visibleWhen })`,
+  `createPage(build, { visibleWhen })`.** Every leaf of a page could be gated and
+  no container could, so one condition had to be repeated on each child. A row and a
+  page now take the same gate (`RowCfg`, `PageCfg`, `RowNode.visibleWhen`,
+  `PageOptions.visibleWhen`), and a container's gate travels with its children into the
+  completion fold: a form inside a hidden row, or on a hidden page, is not drawn and
+  does not hold Next either, so a required field nobody can see cannot block the wizard.
+  The page renderer no longer treats a row as unconditional.
 - **Refusals that name the fix.** Three mistakes that used to fail far from their cause
   are refused where they are made, with a `Rejected<...>` naming the fix: bindings for a
   field whose kind is unknown, not exact (a wide `ui`, an annotation `: FormConfig<M>`)
@@ -136,7 +145,7 @@ versions may carry breaking changes.
   (`{ model, shared }`), never the field tree.
 - **Bindings - one place per form instance.** Everything a field's component is bound
   with beyond `FormField` (inputs, outputs, two-way) is declared in the second argument
-  of `instantiateForm(config, bindings, effects?)` and of `addForm(name, bindings, cfg?)`:
+  of `instantiateForm(config, bindings, effects?)` and in `addForm(name, { bindings })`:
   a record keyed by field name, under it `inputs` and `outputs` keyed by the component's
   own names, typed by the component the layout placed or by the one `ControlComponents`
   (a new, augmentable interface: kind → component class) registers for the field's kind.
@@ -148,7 +157,7 @@ versions may carry breaking changes.
   follows the signals it reads and not the flow's navigation). A group nests its record,
   a repeating group binds every item.
 - **Effects - Angular `effect()`s over a live form.** `instantiateForm(config, bindings,
-  effects)` and `addForm(name, bindings, { effects })` take `(ctx) => void` side effects,
+  effects)` and `addForm(name, { effects })` take `(ctx) => void` side effects,
   each run as an `effect()` created with the instance and ended with it: `FormState`
   and `LiveForm` gain `destroy()`, called when a step is dropped (`StepRevisit.Fresh`, a
   restarted pass).
@@ -178,6 +187,19 @@ versions may carry breaking changes.
 
 ### Removed
 
+- **`Live<T>` and `read(value)`.** A prop that may follow a signal is `T | Signal<T>` —
+  Angular's own type, written out where it is meant — and a bare closure (`() => T`) is
+  no longer one of the shapes. There is no reader function either: a config is taken in
+  where the field mounts, a plain value is wrapped in a `signal()` once (`intoSignal`),
+  and everything downstream holds a `Signal<T>` and calls it. Reactive text in a content
+  block is `p(computed(() => …))`, a heading is `heading: computed(...)` or a plain
+  string, and a custom kind's `props` are static — a kind's props were never dynamic.
+- **`addForm`'s `submitLabel`.** It was authored, stored on the node and read by
+  nothing: the chrome owns its buttons.
+- **The bare content slot.** `addContent()` with no build callback drew an empty layout
+  slot; a slot that holds nothing is not a thing a page needs, and spacing is the
+  layout's business, not a node's. `build` is now required, as it always was in
+  `formLayout().content(build)`.
 - **`formLayout().component()` and `FormComponentContext`.** A form's layout arranges
   fields (`field`, `control`, `row`) and prose (`content`); a component that edits a
   field is a `control()`, a widget that is not a field belongs to the page. The field
@@ -223,6 +245,26 @@ versions may carry breaking changes.
 
 ### Changed
 
+- **A field's `inputs` are static; a reactive one is Angular's own binding.**
+  `FieldInputs<C>` is typed by the component's input type, so `inputs: { label: 'VAT ID'
+  }` is data. A value that changes uses the other signature — `bindings:
+  [inputBinding('options', theSignal)]` on the same field entry, the same `Binding[]`
+  vocabulary `addComponent` takes — so nothing in the renderer has to ask whether an
+  input arrived as a value or as a signal.
+- **`LiveUiConfig` is `SignalUiConfig`, `LiveControlNode` is `SignalControlNode`.** The
+  widening now says what it does: every control prop accepts `T | Signal<T>`, and
+  `extraInputsFor` returns signals, which the mount binds as they are.
+- **`BranchBuilder.step` is `createStep`, and a row's layout class moved into its
+  config.** One act, one name on every builder; `insertRow(build, { layout, visibleWhen
+  })` puts the class where every other node carries it, and optional, since a row that
+  only groups needs no class.
+- **`addForm(name, cfg)` — one argument object, no `null` in the middle.** A placement's
+  bindings are a field of the config (`bindings`) instead of a second positional
+  argument, so `addForm('details', null, { initial })` is `addForm('details', {
+  initial })` and `addForm('f', { taxId: … })` is `addForm('f', { bindings: { taxId: …
+  } })`. `FormCfg` is now keyed by the POOL ENTRY (`FormCfg<TForms[K], TCtx>`), since it
+  types the bindings by the template's `ui` and its `control()` placements, as the
+  separate argument did.
 - **`committed()` / `stepCommitted` are keyed by step, then by pool name** —
   `{ basics: { basics: {...} } }`, a nested linear flow as its own step record, a
   recurrent flow as its folded state — because a template placed twice is two values.
@@ -299,7 +341,6 @@ versions may carry breaking changes.
   or point an `href` at `javascript:`. (It is not a full sanitizer - `style` is allowed,
   as in Angular's own bindings.) Values stay as authored: a constant is written once and
   only a getter is subscribed to, so a static block is plain data and costs no effects.
-  Called without a build callback, `addContent` is the bare layout slot it always was.
 - **The same builder inside a form - `formLayout(...).content(build, cfg?)`.** A group
   heading or a hint *between fields* is data too, gated on the live form context
   (`visibleWhen: (ctx) => …`) and placed in the grid like any other item.
