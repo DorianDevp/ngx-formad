@@ -26,11 +26,15 @@ export interface LiveForm {
 
   readonly issues: Signal<readonly StepIssue[]>;
 
-  /** First entry: `initial` over `ctx`, then the shared links, into the fresh fields. */
-  seed(ctx: RuntimeStepContext): void;
+  /**
+   * First entry: `initial` over the entry context, then the shared links, into the fresh fields. The caller hands the
+   * navigation being built - the live context would still name the steps of the previous one - and the step's own
+   * forms are layered in here.
+   */
+  seed(entry: RuntimeStepperContext): void;
 
   /** A later entry: the shared links into the fields the user has not edited, and `initial` again when the form reseeds. */
-  reseed(ctx: RuntimeStepContext): void;
+  reseed(entry: RuntimeStepperContext): void;
 
   commit(): void;
 
@@ -158,7 +162,12 @@ function definedEntries(seed: Record<string, unknown>): [string, unknown][] {
   return Object.entries(seed).filter(([, value]) => value !== undefined);
 }
 
-function liveForm(placed: PlacedForm, options: MaterializeOptions, ctx: RuntimeStepperContext): LiveForm | null {
+function liveForm(
+  placed: PlacedForm,
+  options: MaterializeOptions,
+  ctx: RuntimeStepContext,
+  instances: Readonly<Record<string, FormState>>,
+): LiveForm | null {
   const node = placed.node;
   const template = options.pool[node.name];
   if (!template) return null;
@@ -187,8 +196,11 @@ function liveForm(placed: PlacedForm, options: MaterializeOptions, ctx: RuntimeS
       if (!field.dirty()) field.value.set(value);
     }
   };
-  const local = (ctx: RuntimeStepContext): [readonly string[], unknown][] =>
-    definedEntries(node.initial?.(ctx) ?? {}).map(([key, value]) => [[key], value]);
+  const local = (entry: RuntimeStepperContext): [readonly string[], unknown][] => {
+    const at: RuntimeStepContext = { ...entry, forms: instances };
+
+    return definedEntries(node.initial?.(at) ?? {}).map(([key, value]) => [[key], value]);
+  };
   const linked = (): [readonly string[], unknown][] =>
     node.links.map((link) => [link.modelPath, options.shared.get(link.sharedKey)]);
 
@@ -252,14 +264,15 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
   const instances: Record<string, FormState> = {};
   const ctx = liveContext(options, instances);
   const forms = placedForms(pages).flatMap((placed) => {
-    const live = liveForm(placed, options, ctx);
+    const live = liveForm(placed, options, ctx, instances);
 
     return live === null ? [] : [live];
   });
+  // Every instance is known before the first seed runs, so `ctx.forms` does not depend on placement order.
+  for (const form of forms) instances[form.name] = form.state;
   for (const form of forms) {
-    instances[form.name] = form.state;
     registry.add({ rootForm: form.state.rootForm, visible: form.visible });
-    form.seed(ctx);
+    form.seed(options.entry);
   }
 
   return {

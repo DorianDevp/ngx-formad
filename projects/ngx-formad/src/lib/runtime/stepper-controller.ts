@@ -681,7 +681,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
     const cached = nav.stepOf(current);
     if (cached && current.revisit !== StepRevisit.Fresh) {
-      if (nav.shown !== current) for (const form of cached.forms) form.reseed(cached.context);
+      if (nav.shown !== current) for (const form of cached.forms) form.reseed(this.contextOf(nav.memo));
 
       return nav.shownAs(current);
     }

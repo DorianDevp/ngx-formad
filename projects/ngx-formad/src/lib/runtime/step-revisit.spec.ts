@@ -4,6 +4,9 @@ import { text, UiFormConfigBuilder } from 'formodel';
 import { FormRevisit, StepRevisit } from '../builders/nodes';
 import { RuntimeStepper, StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
+import { provideFormadSuite } from '../provide';
+import { StepPageView } from './step-page-view';
+import { StepperController } from './stepper-controller';
 import { StepperComponent } from './stepper.component';
 
 // What a revisited step does with `initial` is the author's call, per placement: by default the
@@ -132,5 +135,69 @@ describe('A revisited step and its initial seed', () => {
 
     expect(field().value).toBe('Beta');
     expect(run.initialCalls()).toBe(2);
+  });
+});
+
+// A step reached with predecessors materialized in the same pass: `goTo` from step one lands on
+// step three, and step two is brought to life on the way. `initial` must see it - the seed reads
+// the navigation being built, not the one the controller last committed.
+@Component({
+  imports: [StepPageView],
+  template: `
+    @let c = controller();
+    @if (c.step(); as step) {
+      <ngx-formad-step-page [step]="step" />
+    }
+    <span class="heading">{{ c.heading() }}</span>
+    <button type="button" class="jump" (click)="c.goTo('Last')">Jump</button>
+  `,
+})
+class JumpChrome {
+  readonly controller = input.required<StepperController>();
+}
+
+function jumpStepper(): RuntimeStepper {
+  return new StepperBuilder()
+    .createForm('first', oneForm('First'))
+    .createForm('middle', oneForm('Middle'))
+    .createForm('last', oneForm('Last'))
+    .createStep((s) => s.createPage((p) => p.addForm('first'), { heading: 'First' }), { label: 'First' })
+    .createStep(
+      (s) =>
+        s.createPage((p) => p.addForm('middle', { initial: () => ({ v: 'from the middle' }) }), { heading: 'Middle' }),
+      { name: 'middle', label: 'Middle' },
+    )
+    .createStep(
+      (s) =>
+        s.createPage(
+          // The predecessor is materialized in this very pass; its model has to be readable here.
+          (p) => p.addForm('last', { initial: ({ steps }) => ({ v: steps.middle?.middle.model().v ?? 'nothing' }) }),
+          { heading: 'Last' },
+        ),
+      { label: 'Last' },
+    )
+    .build();
+}
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class JumpHost {
+  readonly stepper = jumpStepper();
+}
+
+describe('A step entered with its predecessors', () => {
+  it('seeds from the navigation being built, not the one last committed', async () => {
+    TestBed.configureTestingModule({ providers: [provideFormadSuite({ stepper: JumpChrome })] });
+    const fixture = TestBed.createComponent(JumpHost);
+    await settle(fixture);
+
+    const root = fixture.nativeElement as HTMLElement;
+    (Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Jump') as HTMLButtonElement).click();
+    await settle(fixture);
+
+    expect(root.querySelector('.heading')?.textContent?.trim()).toBe('Last');
+    expect((root.querySelector('input') as HTMLInputElement).value).toBe('from the middle');
   });
 });
