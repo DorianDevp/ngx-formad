@@ -61,7 +61,7 @@ class NestChrome {
 }
 
 function rootRing(): RuntimeFlow {
-  return new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] })
+  return new RecurrentStepperBuilder<{}, Item[]>({ state: () => [] })
       .withState({ draft: '' })
       .createForm('name', oneForm('Name'))
       .createStep(
@@ -72,15 +72,19 @@ function rootRing(): RuntimeFlow {
         { label: 'Name' },
       )
       .fold((state, pass) => [...state, { name: pass.shared.draft() }])
-      .completeWhen((items) => items.length > 0, 'Add at least one')
       // A static dock: the bindings callback reads the ring's state, so nothing about the
-      // page's STRUCTURE depends on the context and the step need not be dynamic.
+      // page's STRUCTURE depends on the context and the step need not be dynamic. Its
+      // completeWhen is the flow's own contract - there is no other way out of the ring.
       .dock(
         (s) =>
           s.createPage((p) =>
             p.addComponent(NestDock, { bindings: (ctx) => [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
           ),
-        { label: 'Dock' },
+        {
+          label: 'Dock',
+          completeWhen: (ctx) => ctx.flow.state().length > 0,
+          incompleteMessage: 'Add at least one',
+        },
       )
       .build();
 }
@@ -99,7 +103,7 @@ function ringWithLinearPass(): RuntimeStepper {
   return new StepperBuilder()
       .withState({})
       .createRecurrentStepper('items', {
-        initial: (): Item[] => [],
+        state: (): Item[] => [],
         label: 'Items',
         build: (loop) =>
           loop
@@ -119,13 +123,12 @@ function ringWithLinearPass(): RuntimeStepper {
                   ),
             })
             .fold((state, pass) => [...state, { name: pass.steps.unit?.a?.a.v ?? '' }])
-            .completeWhen((items) => items.length > 0)
             .dock(
               (s, ctx) =>
                 s.createPage((p) =>
                   p.addComponent(NestDock, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock', dynamic: true },
+              { label: 'Dock', dynamic: true, completeWhen: (ctx) => ctx.flow.state().length > 0 },
             ),
       })
       .build();

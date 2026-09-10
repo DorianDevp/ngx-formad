@@ -77,7 +77,7 @@ function deviceStepper(): RuntimeStepper {
         { label: 'Intro' },
       )
       .createRecurrentStepper('devices', {
-        initial: (): Item[] => [],
+        state: (): Item[] => [],
         label: 'Devices',
         build: (loop) =>
           loop
@@ -118,18 +118,22 @@ function deviceStepper(): RuntimeStepper {
 
               return [...state, { name: pass.shared.draftName() }];
             })
-            .completeWhen((items) => items.length > 0, 'Add at least one device')
             .dock(
               (s, ctx) =>
                 s.createPage((p) =>
                   p.addComponent(DockPanel, { bindings: [inputBinding('items', () => ctx.flow.state())] }), { heading: 'Collected' },
                 ),
-              { label: 'Dock', dynamic: true },
+              {
+                label: 'Dock',
+                dynamic: true,
+                completeWhen: (ctx) => ctx.flow.state().length > 0,
+                incompleteMessage: 'Add at least one device',
+              },
             ),
       })
       .createStep(
         (s) => s.createPage((p) => p.addForm('final'), { heading: 'Final' }),
-        { label: 'Final', when: (c) => (c.steps.devices?.length ?? 0) > 0 },
+        { label: 'Final', activeWhen: (c) => (c.steps.devices?.length ?? 0) > 0 },
       )
       .build();
 }

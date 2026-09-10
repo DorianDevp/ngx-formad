@@ -105,13 +105,13 @@ describe('StepperController.goTo', () => {
     expect(label()).toBe('Device');
   });
 
-  it('keeps what the user typed when the destination is revisited', async () => {
+  it('keeps what the user typed activeWhen the destination is revisited', async () => {
     await click('.keep');
 
     expect(shown()).toBe('AB-1');
   });
 
-  it('rebuilds the destination from its factory when asked for a fresh one', async () => {
+  it('rebuilds the destination from its factory activeWhen asked for a fresh one', async () => {
     await click('.again');
 
     expect(shown()).toBe('');
@@ -139,7 +139,7 @@ describe('StepperController.goTo', () => {
     });
   });
 
-  it('stays put when no step answers to the target', async () => {
+  it('stays put activeWhen no step answers to the target', async () => {
     await click('.nowhere');
 
     expect(idx()).toBe('2');

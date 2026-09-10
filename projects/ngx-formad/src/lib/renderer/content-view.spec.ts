@@ -43,7 +43,7 @@ class ContentHost {
       .p('See the ')
       .insert((p) => p.a('warranty terms', { href: '/terms' }))
       .continue(' first.')
-      .p('Only when asked', { visibleWhen: () => visible() })
+      .p('Only activeWhen asked', { visibleWhen: () => visible() })
       .button('Retry', { on: { click: () => clicks.n++ } }),
   );
 }
@@ -102,7 +102,7 @@ describe('ContentView', () => {
   it('gates a tag with visibleWhen', async () => {
     const gated = () =>
       Array.from(fixture.nativeElement.querySelectorAll('p') as NodeListOf<HTMLElement>).find(
-        (p) => p.textContent === 'Only when asked',
+        (p) => p.textContent === 'Only activeWhen asked',
       )!;
 
     expect(gated().hasAttribute('hidden')).toBe(true);
@@ -354,7 +354,7 @@ class SwappedHost {
 }
 
 describe('ContentView - a changed tree', () => {
-  it('repaints when the children input changes', async () => {
+  it('repaints activeWhen the children input changes', async () => {
     const fixture = TestBed.createComponent(SwappedHost);
     await settle(fixture);
     expect(fixture.nativeElement.querySelector('h3')!.textContent).toBe('Your name');

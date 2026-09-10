@@ -117,7 +117,7 @@ describe('StepperComponent', () => {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class ConditionalHost {
-  // Step 2 is hidden by its `when`, so Next on step 1 lands on step 3.
+  // Step 2 is hidden by its `activeWhen`, so Next on step 1 lands on step 3.
   readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({ hide: true })
       .createForm('a', labelForm('First'))
@@ -125,14 +125,14 @@ class ConditionalHost {
       .createForm('c', labelForm('Third'))
       .createStep((s) => s.createPage((p) => p.addForm('a'), { heading: '1' }))
       .createStep((s) => s.createPage((p) => p.addForm('b'), { heading: '2' }), {
-        when: ({ shared }) => !shared.hide,
+        activeWhen: ({ shared }) => !shared.hide,
       })
       .createStep((s) => s.createPage((p) => p.addForm('c'), { heading: '3' }))
       .build();
 }
 
 describe('StepperComponent — conditional steps', () => {
-  it('drops a step whose `when` is false and navigates past it', async () => {
+  it('drops a step whose `activeWhen` is false and navigates past it', async () => {
     const fixture = TestBed.createComponent(ConditionalHost);
     await settle(fixture);
 

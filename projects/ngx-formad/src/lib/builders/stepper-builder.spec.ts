@@ -149,14 +149,14 @@ describe('StepperBuilder', () => {
     expect(stepper.shared.get('email')).toBe('');
   });
 
-  it('records step-level when / optional / defer on the node', () => {
+  it('records step-level activeWhen / optional / defer on the node', () => {
     const stepper = new StepperBuilder()
       .withState({ email: '' })
       .createForm('account', account)
       .createStep((step) => step.createPage((page) => page.addForm('account'), { heading: 'A' }), {
         optional: true,
         defer: DeferTrigger.Idle,
-        when: ({ shared }) => shared.email() === 'go',
+        activeWhen: ({ shared }) => shared.email() === 'go',
       })
       .build();
 
@@ -164,8 +164,8 @@ describe('StepperBuilder', () => {
     expect(node.optional).toBe(true);
     expect(node.defer).toBe('idle');
     // The condition is stored erased but stays callable with a runtime context.
-    expect(node.when?.({ steps: {}, shared: { email: signal('go') }, flow: undefined, parent: undefined })).toBe(true);
-    expect(node.when?.({ steps: {}, shared: { email: signal('no') }, flow: undefined, parent: undefined })).toBe(false);
+    expect(node.activeWhen?.({ steps: {}, shared: { email: signal('go') }, flow: undefined, parent: undefined })).toBe(true);
+    expect(node.activeWhen?.({ steps: {}, shared: { email: signal('no') }, flow: undefined, parent: undefined })).toBe(false);
   });
 });
 

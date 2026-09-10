@@ -121,9 +121,9 @@ export type RuntimeStepContext = RuntimeStepperContext & { readonly forms: Reado
 /** A reactive step gate as authored against a typed context. */
 export type StepCondition<TCtx extends RuntimeStepperContext> = (ctx: GateContext<TCtx>) => boolean;
 
-/** A step gate as a node holds it; a typed `StepCondition` fits `when` because it is a method parameter. */
+/** A step gate as a node holds it; a typed `StepCondition` fits `activeWhen` because it is a method parameter. */
 export interface StepGate {
-  when(ctx: RuntimeStepperContext): boolean;
+  activeWhen(ctx: RuntimeStepperContext): boolean;
 }
 
 /** A form config fetched when its step is reached. */

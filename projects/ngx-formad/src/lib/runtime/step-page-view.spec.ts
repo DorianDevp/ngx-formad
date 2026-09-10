@@ -103,7 +103,7 @@ describe('StepPageView — completeWhen gate', () => {
   });
 });
 
-// The guard receives the same context as `when`, so a component-only step can
+// The guard receives the same context as `activeWhen`, so a component-only step can
 // gate Next on the live shared state — no closed-over signal needed.
 @Component({
   imports: [StepperComponent],
@@ -122,7 +122,7 @@ class SharedGatedHost {
 }
 
 describe('StepPageView — completeWhen context', () => {
-  it('re-evaluates the guard when the shared state it reads changes', async () => {
+  it('re-evaluates the guard activeWhen the shared state it reads changes', async () => {
     const fixture = TestBed.createComponent(SharedGatedHost);
     await settle(fixture);
 

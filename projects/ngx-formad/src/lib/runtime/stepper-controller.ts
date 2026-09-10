@@ -712,7 +712,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const limit = upTo ? steps.indexOf(upTo) : steps.length;
 
     return steps.slice(0, limit).reduce((settled, node) => {
-      if (isFlowStep(node) || node.when || settled.stepOf(node)) return settled;
+      if (isFlowStep(node) || node.activeWhen || settled.stepOf(node)) return settled;
 
       const pages = this.pagesOf(node, settled);
       if (this.hasLazyForms(pages)) return settled;

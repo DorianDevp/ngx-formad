@@ -25,15 +25,11 @@ export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> 
 
   readonly dockAt: number;
 
-  readonly initial: () => C;
+  readonly state: () => C;
 
   fold?(state: C, pass: RuntimeStepperContext): C;
 
   dockReachable?(state: C): boolean;
-
-  complete?(state: C): boolean;
-
-  readonly incompleteMessage?: string;
 }
 
 /** Any flow the runtime drives. */
@@ -49,7 +45,7 @@ export interface FlowStepNode {
 
   readonly label?: Signal<string>;
 
-  when?(ctx: RuntimeStepperContext): boolean;
+  activeWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly defer?: DeferTrigger;
 

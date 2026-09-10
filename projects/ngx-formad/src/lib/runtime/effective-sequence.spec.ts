@@ -30,12 +30,12 @@ const wizard = new StepperBuilder()
     name: 'basics',
   })
   .createStep((s) => s.createPage((p) => p.addForm('adminConfig'), { heading: 'Advanced' }), {
-    when: ({ shared }) => shared.accountType() === 'admin',
+    activeWhen: ({ shared }) => shared.accountType() === 'admin',
   })
   .createStep((s) => s.createPage((p) => p.addForm('userMeta'), { heading: 'Settings' }), {
     // A predecessor's LIVE instance — `basics` is unconditional, but a gate may run
     // before it exists, so it reads as optional here.
-    when: ({ steps }) => steps.basics?.basics.model().accountType !== 'admin',
+    activeWhen: ({ steps }) => steps.basics?.basics.model().accountType !== 'admin',
   })
   .createStep((s) => s.createPage((p) => p.addForm('review'), { heading: 'Review' }))
   .build();
@@ -57,12 +57,12 @@ describe('effectiveSteps', () => {
     expect(effectiveSteps(wizard.steps, plain).includes(wizard.steps[3])).toBe(true);
   });
 
-  it('drops a step whose `when` reads false from shared state', () => {
+  it('drops a step whose `activeWhen` reads false from shared state', () => {
     const seq = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'user' } }));
     expect(seq).not.toContain(wizard.steps[1]); // Advanced hidden for non-admins
   });
 
-  it('includes the step when its shared condition holds', () => {
+  it('includes the step activeWhen its shared condition holds', () => {
     const seq = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'admin' } }));
     expect(seq).toContain(wizard.steps[1]);
   });
@@ -86,7 +86,7 @@ describe('effectiveSteps', () => {
   });
 });
 
-// `.branch()` compiles to `when`-gated steps, so the same pure filter proves it:
+// `.branch()` compiles to `activeWhen`-gated steps, so the same pure filter proves it:
 // the chosen branch's steps survive in order, the rest drop, and post-branch steps
 // rejoin. A nested branch ANDs its guard with the outer one.
 // A page's heading is `Reactive<string>` - a value or a getter - so the assertion
@@ -112,7 +112,7 @@ const branched = new StepperBuilder()
         .createStep((s) => s.createPage((p) => p.addForm('pro'), { heading: 'Pro' }))
         // a step inside the branch with its own extra condition (ANDed with the guard)
         .createStep((s) => s.createPage((p) => p.addForm('addons'), { heading: 'Addons' }), {
-          when: ({ shared }) => shared.addons() === true,
+          activeWhen: ({ shared }) => shared.addons() === true,
         }),
     free: (b) => b.createStep((s) => s.createPage((p) => p.addForm('free'), { heading: 'Free' })),
   })
@@ -129,7 +129,7 @@ describe('branching (sugar over conditional steps)', () => {
     expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'pro', addons: false } })))).toEqual([
       'Start',
       'Pro',
-      'Done', // Addons dropped: its own `when` (addons === true) failed
+      'Done', // Addons dropped: its own `activeWhen` (addons === true) failed
     ]);
   });
 
@@ -137,7 +137,7 @@ describe('branching (sugar over conditional steps)', () => {
     expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'pro', addons: true } })))).toEqual([
       'Start',
       'Pro',
-      'Addons', // now both the branch guard and the step's `when` hold
+      'Addons', // now both the branch guard and the step's `activeWhen` hold
       'Done',
     ]);
     // The Addons step never appears for the free plan, regardless of the addons flag.

@@ -54,7 +54,7 @@ export class FlowRing<C = unknown> {
 }
 
 function freshRing<C>(flow: RecurrentFlowDefinition<C>): RingState<C> {
-  const state = flow.initial();
+  const state = flow.state();
   const reachable = flow.dockReachable ? flow.dockReachable(state) : false;
 
   return { state, passOpen: !reachable, folds: 0 };

@@ -57,7 +57,7 @@ class SelfGatingHost {
             }),
           { heading: '2' }),
         // The step is dropped by the very value its own form writes.
-        { when: (ctx) => !ctx.shared.skip() },
+        { activeWhen: (ctx) => !ctx.shared.skip() },
       )
       .createStep((s) =>
         s.createPage((p) => p.addForm('last'), {  heading: '3' }),

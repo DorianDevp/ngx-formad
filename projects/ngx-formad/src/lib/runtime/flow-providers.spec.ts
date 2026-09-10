@@ -93,7 +93,7 @@ class ProvHost {
           ),
         {
           label: 'Start',
-          when: () => {
+          activeWhen: () => {
             this.whenSaw = inject(GREETING);
             inject(FlowScoped);
 
@@ -102,7 +102,7 @@ class ProvHost {
         },
       )
       .createRecurrentStepper('items', {
-        initial: (): string[] => [],
+        state: (): string[] => [],
         label: 'Items',
         build: (loop) =>
           loop

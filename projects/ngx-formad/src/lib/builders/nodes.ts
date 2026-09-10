@@ -125,7 +125,7 @@ export interface StepNode {
 
   readonly label?: Signal<string>;
 
-  when?(ctx: RuntimeStepperContext): boolean;
+  activeWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly optional?: boolean;
 

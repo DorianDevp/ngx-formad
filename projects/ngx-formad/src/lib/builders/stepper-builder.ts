@@ -81,10 +81,10 @@ export type ControlComponent<Cmp> = Cmp extends FormValueControl<infer _V>
   ? object
   : Rejected<'a control kind must be a FormValueControl component'>;
 
-/** What a named step adds to the context: its instances, `| undefined` when gated by `when`. */
+/** What a named step adds to the context: its instances, `| undefined` when gated by `activeWhen`. */
 export type StepEntry<N extends string, Inst, O> = [N] extends [never]
   ? {}
-  : Record<N, O extends { readonly when: infer _W } ? Inst | undefined : Inst>;
+  : Record<N, O extends { readonly activeWhen: infer _W } ? Inst | undefined : Inst>;
 
 /** What an always-gated step adds: its instances or `undefined`. */
 export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Record<N, Inst | undefined>;
@@ -218,12 +218,12 @@ export type PageBuild<TForms, TCtx extends RuntimeStepperContext, P> = (
   page: PageBuilder<TForms, TCtx, {}>,
 ) => PageBuilder<TForms, TCtx, P>;
 
-type MisplacedPageOptions = PageOptions | { readonly options: PageOptions };
+type MisplacedPageCfg = PageOptions | { readonly options: PageOptions };
 
 const PAGE_ARGUMENTS = 'createPage(build, options?): the page callback comes first, the heading and subheading second';
 
 function isPageBuild<TForms, TCtx extends RuntimeStepperContext, P>(
-  value: PageBuild<TForms, TCtx, P> | MisplacedPageOptions,
+  value: PageBuild<TForms, TCtx, P> | MisplacedPageCfg,
 ): value is PageBuild<TForms, TCtx, P> {
   return typeof value === 'function';
 }
@@ -236,9 +236,9 @@ export class StepBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
 
   createPage<P2>(build: PageBuild<TForms, TCtx, P2>, options?: PageCfg<StepContext<TCtx, TForms>>): StepBuilder<TForms, TCtx, P & P2>;
   /** The arguments the other way round are refused here, where the mistake is, not in every step that reads this one. */
-  createPage(options: MisplacedPageOptions, build?: PageBuild<TForms, TCtx, {}>): Rejected<typeof PAGE_ARGUMENTS>;
+  createPage(options: MisplacedPageCfg, build?: PageBuild<TForms, TCtx, {}>): Rejected<typeof PAGE_ARGUMENTS>;
   createPage<P2>(
-    first: PageBuild<TForms, TCtx, P2> | MisplacedPageOptions,
+    first: PageBuild<TForms, TCtx, P2> | MisplacedPageCfg,
     second: PageCfg<StepContext<TCtx, TForms>> | PageBuild<TForms, TCtx, {}> = {},
   ): StepBuilder<TForms, TCtx, P & P2> | Rejected<typeof PAGE_ARGUMENTS> {
     if (!isPageBuild(first) || typeof second === 'function') throw new Error(`ngx-formad: ${PAGE_ARGUMENTS}.`);
@@ -278,14 +278,14 @@ const NOT_DYNAMIC = 'a step whose callback takes ctx must be declared dynamic: c
 export type NotDynamic = Rejected<typeof NOT_DYNAMIC>;
 
 /** Per-step options; `name` is the key successors read the step under, `dynamic` builds the pages on every entry over the live context. */
-export interface StepOptions<TCtx extends RuntimeStepperContext, N extends string = never> {
+export interface StepCfg<TCtx extends RuntimeStepperContext, N extends string = never> {
   readonly name?: N;
 
   readonly dynamic?: true;
 
   readonly label?: string | Signal<string>;
 
-  readonly when?: StepCondition<TCtx>;
+  readonly activeWhen?: StepCondition<TCtx>;
 
   readonly optional?: boolean;
 
@@ -299,12 +299,12 @@ export interface StepOptions<TCtx extends RuntimeStepperContext, N extends strin
 }
 
 /** The options of a step built once; `dynamic` may not be set. */
-export type StaticStepOptions<TCtx extends RuntimeStepperContext, N extends string = never> = StepOptions<TCtx, N> & {
+export type StaticStepCfg<TCtx extends RuntimeStepperContext, N extends string = never> = StepCfg<TCtx, N> & {
   readonly dynamic?: never;
 };
 
 /** The options of a step built on every entry; `dynamic: true` is required. */
-export type DynamicStepOptions<TCtx extends RuntimeStepperContext, N extends string = never> = StepOptions<TCtx, N> & {
+export type DynamicStepCfg<TCtx extends RuntimeStepperContext, N extends string = never> = StepCfg<TCtx, N> & {
   readonly dynamic: true;
 };
 
@@ -323,7 +323,7 @@ type PushStep = (node: SequenceNode) => void;
 interface StepSpec<TCtx extends RuntimeStepperContext> {
   readonly pages: readonly PageNode[] | DynamicPages;
 
-  readonly opts: StepOptions<TCtx, string>;
+  readonly opts: StepCfg<TCtx, string>;
 
   readonly gate?: StepGate;
 }
@@ -343,9 +343,9 @@ function pagesOf<TForms, TCtx extends RuntimeStepperContext, P>(
 }
 
 function guardedBy(gate: StepGate, node: SequenceNode): SequenceNode {
-  const own = node.when;
+  const own = node.activeWhen;
 
-  return { ...node, when: (ctx) => gate.when(ctx) && (own ? own(ctx) : true) };
+  return { ...node, activeWhen: (ctx) => gate.activeWhen(ctx) && (own ? own(ctx) : true) };
 }
 
 function stepNode<TCtx extends RuntimeStepperContext>(spec: StepSpec<TCtx>): SequenceNode {
@@ -355,7 +355,7 @@ function stepNode<TCtx extends RuntimeStepperContext>(spec: StepSpec<TCtx>): Seq
     name: opts.name,
     pages,
     ...(opts.label === undefined ? {} : { label: isSignal(opts.label) ? opts.label : signal(opts.label) }),
-    when: opts.when,
+    activeWhen: opts.activeWhen,
     optional: opts.optional,
     defer: opts.defer,
     completeWhen: opts.completeWhen,
@@ -382,7 +382,7 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepOptions<
+    O extends StaticStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
       WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -393,7 +393,7 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepOptions<
+    O extends DynamicStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
       WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -403,11 +403,11 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
   createStep(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, {}> & NotDynamic,
-    opts?: StepOptions<WithSteps<TCtx, TAdded>, string>,
+    opts?: StepCfg<WithSteps<TCtx, TAdded>, string>,
   ): never;
   createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
-    opts: StepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+    opts: StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
     this.push(stepNode({ pages: pagesOf(build, opts.dynamic === true), opts, gate: this.gate }));
 
@@ -426,8 +426,8 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   ): BranchBuilder<TForms, TCtx, TAdded & BranchAdded<B>> {
     for (const key in branches) {
       const nested: StepGate = {
-        when: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
-          if (!this.gate.when(ctx)) return false;
+        activeWhen: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
+          if (!this.gate.activeWhen(ctx)) return false;
 
           const selected: string | null | undefined = select(ctx);
 
@@ -484,7 +484,7 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepOptions<
+    O extends StaticStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
       WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -495,7 +495,7 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepOptions<
+    O extends DynamicStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
       WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -505,11 +505,11 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
   ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
   createStep(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, {}> & NotDynamic,
-    opts?: StepOptions<WithSteps<TCtx, TAdded>, string>,
+    opts?: StepCfg<WithSteps<TCtx, TAdded>, string>,
   ): never;
   createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
-    opts: StepOptions<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+    opts: StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
     return new ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>({
       ...this.arm,
@@ -527,7 +527,7 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
     const steps: SequenceNode[] = [];
     for (const key in branches) {
       const gate: StepGate = {
-        when: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
+        activeWhen: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
           const selected: string | null | undefined = select(ctx);
 
           return selected === key;
@@ -597,28 +597,38 @@ export class Stepper<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeSt
 export type RuntimeStepper = Stepper;
 
 /** The parent-side options of a nested flow slot. */
-export interface FlowStepOptions<TCtx extends RuntimeStepperContext> {
+export interface FlowSlotCfg<TCtx extends RuntimeStepperContext> {
   readonly label?: string | Signal<string>;
 
-  readonly when?: StepCondition<TCtx>;
+  readonly activeWhen?: StepCondition<TCtx>;
 
   readonly defer?: DeferTrigger;
 }
 
-/** A ring's accumulator: its initial state and, optionally, when the dock counts as reachable. */
+/** A ring's accumulator: the state it starts from and, optionally, when the dock counts as reachable. */
 export interface RingCfg<C> {
-  readonly initial: () => C;
+  readonly state: () => C;
 
   dockReachable?(state: C): boolean;
 }
 
+/**
+ * The dock's own config. The dock is the ring's terminal - the only way out - so nothing gates it away (`activeWhen`),
+ * nothing skips it (`optional`) and it is not rebuilt behind the user's back (`revisit`); its `completeWhen` is the
+ * flow's contract, read over `ctx.flow.state()`.
+ */
+export type DockCfg<TCtx extends RuntimeStepperContext, N extends string = never> = Omit<
+  StepCfg<TCtx, N>,
+  'activeWhen' | 'optional' | 'revisit'
+>;
+
 /** A nested linear flow: slot options plus the callback authoring the sub-flow. */
-export type LinearFlowStep<TKinds extends string, TCtx extends RuntimeStepperContext, TBuilt> = FlowStepOptions<TCtx> & {
+export type LinearFlowStep<TKinds extends string, TCtx extends RuntimeStepperContext, TBuilt> = FlowSlotCfg<TCtx> & {
   readonly build: (sub: StepperBuilder<{}, TKinds, ChildContext<TCtx>>) => TBuilt;
 };
 
 /** A nested ring: slot options, its accumulator and the callback authoring the ring, ending in `dock`. */
-export type RecurrentFlowStep<C, TKinds extends string, TCtx extends RuntimeStepperContext, TTerminal> = FlowStepOptions<TCtx> &
+export type RecurrentFlowStep<C, TKinds extends string, TCtx extends RuntimeStepperContext, TTerminal> = FlowSlotCfg<TCtx> &
   RingCfg<C> & {
     readonly build: (loop: RecurrentStepperBuilder<{}, C, TKinds, RingContext<TCtx, C>>) => TTerminal;
   };
@@ -628,22 +638,17 @@ interface FlowSlot<TCtx extends RuntimeStepperContext> {
 
   readonly flow: RuntimeFlow;
 
-  readonly opts: FlowStepOptions<TCtx>;
+  readonly opts: FlowSlotCfg<TCtx>;
 }
 
 function flowStepNode<TCtx extends RuntimeStepperContext>(slot: FlowSlot<TCtx>): FlowStepNode {
-  const ring = isRecurrent(slot.flow) ? slot.flow : null;
-  const complete = ring?.complete;
-
   return {
     kind: SequenceNodeKind.Flow,
     name: slot.name,
     flow: slot.flow,
     ...(slot.opts.label === undefined ? {} : { label: isSignal(slot.opts.label) ? slot.opts.label : signal(slot.opts.label) }),
-    when: slot.opts.when,
+    activeWhen: slot.opts.activeWhen,
     defer: slot.opts.defer,
-    completeWhen: ring && complete ? (ctx) => complete(ctx.steps[slot.name] ?? ring.initial()) : undefined,
-    incompleteMessage: ring?.incompleteMessage,
   };
 }
 
@@ -747,7 +752,7 @@ export class StepperBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepOptions<
+    O extends StaticStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -758,7 +763,7 @@ export class StepperBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepOptions<
+    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -766,8 +771,8 @@ export class StepperBuilder<
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>>;
-  createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepOptions<TCtx, string>): never;
-  createStep<N extends string = never, P = {}, O extends StepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {}>(
+  createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<TCtx, string>): never;
+  createStep<N extends string = never, P = {}, O extends StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>> {
@@ -786,7 +791,7 @@ export class StepperBuilder<
     const steps: SequenceNode[] = [];
     for (const key in branches) {
       const gate: StepGate = {
-        when: (ctx: GateContext<TCtx>) => {
+        activeWhen: (ctx: GateContext<TCtx>) => {
           const selected: string | null | undefined = select(ctx);
 
           return selected === key;
@@ -804,7 +809,7 @@ export class StepperBuilder<
   ): TerminalForkBuilder<TForms, TCtx, ArmResult<A>> {
     const built = Object.entries(arms).map(([key, arm]) => [key, arm(new ForkArmBuilder<TForms, TCtx>())] as const);
     const merged = built.reduce<ChainState>((chain, [key, arm]) => {
-      const gate: StepGate = { when: (ctx: GateContext<TCtx>) => select(ctx) === key };
+      const gate: StepGate = { activeWhen: (ctx: GateContext<TCtx>) => select(ctx) === key };
       const steps = arm.steps.map((node) => guardedBy(gate, node));
 
       return {
@@ -828,7 +833,7 @@ export class StepperBuilder<
     return { build: () => new Stepper<TForms, TCtx, ArmResult<A>>(definition) };
   }
 
-  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowStepOptions<TCtx>>(
+  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowSlotCfg<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<TCtx2['steps']>, O>>> {
@@ -839,7 +844,7 @@ export class StepperBuilder<
     );
   }
 
-  createRecurrentStepper<N extends string, C, F2, TCtx2 extends RingRuntimeContext<C>, O extends FlowStepOptions<TCtx>>(
+  createRecurrentStepper<N extends string, C, F2, TCtx2 extends RingRuntimeContext<C>, O extends FlowSlotCfg<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C, TKinds, TCtx, RecurrentTerminal<F2, TCtx2, C>>,
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, C, O>>> {
@@ -904,15 +909,11 @@ export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepperContext = 
 
   readonly dockAt: number;
 
-  readonly initial: () => C;
+  readonly state: () => C;
 
   readonly fold?: (state: C, pass: RuntimeStepperContext) => C;
 
   readonly dockReachable?: (state: C) => boolean;
-
-  readonly complete?: (state: C) => boolean;
-
-  readonly incompleteMessage?: string;
 
   constructor(definition: RecurrentFlowDefinition<C>) {
     this.steps = definition.steps;
@@ -921,11 +922,9 @@ export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepperContext = 
     this.controlTypes = definition.controlTypes;
     this.providers = definition.providers;
     this.dockAt = definition.dockAt;
-    this.initial = definition.initial;
+    this.state = definition.state;
     this.fold = definition.fold;
     this.dockReachable = definition.dockReachable;
-    this.complete = definition.complete;
-    this.incompleteMessage = definition.incompleteMessage;
   }
 }
 
@@ -933,15 +932,11 @@ interface RingState<C> extends ChainState {
   readonly ring: RingCfg<C>;
 
   fold?(state: C, pass: RuntimeStepperContext): C;
-
-  complete?(state: C): boolean;
-
-  readonly incompleteMessage?: string;
 }
 
-const passGate: StepGate = { when: (ctx) => ctx.flow?.passOpen() === true };
+const passGate: StepGate = { activeWhen: (ctx) => ctx.flow?.passOpen() === true };
 
-const dockGate: StepGate = { when: (ctx) => ctx.flow?.passOpen() !== true };
+const dockGate: StepGate = { activeWhen: (ctx) => ctx.flow?.passOpen() !== true };
 
 /** The root of a ring: pass steps, `fold`, `completeWhen`, then `dock` last. */
 export class RecurrentStepperBuilder<
@@ -1013,7 +1008,7 @@ export class RecurrentStepperBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepOptions<
+    O extends StaticStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -1024,7 +1019,7 @@ export class RecurrentStepperBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepOptions<
+    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
     >,
@@ -1032,10 +1027,10 @@ export class RecurrentStepperBuilder<
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>;
-  createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepOptions<TCtx, string>): never;
+  createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<TCtx, string>): never;
   createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
-    opts: StepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+    opts: StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>> {
     return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>(
       this.appended([stepNode({ pages: pagesOf(build, opts.dynamic === true), opts, gate: passGate })]),
@@ -1052,8 +1047,8 @@ export class RecurrentStepperBuilder<
     const steps: SequenceNode[] = [];
     for (const key in branches) {
       const gate: StepGate = {
-        when: (ctx: GateContext<TCtx>) => {
-          if (!passGate.when(ctx)) return false;
+        activeWhen: (ctx: GateContext<TCtx>) => {
+          if (!passGate.activeWhen(ctx)) return false;
 
           const selected: string | null | undefined = select(ctx);
 
@@ -1066,7 +1061,7 @@ export class RecurrentStepperBuilder<
     return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, BranchAdded<B>>>(this.appended(steps));
   }
 
-  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowStepOptions<TCtx>>(
+  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowSlotCfg<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepsCommitted<TCtx2['steps']>>>> {
@@ -1077,7 +1072,7 @@ export class RecurrentStepperBuilder<
     );
   }
 
-  createRecurrentStepper<N extends string, C2, F2, TCtx2 extends RingRuntimeContext<C2>, O extends FlowStepOptions<TCtx>>(
+  createRecurrentStepper<N extends string, C2, F2, TCtx2 extends RingRuntimeContext<C2>, O extends FlowSlotCfg<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C2, TKinds, TCtx, RecurrentTerminal<F2, TCtx2, C2>>,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, C2>>> {
@@ -1092,51 +1087,32 @@ export class RecurrentStepperBuilder<
     return new RecurrentStepperBuilder<TForms, C, TKinds, TCtx>({ ...this.state, fold });
   }
 
-  completeWhen(complete: (state: C) => boolean, message?: string): RecurrentStepperBuilder<TForms, C, TKinds, TCtx> {
-    return new RecurrentStepperBuilder<TForms, C, TKinds, TCtx>({
-      ...this.state,
-      complete,
-      incompleteMessage: message,
-    });
-  }
-
   dock<
     N extends string = never,
     P = {},
-    O extends StaticStepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepOptions<
+    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly dynamic?: never } = DockCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
-    >,
+    > & { readonly dynamic?: never },
   >(build: StaticStepBuild<TForms, TCtx, P>, opts?: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
   dock<
     N extends string = never,
     P = {},
-    O extends DynamicStepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepOptions<
+    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly dynamic: true } = DockCfg<
       WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
       N
-    >,
+    > & { readonly dynamic: true },
   >(build: DynamicStepBuild<TForms, TCtx, P>, opts: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
-  dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepOptions<TCtx, string>): never;
+  dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: DockCfg<TCtx, string>): never;
   dock<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
-    opts: StepOptions<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+    opts: DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
   ): RecurrentTerminal<TForms, TCtx, C> {
     if (this.docked) throw new Error('A recurrent flow has exactly one dock.');
 
     this.docked = true;
-    const own = opts.completeWhen;
-    const complete = this.state.complete;
-    const gate = (ctx: GateContext<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>): boolean => {
-      if (own && !own(ctx)) return false;
-
-      return complete ? complete(ctx.flow.state()) : true;
-    };
     const docked = this.appended([
-      stepNode({
-        pages: pagesOf(build, opts.dynamic === true),
-        opts: { ...opts, completeWhen: gate, incompleteMessage: opts.incompleteMessage ?? this.state.incompleteMessage },
-        gate: dockGate,
-      }),
+      stepNode({ pages: pagesOf(build, opts.dynamic === true), opts, gate: dockGate }),
     ]);
     const definition: RecurrentFlowDefinition<C> = {
       recurrent: true,
@@ -1146,11 +1122,9 @@ export class RecurrentStepperBuilder<
       controlTypes: docked.controlTypes,
       providers: docked.providers,
       dockAt: this.state.steps.length,
-      initial: this.state.ring.initial,
+      state: this.state.ring.state,
       fold: this.state.fold,
       dockReachable: this.state.ring.dockReachable,
-      complete: this.state.complete,
-      incompleteMessage: this.state.incompleteMessage,
     };
 
     return { build: () => new RecurrentStepper<TForms, TCtx, C>(definition) };

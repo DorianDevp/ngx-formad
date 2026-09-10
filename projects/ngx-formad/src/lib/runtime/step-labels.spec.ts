@@ -63,7 +63,7 @@ class LabelledHost {
         (s) => s.createPage((p) => p.addForm('b'), { heading: 'Gift wrap' }),
         {
           label: 'Gift options',
-          when: () => withGiftWrap(),
+          activeWhen: () => withGiftWrap(),
         },
       )
       .createStep(

@@ -2,7 +2,7 @@ import { Signal, signal } from '@angular/core';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from '../runtime/effective-sequence';
-import { isFlowStep, isRecurrent } from './flow';
+import { isFlowStep, isRecurrent, isStepNode } from './flow';
 import { SequenceNodeKind } from './nodes';
 import { RuntimeStepperContext, SharedSignals } from './step-context';
 import { RecurrentStepperBuilder, StepperBuilder } from './stepper-builder';
@@ -45,7 +45,7 @@ const built = new StepperBuilder()
   .createForm('intro', form('Intro'))
   .createStep((s) => s.createPage((p) => p.addForm('intro'), { heading: 'Intro' }))
   .createRecurrentStepper('devices', {
-    initial: (): Item[] => [],
+    state: (): Item[] => [],
     label: 'Devices',
     build: (loop) =>
       loop
@@ -62,9 +62,10 @@ const built = new StepperBuilder()
               label: 'Bulk',
             }),
         })
-        .completeWhen((items) => items.length > 0, 'Add at least one device')
         .dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected')), { heading: 'Collected' }), {
           label: 'Dock',
+          completeWhen: (ctx) => ctx.flow.state().length > 0,
+          incompleteMessage: 'Add at least one device',
         }),
   })
   .build();
@@ -91,17 +92,18 @@ describe('createRecurrentStepper - the emitted node', () => {
     expect(ring?.dockAt).toBe((ring?.steps.length ?? 0) - 1);
   });
 
-  it('mirrors the flow completeness onto the parent slot, from the initial state before any fold', () => {
+  // The flow's contract is its dock's business: the ring has no exit but the dock, and the
+  // dock's own completeWhen holds it, so the parent slot carries no guard of its own.
+  it('leaves the parent slot ungated and keeps the contract on the dock', () => {
     if (!isFlowStep(flowNode)) throw new Error('expected a flow step');
-    const empty: RuntimeStepperContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
-    const one: RuntimeStepperContext = {
-      steps: { devices: [{ name: 'a' }] },
-      shared: {},
-      flow: undefined,
-      parent: undefined,
-    };
-    expect(flowNode.completeWhen?.(empty)).toBe(false);
-    expect(flowNode.completeWhen?.(one)).toBe(true);
+    expect(flowNode.completeWhen).toBeUndefined();
+    expect(flowNode.incompleteMessage).toBeUndefined();
+
+    const dock = ring?.steps[ring.dockAt];
+    if (!dock || !isStepNode(dock)) throw new Error('expected a leaf dock');
+    expect(dock.incompleteMessage).toBe('Add at least one device');
+    expect(dock.completeWhen?.(ctx({ state: [{ name: 'a' }], passOpen: false }))).toBe(true);
+    expect(dock.completeWhen?.(ctx({ state: [], passOpen: false }))).toBe(false);
   });
 });
 
@@ -138,7 +140,7 @@ describe('createRecurrentStepper - the ring gates', () => {
 describe('RecurrentStepperBuilder - authoring errors', () => {
   it('refuses a pool name or a step name that is already taken on its level', () => {
     expect(() =>
-      new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] })
+      new RecurrentStepperBuilder<{}, Item[]>({ state: () => [] })
         .createForm('name', form('A'))
         .createForm('name', form('B')),
     ).toThrow(/already taken/);
@@ -150,19 +152,19 @@ describe('RecurrentStepperBuilder - authoring errors', () => {
           name: 'devices',
         })
         .createRecurrentStepper('devices', {
-          initial: (): Item[] => [],
+          state: (): Item[] => [],
           build: (loop) => loop.dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected')))),
         }),
     ).toThrow(/already taken/);
   });
 
   it('offers build() only after the dock', () => {
-    const dockless = new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] });
+    const dockless = new RecurrentStepperBuilder<{}, Item[]>({ state: () => [] });
     expect('build' in dockless).toBe(false);
   });
 
   it('refuses a second dock', () => {
-    const loop = new RecurrentStepperBuilder<{}, Item[]>({ initial: () => [] });
+    const loop = new RecurrentStepperBuilder<{}, Item[]>({ state: () => [] });
     loop.dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected'))));
     expect(() =>
       loop.dock((s) => s.createPage((p) => p.addContent((c) => c.p('Collected')))),
