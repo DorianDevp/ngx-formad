@@ -35,6 +35,7 @@ import {
   DeferTrigger,
   FormKeys,
   FormModel,
+  FormOmitted,
   FormPlaced,
   FormUi,
   GateContext,
@@ -484,7 +485,7 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
+    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>, FormOmitted<F>>,
   ): ForkArmBuilder<TForms & Record<K, ConfigOf<F>>, TCtx, TAdded> {
     claimName(name, this.arm.forms);
 
@@ -752,7 +753,7 @@ export class StepperBuilder<
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
+    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>, FormOmitted<F>>,
   ): StepperBuilder<TForms & Record<K, ConfigOf<F>>, TKinds, TCtx> {
     claimName(name, this.chain.forms);
 
@@ -988,7 +989,7 @@ export class RecurrentStepperBuilder<
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
-    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
+    provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>, FormOmitted<F>>,
   ): RecurrentStepperBuilder<TForms & Record<K, ConfigOf<F>>, C, TKinds, TCtx> {
     claimName(name, this.state.forms);
 

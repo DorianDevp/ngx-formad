@@ -4,18 +4,43 @@ const STRUCTURED_CLONE = typeof structuredClone === 'function';
 
 /**
  * Copies a stored value so the store hands out its own: the platform's `structuredClone` where it exists, a
- * structural walk otherwise, since a test environment (jsdom under Jest) may not provide it.
+ * structural walk otherwise, since a test environment (jsdom under Jest) may not provide it. The walk remembers what
+ * it has already copied, so a value that points back at itself comes out as one shape, not as a stack overflow -
+ * `structuredClone` handles those, and the fallback must not be the weaker of the two.
  */
-function clone<V>(value: V): V {
+function clone<V>(value: V, seen: WeakMap<object, unknown> = new WeakMap()): V {
   if (STRUCTURED_CLONE) return structuredClone(value);
   if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map((entry) => clone(entry)) as V;
+
+  const already = seen.get(value);
+  if (already !== undefined) return already as V;
+
   if (value instanceof Date) return new Date(value.getTime()) as V;
-  if (value instanceof Map) return new Map([...value].map(([key, entry]) => [clone(key), clone(entry)])) as V;
-  if (value instanceof Set) return new Set([...value].map((entry) => clone(entry))) as V;
+  if (Array.isArray(value)) {
+    const copy: unknown[] = [];
+    seen.set(value, copy);
+    for (const entry of value) copy.push(clone(entry, seen));
+
+    return copy as V;
+  }
+  if (value instanceof Map) {
+    const copy = new Map();
+    seen.set(value, copy);
+    for (const [key, entry] of value) copy.set(clone(key, seen), clone(entry, seen));
+
+    return copy as V;
+  }
+  if (value instanceof Set) {
+    const copy = new Set();
+    seen.set(value, copy);
+    for (const entry of value) copy.add(clone(entry, seen));
+
+    return copy as V;
+  }
 
   const copy: Record<string, unknown> = {};
-  for (const [key, entry] of Object.entries(value)) copy[key] = clone(entry);
+  seen.set(value, copy);
+  for (const [key, entry] of Object.entries(value)) copy[key] = clone(entry, seen);
 
   return copy as V;
 }

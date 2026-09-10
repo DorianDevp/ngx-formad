@@ -244,8 +244,15 @@ export type FormLayoutItem<M extends Record<string, unknown> = Record<string, un
   | FormRowItem<M>;
 
 /** A form's layout overlay: the container grid and the ordered items; built with `formLayout()`. `P` names the components `control()` placed, by field. */
-export interface FormLayout<M extends Record<string, unknown> = Record<string, unknown>, P extends {} = {}> {
+export interface FormLayout<
+  M extends Record<string, unknown> = Record<string, unknown>,
+  P extends {} = {},
+  O extends string = never,
+> {
   readonly __placed?: P;
+
+  /** Phantom: the fields the layout omits on purpose, so a `customField()` among them needs no placement. */
+  readonly __omitted?: O;
 
   readonly grid?: GridLayout;
 
@@ -287,18 +294,26 @@ type CustomPaths<U, Prefix extends string = ''> = {
 
 type Nested<S extends string> = S extends `${string}.${string}` ? S : never;
 
-type Unplaced<U, P> = Exclude<Exclude<CustomPaths<U>, Nested<CustomPaths<U>>>, keyof P>;
+type Unplaced<U, P, O extends string = never> = Exclude<
+  Exclude<Exclude<CustomPaths<U>, Nested<CustomPaths<U>>>, keyof P>,
+  O
+>;
 
 /** `unknown` when every `customField()` in `U` has a `control()` placement in `P`; a refusal naming the field otherwise. */
-export type PlacesCustomFields<U, P> = [Nested<CustomPaths<U>>] extends [never]
-  ? [Unplaced<U, P>] extends [never]
+export type PlacesCustomFields<U, P, O extends string = never> = [Nested<CustomPaths<U>>] extends [never]
+  ? [Unplaced<U, P, O>] extends [never]
     ? unknown
-    : Rejected<`customField "${Unplaced<U, P>}" has no control() placement in the layout`>
+    : Rejected<`customField "${Unplaced<U, P, O>}" has no control() placement in the layout`>
   : Rejected<`customField "${Nested<CustomPaths<U>>}" sits inside a group or an array item, where no control() can place it`>;
 
 /** Declares a form config while keeping the authored `ui` type and the placed components, so a signal put in comes back writable and the bindings are typed. */
-export function defineForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
-  config: FormConfig<M, U, P> & PlacesCustomFields<U, P>,
+export function defineForm<
+  M extends Record<string, unknown>,
+  U extends SignalUiConfig<M> & ErasedUi,
+  P extends {} = {},
+  O extends string = never,
+>(
+  config: FormConfig<M, U, P> & { readonly layout?: { readonly __omitted?: O } } & PlacesCustomFields<U, P, O>,
 ): FormConfig<M, U, P> {
   return config;
 }

@@ -31,4 +31,18 @@ describe('SharedState', () => {
     expect(email()).toBe('via-patch@example.com');
     expect(state.get('email')).toBe('via-patch@example.com');
   });
+  // `structuredClone` copes with a cycle; the structural fallback used in a jsdom test
+  // environment must not be the weaker of the two.
+  it('copies a value that points back at itself', () => {
+    type Node = { name: string; self?: Node };
+    const node: Node = { name: 'root' };
+    node.self = node;
+
+    const store = new SharedState({ node });
+    const held = store.get('node') as Node;
+
+    expect(held).not.toBe(node);
+    expect(held.self).toBe(held);
+    expect(held.name).toBe('root');
+  });
 });

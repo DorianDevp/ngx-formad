@@ -180,8 +180,10 @@ function declaredOutputs(outputs: BindingRecord, ctx: () => FormContext): Bindin
  * metadata put some names beyond what the mirror reports.
  */
 function checkNames(component: Type<object>, key: string, inputs: BindingRecord, outputs: BindingRecord): void {
+  if (!isDevMode()) return;
+
   const mirror = reflectComponentType(component);
-  if (!isDevMode() || !mirror) return;
+  if (!mirror) return;
 
   const asInput = new Set(mirror.inputs.map((entry) => entry.templateName));
   const asOutput = new Set(mirror.outputs.map((entry) => entry.templateName));

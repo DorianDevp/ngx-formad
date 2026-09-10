@@ -127,7 +127,7 @@ export interface ContentTagChild {
 export type ContentChild = ContentTextChild | ContentTagChild;
 
 /** A nested build: whatever it adds to the builder becomes the children of the tag it was given to. */
-export type ContentBuild = (content: ContentBuilder) => ContentBuilder | ContentText | void;
+export type ContentBuild = (content: ContentBuilder) => ContentBuilder | void;
 
 /** The argument shapes a tag method accepts: text, options and nested children, in any sensible subset. */
 export type TagArgsOf<O extends ContentOptions> =

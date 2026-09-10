@@ -184,3 +184,28 @@ function pagesAt(steps: readonly SequenceNode[], index: number) {
 
   return 'build' in step.pages ? step.pages.build(EMPTY_CONTEXT) : step.pages;
 }
+
+// A field named `path` used to hit the proxy's own carrier; both the path and the store key
+// now live under symbols, so no model field or store key can shadow them.
+describe('fieldValueBindings', () => {
+  it('links a field named path like any other', () => {
+    type Routed = { path: string };
+    const routed: FormConfig<Routed> = {
+      model: () => ({ path: '' }),
+      ui: UiFormConfigBuilder.from({ path: '' }).path(text('Path')),
+    };
+    const stepper = new StepperBuilder()
+      .withState({ route: '' })
+      .createForm('routed', routed)
+      .createStep((step) =>
+        step.createPage(
+          (page) => page.addForm('routed', { fieldValueBindings: (f, s) => [link(f.path, s.route)] }),
+          { heading: 'Route' },
+        ),
+      )
+      .build();
+
+    const node = pagesAt(stepper.steps, 0)[0].children.find((c) => c.kind === LayoutNodeKind.Form) as FormNode;
+    expect(node.links).toEqual([{ modelPath: ['path'], sharedKey: 'route' }]);
+  });
+});

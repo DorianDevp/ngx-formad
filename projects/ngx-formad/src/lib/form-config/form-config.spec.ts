@@ -1,8 +1,9 @@
 import { isSignal, signal } from '@angular/core';
-import { UiFormConfigBuilder, email, select, text } from 'formodel';
+import { UiFormConfigBuilder, customField, email, select, text } from 'formodel';
 import {
   buildLayoutNodes,
   buildNodes,
+  defineForm,
   ErasedUi,
   extraInputsFor,
   FormLayoutItem,
@@ -149,5 +150,21 @@ describe('buildLayoutNodes', () => {
     expect(row.kind).toBe(RenderNodeKind.Row);
     expect(row.grid).toEqual({ cols: 2 });
     expect(row.children.map((c) => c.key)).toEqual(['first', 'last']);
+  });
+});
+
+// A customField the layout omits on purpose needs no control() placement - nothing will
+// ever draw it - so `omit()` has to reach the type that refuses unplaced ones.
+describe('PlacesCustomFields and omit', () => {
+  it('accepts a customField the layout omits on purpose', () => {
+    type Hidden = { name: string; token: string };
+    const config = defineForm({
+      model: (): Hidden => ({ name: '', token: '' }),
+      ui: UiFormConfigBuilder.from({ name: '', token: '' }).name(text('Name')).token(customField()),
+      layout: formLayout<Hidden>().field('name').omit('token').build(),
+    });
+
+    expect(config.layout?.omitted).toEqual(['token']);
+    expect(flattenFields(config.ui).map((field) => field.key)).toEqual(['name', 'token']);
   });
 });
