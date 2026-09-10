@@ -2,7 +2,7 @@ import { computed, EnvironmentInjector, Injector, isSignal, runInInjectionContex
 import { ValidationError } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
 import { ComponentNode, FormNode, FormRevisit, LayoutNode, LayoutNodeKind, PageNode } from '../builders/nodes';
-import { AnyFormProvider, RuntimeStepContext } from '../builders/step-context';
+import { AnyFormProvider, RuntimeStepContext, RuntimeStepperContext } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
 import { mountInjector } from '../renderer/form-view';
 import { FieldLeaf, FieldLevel, FormState, instantiateRuntimeForm, isLevel } from '../renderer/instantiate-form';
@@ -57,7 +57,7 @@ export interface LiveStep {
 }
 
 /** A gate as a node holds it, erased. */
-type Gate = (ctx: RuntimeStepContext) => boolean;
+type Gate = (ctx: RuntimeStepperContext) => boolean;
 
 /** One placed form with the gates it sits under: its page's, then each enclosing row's, then its own. */
 interface PlacedForm {
@@ -147,10 +147,10 @@ export interface MaterializeOptions {
 
   readonly injector?: Injector;
 
-  readonly entry: RuntimeStepContext;
+  readonly entry: RuntimeStepperContext;
 
   /** The context a form's handlers and effects read; called again on every emission, so `steps` stays live. */
-  readonly context?: () => RuntimeStepContext;
+  readonly context?: () => RuntimeStepperContext;
 }
 
 /** A seed's entries that carry a value; an `undefined` one means "leave the field as it is", not "unset it". */
@@ -158,7 +158,7 @@ function definedEntries(seed: Record<string, unknown>): [string, unknown][] {
   return Object.entries(seed).filter(([, value]) => value !== undefined);
 }
 
-function liveForm(placed: PlacedForm, options: MaterializeOptions, ctx: RuntimeStepContext): LiveForm | null {
+function liveForm(placed: PlacedForm, options: MaterializeOptions, ctx: RuntimeStepperContext): LiveForm | null {
   const node = placed.node;
   const template = options.pool[node.name];
   if (!template) return null;
@@ -216,10 +216,13 @@ function liveForm(placed: PlacedForm, options: MaterializeOptions, ctx: RuntimeS
  * The context a page component's bindings are built over: getters, not a snapshot, so a binding created once at mount
  * reads the steps alive when it is evaluated - as long as the binding reads the context inside its own getter.
  */
-function liveContext(options: MaterializeOptions): RuntimeStepContext {
+function liveContext(options: MaterializeOptions, forms: Readonly<Record<string, FormState>>): RuntimeStepContext {
   const now = options.context ?? (() => options.entry);
 
   return {
+    get forms() {
+      return forms;
+    },
     get steps() {
       return now().steps;
     },
@@ -246,15 +249,17 @@ function componentInjector(node: ComponentNode, options: MaterializeOptions, ctx
 /** Instantiates a step's placed forms and components, registers the forms for completion and wires their shared links. */
 export function materializeStep(pages: readonly PageNode[], options: MaterializeOptions): LiveStep {
   const registry = new InstanceRegistry();
-  const ctx = liveContext(options);
+  const instances: Record<string, FormState> = {};
+  const ctx = liveContext(options, instances);
   const forms = placedForms(pages).flatMap((placed) => {
     const live = liveForm(placed, options, ctx);
 
     return live === null ? [] : [live];
   });
   for (const form of forms) {
+    instances[form.name] = form.state;
     registry.add({ rootForm: form.state.rootForm, visible: form.visible });
-    form.seed(options.entry);
+    form.seed(ctx);
   }
 
   return {
@@ -266,7 +271,7 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
         componentInjector(node, options, ctx),
       ]),
     ),
-    instances: Object.fromEntries(forms.map((form) => [form.name, form.state])),
+    instances,
     pages,
     context: ctx,
   };

@@ -1,6 +1,6 @@
 import { isSignal, Provider, signal, Signal, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
-import { PlacesCustomFields } from '../form-config/form-config';
+import { FormContext, PlacesCustomFields } from '../form-config/form-config';
 import { Rejected } from '../form-config/rejected';
 import { ControlTypeMap } from '../provide';
 import { FormState } from '../renderer/instantiate-form';
@@ -26,7 +26,7 @@ import {
   StepNode,
   StepRevisit,
 } from './nodes';
-import { FormBindings, FormContext, FormEffect } from '../form-config/form-bindings';
+import { FormBindings, FormEffect } from '../form-config/form-bindings';
 import { recordLinks, SharedLinks } from './shared-link';
 import {
   AnyFormProvider,
@@ -41,10 +41,11 @@ import {
   RecurrentSignals,
   RingContext,
   RootContext,
-  RuntimeStepContext,
+  RuntimeStepperContext,
   SharedSignals,
   StepCondition,
   StepContext,
+  StepperContext,
   StepGate,
   StepInstance,
   WithShared,
@@ -127,34 +128,35 @@ export interface PageCfg<TCtx = unknown> {
   readonly visibleWhen?: (ctx: TCtx) => boolean;
 }
 
-/** The context a placed form's handlers and effects read: the step's, with the form's own writable model. */
-export type StepFormContext<M extends Record<string, unknown>, TCtx extends RuntimeStepContext> = TCtx & FormContext<M>;
+/** The context a placed form's callbacks read: the step's level and the form's own. */
+export type StepFormContext<F, TCtx extends RuntimeStepperContext, TForms = {}> = StepContext<TCtx, TForms> &
+  FormContext<FormModel<F>, FormUi<F>>;
 
 /** The bindings a placed form takes, typed by the pool template it names. */
-export type PlacedFormBindings<F, TCtx extends RuntimeStepContext> = FormBindings<
+export type PlacedFormBindings<F, TCtx extends RuntimeStepperContext> = FormBindings<
   FormModel<F>,
   FormUi<F>,
   FormPlaced<F>,
-  StepFormContext<FormModel<F>, TCtx>
+  StepFormContext<F, TCtx>
 >;
 
 /** Placement options for a pooled form: its field bindings, shared links, effects, the local `initial` seed and what a revisit does with it. */
-export interface FormCfg<F, TCtx extends RuntimeStepContext> {
+export interface FormCfg<F, TCtx extends RuntimeStepperContext, TForms = {}> {
   readonly bindings?: PlacedFormBindings<F, TCtx>;
-  readonly visibleWhen?: (ctx: TCtx) => boolean;
+  readonly visibleWhen?: (ctx: StepContext<TCtx, TForms>) => boolean;
   readonly bind?: SharedLinks<FormModel<F>, TCtx['shared']>;
-  readonly effects?: readonly FormEffect<StepFormContext<FormModel<F>, TCtx>>[];
-  readonly initial?: (ctx: TCtx) => Partial<FormModel<F>>;
+  readonly effects?: readonly FormEffect<StepFormContext<F, TCtx, TForms>>[];
+  readonly initial?: (ctx: StepContext<TCtx, TForms>) => Partial<FormModel<F>>;
   readonly revisit?: FormRevisit;
 }
 
 /** Builds one page: content, components and pooled forms; `P` accumulates the placed pool names. */
-export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
+export class PageBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
   readonly __placed?: P;
 
   constructor(readonly nodes: readonly LayoutNode[] = []) {}
 
-  addContent(build: ContentBuild, cfg: ContentCfg<TCtx> = {}): PageBuilder<TForms, TCtx, P> {
+  addContent(build: ContentBuild, cfg: ContentCfg<StepContext<TCtx, TForms>> = {}): PageBuilder<TForms, TCtx, P> {
     return this.with({
       kind: LayoutNodeKind.Content,
       layout: cfg.layout,
@@ -163,7 +165,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
     });
   }
 
-  addComponent(component: Type<object>, cfg: ComponentCfg<TCtx> = {}): PageBuilder<TForms, TCtx, P> {
+  addComponent(component: Type<object>, cfg: ComponentCfg<StepContext<TCtx, TForms>> = {}): PageBuilder<TForms, TCtx, P> {
     const bindings = cfg.bindings ?? [];
 
     return this.with({
@@ -177,7 +179,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 
   insertRow<P2>(
     build: (row: PageBuilder<TForms, TCtx, {}>) => PageBuilder<TForms, TCtx, P2>,
-    cfg: RowCfg<TCtx> = {},
+    cfg: RowCfg<StepContext<TCtx, TForms>> = {},
   ): PageBuilder<TForms, TCtx, P & P2> {
     const row = build(new PageBuilder<TForms, TCtx, {}>());
 
@@ -189,7 +191,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 
   addForm<K extends FormKeys<TForms>>(
     name: K,
-    cfg: FormCfg<TForms[K], TCtx> = {},
+    cfg: FormCfg<TForms[K], TCtx, TForms> = {},
   ): PageBuilder<TForms, TCtx, P & Record<K, true>> {
     return new PageBuilder<TForms, TCtx, P & Record<K, true>>([
       ...this.nodes,
@@ -212,7 +214,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 }
 
 /** A page's build callback; what it places accumulates in `P`. */
-export type PageBuild<TForms, TCtx extends RuntimeStepContext, P> = (
+export type PageBuild<TForms, TCtx extends RuntimeStepperContext, P> = (
   page: PageBuilder<TForms, TCtx, {}>,
 ) => PageBuilder<TForms, TCtx, P>;
 
@@ -220,24 +222,24 @@ type MisplacedPageOptions = PageOptions | { readonly options: PageOptions };
 
 const PAGE_ARGUMENTS = 'createPage(build, options?): the page callback comes first, the heading and subheading second';
 
-function isPageBuild<TForms, TCtx extends RuntimeStepContext, P>(
+function isPageBuild<TForms, TCtx extends RuntimeStepperContext, P>(
   value: PageBuild<TForms, TCtx, P> | MisplacedPageOptions,
 ): value is PageBuild<TForms, TCtx, P> {
   return typeof value === 'function';
 }
 
 /** Builds one step out of pages; `P` accumulates what the pages placed. */
-export class StepBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
+export class StepBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
   readonly __placed?: P;
 
   constructor(readonly pages: readonly PageNode[] = []) {}
 
-  createPage<P2>(build: PageBuild<TForms, TCtx, P2>, options?: PageCfg<TCtx>): StepBuilder<TForms, TCtx, P & P2>;
+  createPage<P2>(build: PageBuild<TForms, TCtx, P2>, options?: PageCfg<StepContext<TCtx, TForms>>): StepBuilder<TForms, TCtx, P & P2>;
   /** The arguments the other way round are refused here, where the mistake is, not in every step that reads this one. */
   createPage(options: MisplacedPageOptions, build?: PageBuild<TForms, TCtx, {}>): Rejected<typeof PAGE_ARGUMENTS>;
   createPage<P2>(
     first: PageBuild<TForms, TCtx, P2> | MisplacedPageOptions,
-    second: PageCfg<TCtx> | PageBuild<TForms, TCtx, {}> = {},
+    second: PageCfg<StepContext<TCtx, TForms>> | PageBuild<TForms, TCtx, {}> = {},
   ): StepBuilder<TForms, TCtx, P & P2> | Rejected<typeof PAGE_ARGUMENTS> {
     if (!isPageBuild(first) || typeof second === 'function') throw new Error(`ngx-formad: ${PAGE_ARGUMENTS}.`);
 
@@ -257,18 +259,18 @@ export class StepBuilder<TForms, TCtx extends RuntimeStepContext, P = {}> {
 }
 
 /** A step's build callback, built once at authoring time: the step builder alone. */
-export type StaticStepBuild<TForms, TCtx extends RuntimeStepContext, P> = (
+export type StaticStepBuild<TForms, TCtx extends RuntimeStepperContext, P> = (
   step: StepBuilder<TForms, TCtx, {}>,
 ) => StepBuilder<TForms, TCtx, P>;
 
 /** A dynamic step's build callback, run on every entry: the step builder and the live context. */
-export type DynamicStepBuild<TForms, TCtx extends RuntimeStepContext, P> = (
+export type DynamicStepBuild<TForms, TCtx extends RuntimeStepperContext, P> = (
   step: StepBuilder<TForms, TCtx, {}>,
   ctx: TCtx,
 ) => StepBuilder<TForms, TCtx, P>;
 
 /** A step's build callback as the runtime holds it; a static one fits, ignoring the context. */
-export type StepBuild<TForms, TCtx extends RuntimeStepContext, P = {}> = DynamicStepBuild<TForms, TCtx, P>;
+export type StepBuild<TForms, TCtx extends RuntimeStepperContext, P = {}> = DynamicStepBuild<TForms, TCtx, P>;
 
 const NOT_DYNAMIC = 'a step whose callback takes ctx must be declared dynamic: createStep(build, { dynamic: true })';
 
@@ -276,7 +278,7 @@ const NOT_DYNAMIC = 'a step whose callback takes ctx must be declared dynamic: c
 export type NotDynamic = Rejected<typeof NOT_DYNAMIC>;
 
 /** Per-step options; `name` is the key successors read the step under, `dynamic` builds the pages on every entry over the live context. */
-export interface StepOptions<TCtx extends RuntimeStepContext, N extends string = never> {
+export interface StepOptions<TCtx extends RuntimeStepperContext, N extends string = never> {
   readonly name?: N;
 
   readonly dynamic?: true;
@@ -297,17 +299,17 @@ export interface StepOptions<TCtx extends RuntimeStepContext, N extends string =
 }
 
 /** The options of a step built once; `dynamic` may not be set. */
-export type StaticStepOptions<TCtx extends RuntimeStepContext, N extends string = never> = StepOptions<TCtx, N> & {
+export type StaticStepOptions<TCtx extends RuntimeStepperContext, N extends string = never> = StepOptions<TCtx, N> & {
   readonly dynamic?: never;
 };
 
 /** The options of a step built on every entry; `dynamic: true` is required. */
-export type DynamicStepOptions<TCtx extends RuntimeStepContext, N extends string = never> = StepOptions<TCtx, N> & {
+export type DynamicStepOptions<TCtx extends RuntimeStepperContext, N extends string = never> = StepOptions<TCtx, N> & {
   readonly dynamic: true;
 };
 
 /** A branch selector: the branch key, or null/undefined while undecided. */
-export type BranchSelect<TCtx extends RuntimeStepContext, K extends string> = (
+export type BranchSelect<TCtx extends RuntimeStepperContext, K extends string> = (
   ctx: GateContext<TCtx>,
 ) => K | null | undefined;
 
@@ -318,7 +320,7 @@ export type BranchAdded<B> = UnionToIntersection<
 
 type PushStep = (node: SequenceNode) => void;
 
-interface StepSpec<TCtx extends RuntimeStepContext> {
+interface StepSpec<TCtx extends RuntimeStepperContext> {
   readonly pages: readonly PageNode[] | DynamicPages;
 
   readonly opts: StepOptions<TCtx, string>;
@@ -326,10 +328,10 @@ interface StepSpec<TCtx extends RuntimeStepContext> {
   readonly gate?: StepGate;
 }
 
-const AUTHORING_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
+const AUTHORING_CONTEXT: RuntimeStepperContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
 /** A step's pages: built once, now, unless the step is declared `dynamic`, then on every entry over the live context. */
-function pagesOf<TForms, TCtx extends RuntimeStepContext, P>(
+function pagesOf<TForms, TCtx extends RuntimeStepperContext, P>(
   build: StepBuild<TForms, TCtx, P>,
   dynamic: boolean,
 ): readonly PageNode[] | DynamicPages {
@@ -346,7 +348,7 @@ function guardedBy(gate: StepGate, node: SequenceNode): SequenceNode {
   return { ...node, when: (ctx) => gate.when(ctx) && (own ? own(ctx) : true) };
 }
 
-function stepNode<TCtx extends RuntimeStepContext>(spec: StepSpec<TCtx>): SequenceNode {
+function stepNode<TCtx extends RuntimeStepperContext>(spec: StepSpec<TCtx>): SequenceNode {
   const { pages, opts, gate } = spec;
   const node: StepNode = {
     kind: SequenceNodeKind.Step,
@@ -369,7 +371,7 @@ function claimName(name: string, taken: object): void {
 }
 
 /** Authors the steps of one branch; each is guarded by the branch condition. */
-export class BranchBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}> {
+export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = {}> {
   readonly __added?: TAdded;
 
   constructor(
@@ -451,13 +453,13 @@ interface ArmState {
 export interface ForkArm<R = unknown> extends ArmState {
   readonly __result?: R;
 
-  resolve(ctx: RuntimeStepContext): R;
+  resolve(ctx: RuntimeStepperContext): R;
 }
 
 const EMPTY_ARM: ArmState = { forms: {}, shared: new SharedState({}), steps: [] };
 
 /** Authors one fork arm: its own state, forms and steps, ending in `result`. */
-export class ForkArmBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}> {
+export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = {}> {
   constructor(private readonly arm: ArmState = EMPTY_ARM) {}
 
   withState<S extends Record<string, unknown>>(initial: S): ForkArmBuilder<TForms, WithShared<TCtx, S>, TAdded> {
@@ -546,11 +548,11 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepContext, TAdded = {}
 }
 
 /** A forked chain: nothing may follow, only `build()`. */
-export interface TerminalForkBuilder<TForms, TCtx extends RuntimeStepContext, TResult> {
+export interface TerminalForkBuilder<TForms, TCtx extends RuntimeStepperContext, TResult> {
   build(): Stepper<TForms, TCtx, TResult>;
 }
 
-type ForkArms<TForms, TCtx extends RuntimeStepContext> = Record<
+type ForkArms<TForms, TCtx extends RuntimeStepperContext> = Record<
   string,
   (arm: ForkArmBuilder<TForms, TCtx>) => ForkArm
 >;
@@ -560,7 +562,7 @@ type ArmResult<A> = {
 }[keyof A];
 
 /** A built linear flow: the runtime shape plus the authoring types it was built with. */
-export class Stepper<TForms = {}, TCtx extends RuntimeStepContext = RuntimeStepContext, TResult = unknown>
+export class Stepper<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, TResult = unknown>
   implements FlowDefinition
 {
   readonly __forms?: TForms;
@@ -595,7 +597,7 @@ export class Stepper<TForms = {}, TCtx extends RuntimeStepContext = RuntimeStepC
 export type RuntimeStepper = Stepper;
 
 /** The parent-side options of a nested flow slot. */
-export interface FlowStepOptions<TCtx extends RuntimeStepContext> {
+export interface FlowStepOptions<TCtx extends RuntimeStepperContext> {
   readonly label?: string | Signal<string>;
 
   readonly when?: StepCondition<TCtx>;
@@ -611,17 +613,17 @@ export interface RingCfg<C> {
 }
 
 /** A nested linear flow: slot options plus the callback authoring the sub-flow. */
-export type LinearFlowStep<TKinds extends string, TCtx extends RuntimeStepContext, TBuilt> = FlowStepOptions<TCtx> & {
+export type LinearFlowStep<TKinds extends string, TCtx extends RuntimeStepperContext, TBuilt> = FlowStepOptions<TCtx> & {
   readonly build: (sub: StepperBuilder<{}, TKinds, ChildContext<TCtx>>) => TBuilt;
 };
 
 /** A nested ring: slot options, its accumulator and the callback authoring the ring, ending in `dock`. */
-export type RecurrentFlowStep<C, TKinds extends string, TCtx extends RuntimeStepContext, TTerminal> = FlowStepOptions<TCtx> &
+export type RecurrentFlowStep<C, TKinds extends string, TCtx extends RuntimeStepperContext, TTerminal> = FlowStepOptions<TCtx> &
   RingCfg<C> & {
     readonly build: (loop: RecurrentStepperBuilder<{}, C, TKinds, RingContext<TCtx, C>>) => TTerminal;
   };
 
-interface FlowSlot<TCtx extends RuntimeStepContext> {
+interface FlowSlot<TCtx extends RuntimeStepperContext> {
   readonly name: string;
 
   readonly flow: RuntimeFlow;
@@ -629,7 +631,7 @@ interface FlowSlot<TCtx extends RuntimeStepContext> {
   readonly opts: FlowStepOptions<TCtx>;
 }
 
-function flowStepNode<TCtx extends RuntimeStepContext>(slot: FlowSlot<TCtx>): FlowStepNode {
+function flowStepNode<TCtx extends RuntimeStepperContext>(slot: FlowSlot<TCtx>): FlowStepNode {
   const ring = isRecurrent(slot.flow) ? slot.flow : null;
   const complete = ring?.complete;
 
@@ -688,7 +690,7 @@ function claimedForm(
 export class StepperBuilder<
   TForms = {},
   TKinds extends string = BuiltInControlKind,
-  TCtx extends RuntimeStepContext = RootContext,
+  TCtx extends RuntimeStepperContext = RootContext,
 > {
   readonly __forms?: TForms;
 
@@ -826,7 +828,7 @@ export class StepperBuilder<
     return { build: () => new Stepper<TForms, TCtx, ArmResult<A>>(definition) };
   }
 
-  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepContext, O extends FlowStepOptions<TCtx>>(
+  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowStepOptions<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<TCtx2['steps']>, O>>> {
@@ -868,20 +870,20 @@ export class StepperBuilder<
 }
 
 /** The runtime shape of every context inside a ring over `C`. */
-export type RingRuntimeContext<C> = StepContext<
+export type RingRuntimeContext<C> = StepperContext<
   SharedSignals,
-  RuntimeStepContext['steps'],
-  RuntimeStepContext['parent'],
+  RuntimeStepperContext['steps'],
+  RuntimeStepperContext['parent'],
   RecurrentSignals<C>
 >;
 
 /** A ring after `dock()`: only `build()` remains. */
-export interface RecurrentTerminal<TForms, TCtx extends RuntimeStepContext, C> {
+export interface RecurrentTerminal<TForms, TCtx extends RuntimeStepperContext, C> {
   build(): RecurrentStepper<TForms, TCtx, C>;
 }
 
 /** A built ring: the runtime shape plus the authoring types it was built with. */
-export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepContext = RuntimeStepContext, C = unknown>
+export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, C = unknown>
   implements RecurrentFlowDefinition<C>
 {
   readonly __forms?: TForms;
@@ -904,7 +906,7 @@ export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepContext = Run
 
   readonly initial: () => C;
 
-  readonly fold?: (state: C, pass: RuntimeStepContext) => C;
+  readonly fold?: (state: C, pass: RuntimeStepperContext) => C;
 
   readonly dockReachable?: (state: C) => boolean;
 
@@ -930,7 +932,7 @@ export class RecurrentStepper<TForms = {}, TCtx extends RuntimeStepContext = Run
 interface RingState<C> extends ChainState {
   readonly ring: RingCfg<C>;
 
-  fold?(state: C, pass: RuntimeStepContext): C;
+  fold?(state: C, pass: RuntimeStepperContext): C;
 
   complete?(state: C): boolean;
 
@@ -1064,7 +1066,7 @@ export class RecurrentStepperBuilder<
     return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, BranchAdded<B>>>(this.appended(steps));
   }
 
-  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepContext, O extends FlowStepOptions<TCtx>>(
+  createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowStepOptions<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepsCommitted<TCtx2['steps']>>>> {

@@ -2,7 +2,7 @@ import { Provider, Signal } from '@angular/core';
 import { ControlTypeMap } from '../provide';
 import { SharedState } from '../sync/shared-state';
 import { SequenceNodeKind, StepNode } from './nodes';
-import { AnyFormProvider, DeferTrigger, RuntimeStepContext } from './step-context';
+import { AnyFormProvider, DeferTrigger, RuntimeStepperContext } from './step-context';
 
 /** The erased runtime shape of a flow: its sequence, form templates, shared store, control kinds and providers. */
 export interface FlowDefinition<TResult = unknown> {
@@ -16,7 +16,7 @@ export interface FlowDefinition<TResult = unknown> {
 
   readonly providers: readonly Provider[];
 
-  resolveResult?(ctx: RuntimeStepContext): TResult;
+  resolveResult?(ctx: RuntimeStepperContext): TResult;
 }
 
 /** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state, which is also its result. */
@@ -27,7 +27,7 @@ export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> 
 
   readonly initial: () => C;
 
-  fold?(state: C, pass: RuntimeStepContext): C;
+  fold?(state: C, pass: RuntimeStepperContext): C;
 
   dockReachable?(state: C): boolean;
 
@@ -49,11 +49,11 @@ export interface FlowStepNode {
 
   readonly label?: Signal<string>;
 
-  when?(ctx: RuntimeStepContext): boolean;
+  when?(ctx: RuntimeStepperContext): boolean;
 
   readonly defer?: DeferTrigger;
 
-  completeWhen?(ctx: RuntimeStepContext): boolean;
+  completeWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly incompleteMessage?: string;
 }

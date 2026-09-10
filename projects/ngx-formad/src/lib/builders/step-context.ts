@@ -46,10 +46,10 @@ export interface RecurrentSignals<C = unknown> {
 }
 
 /** What a step reads: named predecessors, the shared store, the enclosing ring and the parent flow. */
-export interface StepContext<
+export interface StepperContext<
   TShared extends SharedSignals = SharedSignals,
   TSteps extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>,
-  TParent extends RuntimeStepContext | undefined = RuntimeStepContext | undefined,
+  TParent extends RuntimeStepperContext | undefined = RuntimeStepperContext | undefined,
   TFlow extends RecurrentSignals | undefined = RecurrentSignals | undefined,
 > {
   readonly steps: TSteps;
@@ -62,13 +62,13 @@ export interface StepContext<
 }
 
 /** The context the runtime builds; every typed context is assignable to it. */
-export interface RuntimeStepContext extends StepContext {}
+export interface RuntimeStepperContext extends StepperContext {}
 
 /** The context of a linear root: nothing before it, no shared keys, no ring. */
-export type RootContext = StepContext<SharedSignals<{}>, {}, undefined, undefined>;
+export type RootContext = StepperContext<SharedSignals<{}>, {}, undefined, undefined>;
 
 /** The context with a shared slice layered in. */
-export type WithShared<TCtx extends RuntimeStepContext, S extends Record<string, unknown>> = StepContext<
+export type WithShared<TCtx extends RuntimeStepperContext, S extends Record<string, unknown>> = StepperContext<
   TCtx['shared'] & SharedSignals<S>,
   TCtx['steps'],
   TCtx['parent'],
@@ -76,7 +76,7 @@ export type WithShared<TCtx extends RuntimeStepContext, S extends Record<string,
 >;
 
 /** The context with a step entry added. */
-export type WithSteps<TCtx extends RuntimeStepContext, E> = StepContext<
+export type WithSteps<TCtx extends RuntimeStepperContext, E> = StepperContext<
   TCtx['shared'],
   TCtx['steps'] & E,
   TCtx['parent'],
@@ -84,7 +84,7 @@ export type WithSteps<TCtx extends RuntimeStepContext, E> = StepContext<
 >;
 
 /** The context a gate reads: every predecessor optional, since a gate may run before it exists. */
-export type GateContext<TCtx extends RuntimeStepContext> = StepContext<
+export type GateContext<TCtx extends RuntimeStepperContext> = StepperContext<
   TCtx['shared'],
   { readonly [K in keyof TCtx['steps']]?: TCtx['steps'][K] },
   TCtx['parent'],
@@ -92,7 +92,7 @@ export type GateContext<TCtx extends RuntimeStepContext> = StepContext<
 >;
 
 /** The context a nested linear flow starts from: its own step namespace, this level as `parent`. */
-export type ChildContext<TCtx extends RuntimeStepContext> = StepContext<
+export type ChildContext<TCtx extends RuntimeStepperContext> = StepperContext<
   TCtx['shared'],
   {},
   TCtx,
@@ -100,19 +100,30 @@ export type ChildContext<TCtx extends RuntimeStepContext> = StepContext<
 >;
 
 /** The context a nested ring starts from: its own steps, this level as `parent`, its ring as `flow`. */
-export type RingContext<TCtx extends RuntimeStepContext, C> = StepContext<
+export type RingContext<TCtx extends RuntimeStepperContext, C> = StepperContext<
   TCtx['shared'],
   {},
   TCtx,
   RecurrentSignals<C>
 >;
 
+/**
+ * What a callback inside a step reads: the level above, plus the step's own form instances by pool name. Which of them
+ * a page places is decided by the very callback that reads this, so every entry is optional.
+ */
+export type StepContext<TCtx extends RuntimeStepperContext, TForms> = TCtx & {
+  readonly forms: { readonly [K in keyof TForms]?: InstanceOf<TForms[K]> };
+};
+
+/** The context the runtime builds for a step; every typed step context is assignable to it. */
+export type RuntimeStepContext = RuntimeStepperContext & { readonly forms: Readonly<Record<string, FormState>> };
+
 /** A reactive step gate as authored against a typed context. */
-export type StepCondition<TCtx extends RuntimeStepContext> = (ctx: GateContext<TCtx>) => boolean;
+export type StepCondition<TCtx extends RuntimeStepperContext> = (ctx: GateContext<TCtx>) => boolean;
 
 /** A step gate as a node holds it; a typed `StepCondition` fits `when` because it is a method parameter. */
 export interface StepGate {
-  when(ctx: RuntimeStepContext): boolean;
+  when(ctx: RuntimeStepperContext): boolean;
 }
 
 /** A form config fetched when its step is reached. */

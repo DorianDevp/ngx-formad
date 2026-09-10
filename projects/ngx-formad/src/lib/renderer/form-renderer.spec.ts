@@ -386,7 +386,7 @@ const contentConfig: FormConfig<FC> = {
     .field('first')
     .field('last')
     .content((c) => c.p('As it appears on the invoice.', { className: 'hint' }), {
-      visibleWhen: (ctx) => ctx.model.first.length > 0,
+      visibleWhen: (ctx) => ctx.model().first.length > 0,
     })
     .build(),
 };

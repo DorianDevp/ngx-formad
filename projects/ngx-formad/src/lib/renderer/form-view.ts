@@ -15,14 +15,14 @@ import {
 import { FormField } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
 import { ControlAdapter } from '../controls/control-adapter';
-import { BindingRecord, bindingsAt, FormContext } from '../form-config/form-bindings';
+import { BindingRecord, bindingsAt } from '../form-config/form-bindings';
 import {
   ArrayNode,
   ControlNode,
   extraInputsFor,
   FieldNode,
   FormContentNode,
-  FormLayoutContext,
+  FormContext,
   FormRowNode,
   GroupNode,
   RenderNode,
@@ -45,7 +45,7 @@ export interface ViewScope {
 
   readonly layout: LayoutAdapter;
 
-  readonly context: Signal<FormLayoutContext>;
+  readonly context: FormContext;
 
   readonly model: WritableSignal<Record<string, unknown>>;
 
@@ -298,7 +298,7 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
 
     return {
       row: { kind: node.kind, node, item: itemOf(scope, node.layout) },
-      visible: computed(() => node.visibleWhen?.(scope.context()) ?? true),
+      visible: computed(() => node.visibleWhen?.(scope.context) ?? true),
     };
   } else if (node.kind === RenderNodeKind.Row) {
     const level = buildLevel(node.children, tree, node.grid, scope);

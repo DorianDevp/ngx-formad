@@ -16,7 +16,7 @@ import {
   RuntimeFlow,
   SequenceNode,
 } from '../builders/flow';
-import { DeferTrigger, RecurrentSignals, RuntimeStepContext, SharedSignals } from '../builders/step-context';
+import { DeferTrigger, RecurrentSignals, RuntimeStepperContext, SharedSignals } from '../builders/step-context';
 import { RuntimeFormConfig } from '../form-config/form-config';
 
 import { FormState } from '../renderer/instantiate-form';
@@ -97,7 +97,7 @@ export interface StepperProgress {
 
 /** How a nested controller reaches its parent: context, shared and ring signals, and the two outward edges. */
 export interface FlowOutlet {
-  context(): RuntimeStepContext;
+  context(): RuntimeStepperContext;
 
   shared(): SharedSignals;
 
@@ -123,7 +123,7 @@ export interface ControllerHost<TResult = unknown> {
 
   readonly onComplete?: (result: TResult | null) => void;
 
-  readonly onStep?: (values: RuntimeStepContext['steps']) => void;
+  readonly onStep?: (values: RuntimeStepperContext['steps']) => void;
 
   readonly outlet?: FlowOutlet;
 }
@@ -166,7 +166,7 @@ export interface StepperController<TResult = unknown> {
 
   readonly result: Signal<TResult | null>;
 
-  readonly committed: Signal<RuntimeStepContext['steps']>;
+  readonly committed: Signal<RuntimeStepperContext['steps']>;
 
   next(): void;
 
@@ -211,7 +211,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   private readonly onComplete: ((result: TResult | null) => void) | undefined;
 
-  private readonly onStep: ((values: RuntimeStepContext['steps']) => void) | undefined;
+  private readonly onStep: ((values: RuntimeStepperContext['steps']) => void) | undefined;
 
   constructor(
     private readonly flow: RuntimeFlow<TResult>,
@@ -237,7 +237,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   }
 
   /** The context over a set of live steps: the computeds build it for the state as it is, actions for the state they are building. */
-  private contextOf(memo: StepMemo): RuntimeStepContext {
+  private contextOf(memo: StepMemo): RuntimeStepperContext {
     return {
       steps: Object.fromEntries(
         this.flow.steps.map((node, index) => [
@@ -251,7 +251,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     };
   }
 
-  private context(): RuntimeStepContext {
+  private context(): RuntimeStepperContext {
     return this.contextOf(this.nav().memo);
   }
 
@@ -300,7 +300,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return this.current() !== null && this.ownStep() === null;
   });
 
-  readonly committed: Signal<RuntimeStepContext['steps']> = computed(() => {
+  readonly committed: Signal<RuntimeStepperContext['steps']> = computed(() => {
     const memo = this.nav().memo;
 
     return Object.fromEntries(
@@ -681,7 +681,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
     const cached = nav.stepOf(current);
     if (cached && current.revisit !== StepRevisit.Fresh) {
-      if (nav.shown !== current) for (const form of cached.forms) form.reseed(this.contextOf(nav.memo));
+      if (nav.shown !== current) for (const form of cached.forms) form.reseed(cached.context);
 
       return nav.shownAs(current);
     }
@@ -753,7 +753,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     this.notifyCommitted();
   }
 
-  private egress(): TResult | RuntimeStepContext['steps'] {
+  private egress(): TResult | RuntimeStepperContext['steps'] {
     return this.ring ? this.ring.state() : this.committed();
   }
 

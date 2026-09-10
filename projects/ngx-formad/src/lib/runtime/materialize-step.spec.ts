@@ -3,7 +3,7 @@ import { TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, email, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
 import { StepNode } from '../builders/nodes';
-import { RuntimeStepContext } from '../builders/step-context';
+import { RuntimeStepperContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { isLevel } from '../renderer/instantiate-form';
@@ -21,7 +21,7 @@ const billing: FormConfig<Billing> = {
   ui: UiFormConfigBuilder.from({ email: '' }).email(text('Billing email')),
 };
 
-const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
+const EMPTY_CONTEXT: RuntimeStepperContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
 function buildStepper() {
   return new StepperBuilder()

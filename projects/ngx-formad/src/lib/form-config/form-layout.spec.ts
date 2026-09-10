@@ -1,8 +1,9 @@
+import { signal } from '@angular/core';
 import { ContentTagChild } from '../builders/content';
 import {
   FormContentSpec,
   FormFieldItem,
-  FormLayoutContext,
+  FormContext,
   FormLayoutItem,
   FormLayoutItemKind,
   FormRowItem,
@@ -38,7 +39,7 @@ describe('formLayout', () => {
       .content((c) => c.h3('Sign-in'), { colSpan: 2 })
       .field('password')
       .content((c) => c.p('Pick something long.', { className: 'hint' }), {
-        visibleWhen: (ctx) => ctx.model.password.length > 0,
+        visibleWhen: (ctx) => ctx.model().password.length > 0,
       })
       .build();
 
@@ -48,9 +49,10 @@ describe('formLayout', () => {
     expect((head.children[0] as ContentTagChild).tag).toBe('h3');
 
     const hint = items[2] as FormContentSpec<Model>;
-    const ctx = (password: string): FormLayoutContext<Model> => ({
-      model: { first: '', last: '', password },
-      shared: null,
+    const ctx = (password: string): FormContext<Model> => ({
+      model: signal({ first: '', last: '', password }),
+      ui: {},
+      fields: [],
     });
     expect(hint.visibleWhen?.(ctx(''))).toBe(false);
     expect(hint.visibleWhen?.(ctx('long enough'))).toBe(true);

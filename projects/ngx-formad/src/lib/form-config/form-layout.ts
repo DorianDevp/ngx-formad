@@ -1,10 +1,10 @@
 import { ContentBuild, buildContent } from '../builders/content';
 import { GridPlacement, GridLayout } from '../layout/layout-adapter';
-import { FormLayout, FormLayoutContext, FormLayoutItem, FormLayoutItemKind, FieldComponentConfig } from './form-config';
+import { FormContext, FormLayout, FormLayoutItem, FormLayoutItemKind, FieldComponentConfig } from './form-config';
 
 /** Placement of a content block: its grid span and a gate read from the layout context. */
 export interface FormContentCfg<M extends Record<string, unknown>> extends GridPlacement {
-  visibleWhen?(ctx: FormLayoutContext<M>): boolean;
+  visibleWhen?(ctx: FormContext<M>): boolean;
 }
 
 /** A row's own grid plus its placement in the parent grid. */

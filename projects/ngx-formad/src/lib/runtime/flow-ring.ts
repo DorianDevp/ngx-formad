@@ -1,6 +1,6 @@
 import { computed, signal, Signal, WritableSignal } from '@angular/core';
 import { RecurrentFlowDefinition } from '../builders/flow';
-import { RuntimeStepContext } from '../builders/step-context';
+import { RuntimeStepperContext } from '../builders/step-context';
 
 interface RingState<C> {
   readonly state: C;
@@ -26,7 +26,7 @@ export class FlowRing<C = unknown> {
     this.folds = computed(() => this.ring().folds);
   }
 
-  fold(pass: RuntimeStepContext): void {
+  fold(pass: RuntimeStepperContext): void {
     this.ring.update((ring) => ({
       state: this.flow.fold ? this.flow.fold(ring.state, pass) : ring.state,
       passOpen: false,

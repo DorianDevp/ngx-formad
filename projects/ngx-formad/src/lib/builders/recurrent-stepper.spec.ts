@@ -4,7 +4,7 @@ import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from '../runtime/effective-sequence';
 import { isFlowStep, isRecurrent } from './flow';
 import { SequenceNodeKind } from './nodes';
-import { RuntimeStepContext, SharedSignals } from './step-context';
+import { RuntimeStepperContext, SharedSignals } from './step-context';
 import { RecurrentStepperBuilder, StepperBuilder } from './stepper-builder';
 
 type One = { v: string };
@@ -23,10 +23,10 @@ interface RingCtx {
 
   readonly values?: Record<string, SharedSignals[string] extends Signal<infer V> ? V : never>;
 
-  readonly steps?: RuntimeStepContext['steps'];
+  readonly steps?: RuntimeStepperContext['steps'];
 }
 
-function ctx(ring: RingCtx): RuntimeStepContext {
+function ctx(ring: RingCtx): RuntimeStepperContext {
   const shared: Record<string, SharedSignals[string]> = {};
   for (const [key, value] of Object.entries(ring.values ?? {})) shared[key] = signal(value);
 
@@ -93,8 +93,8 @@ describe('createRecurrentStepper - the emitted node', () => {
 
   it('mirrors the flow completeness onto the parent slot, from the initial state before any fold', () => {
     if (!isFlowStep(flowNode)) throw new Error('expected a flow step');
-    const empty: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
-    const one: RuntimeStepContext = {
+    const empty: RuntimeStepperContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
+    const one: RuntimeStepperContext = {
       steps: { devices: [{ name: 'a' }] },
       shared: {},
       flow: undefined,

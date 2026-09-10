@@ -15,7 +15,7 @@ import {
   Type,
 } from '@angular/core';
 import { RuntimeFlow } from '../builders/flow';
-import { RuntimeStepContext } from '../builders/step-context';
+import { RuntimeStepperContext } from '../builders/step-context';
 import { ControlAdapter } from '../controls/control-adapter';
 import { CONTROL_ADAPTER, ControlTypeMap, STEPPER_ADAPTER } from '../provide';
 import { DefaultStepperChrome } from './default-stepper-chrome';
@@ -56,7 +56,7 @@ export class StepperComponent<TResult = unknown> implements OnInit, OnDestroy {
 
   readonly completed = output<TResult | null>();
 
-  readonly stepCommitted = output<RuntimeStepContext['steps']>();
+  readonly stepCommitted = output<RuntimeStepperContext['steps']>();
 
   private readonly parentEnvironment = inject(EnvironmentInjector);
   private readonly injector = inject(Injector);

@@ -1,7 +1,7 @@
 import { UiFormConfigBuilder, text } from 'formodel';
 import { isStepNode, SequenceNode } from '../builders/flow';
 import { Signal, signal } from '@angular/core';
-import { RuntimeStepContext } from '../builders/step-context';
+import { RuntimeStepperContext } from '../builders/step-context';
 import { StepperBuilder } from '../builders/stepper-builder';
 import { FormConfig } from '../form-config/form-config';
 import { effectiveSteps } from './effective-sequence';
@@ -43,7 +43,7 @@ const wizard = new StepperBuilder()
 
 // A hand-built runtime context, the shape a controller supplies: shared as signals,
 // predecessors' instances under `steps`.
-function ctx(over: { shared?: Record<string, unknown>; steps?: RuntimeStepContext['steps'] } = {}): RuntimeStepContext {
+function ctx(over: { shared?: Record<string, unknown>; steps?: RuntimeStepperContext['steps'] } = {}): RuntimeStepperContext {
   const shared: Record<string, Signal<unknown>> = {};
   for (const [key, value] of Object.entries(over.shared ?? {})) shared[key] = signal(value);
 

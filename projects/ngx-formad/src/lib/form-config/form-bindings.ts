@@ -2,24 +2,11 @@ import { Binding, ModelSignal, Type } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { ControlNodes, CustomControlNodes } from 'formodel';
 import { InputKeys, InputVal, OutputKeys, OutputVal } from '../builders/dynamic-component';
+import { FormContext } from './form-config';
 import { Rejected } from './rejected';
 
 /** Control kind → the component class the registry draws it with; augment it so the bindings of a registry-rendered field are typed. */
 export interface ControlComponents {}
-
-/** The writable model surface a handler or an effect receives. */
-export interface WritableModel<M> {
-  (): M;
-
-  set(value: M): void;
-
-  update(updater: (current: M) => M): void;
-}
-
-/** What a field's output handler and a form's effect read: the form's writable model, plus what the host layers in (a stepper adds its step context). */
-export interface FormContext<M extends Record<string, unknown> = Record<string, unknown>> {
-  readonly model: WritableModel<M>;
-}
 
 /** A reactive effect over a live form, run as an Angular `effect()` for as long as the instance lives. */
 export type FormEffect<Ctx> = (ctx: Ctx) => void;

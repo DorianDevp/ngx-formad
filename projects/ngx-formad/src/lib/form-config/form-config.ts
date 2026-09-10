@@ -1,4 +1,4 @@
-import { computed, isSignal, signal, Signal, Type } from '@angular/core';
+import { computed, isSignal, signal, Signal, Type, WritableSignal } from '@angular/core';
 import { FormValueControl, SchemaPathTree } from '@angular/forms/signals';
 import {
   CUSTOM_FIELD,
@@ -10,7 +10,6 @@ import {
 } from 'formodel';
 import { ContentChild } from '../builders/content';
 import { GridPlacement, GridLayout } from '../layout/layout-adapter';
-import { SharedState } from '../sync/shared-state';
 import { Rejected } from './rejected';
 
 /** One option of a `select`/`multiselect` field, as formodel declares it. */
@@ -78,11 +77,16 @@ export type ErasedUiNode = FieldNode | ErasedGroupNode | ErasedArrayNode;
 /** The authored ui viewed by structure: model keys to nodes. */
 export type ErasedUi = Readonly<Record<string, ErasedUiNode>>;
 
-/** What a layout gate or control input reads: the live model and, inside a wizard, the shared store. */
-export interface FormLayoutContext<M extends Record<string, unknown> = Record<string, unknown>> {
-  readonly model: M;
+/**
+ * What a callback inside one form reads: its writable model, its authored ui and its placed fields. Inside a stepper
+ * the object also carries the step's context, which the placement (`addForm`) types.
+ */
+export interface FormContext<M extends Record<string, unknown> = Record<string, unknown>, U = any> {
+  readonly model: WritableSignal<M>;
 
-  readonly shared: SharedState | null;
+  readonly ui: U;
+
+  readonly fields: readonly FieldConfig[];
 }
 
 /** A component placed on a field of value `T` by `formLayout().control()`: its class and its placement; its bindings are declared where the form is instantiated. */
@@ -161,7 +165,7 @@ export interface FormContentNode {
 
   readonly children: readonly ContentChild[];
 
-  visibleWhen?(ctx: FormLayoutContext): boolean;
+  visibleWhen?(ctx: FormContext): boolean;
 
   readonly layout?: GridPlacement;
 }
@@ -216,7 +220,7 @@ export interface FormContentSpec<M extends Record<string, unknown> = Record<stri
 
   readonly children: readonly ContentChild[];
 
-  visibleWhen?(ctx: FormLayoutContext<M>): boolean;
+  visibleWhen?(ctx: FormContext<M>): boolean;
 
   readonly item?: GridPlacement;
 }

@@ -10,15 +10,15 @@ import {
   WritableSignal,
 } from '@angular/core';
 import { form } from '@angular/forms/signals';
-import { BindingRecord, FormBindings, FormContext, FormEffect, FormEffectHook } from '../form-config/form-bindings';
+import { BindingRecord, FormBindings, FormEffect, FormEffectHook } from '../form-config/form-bindings';
 import {
   buildLayoutNodes,
   buildNodes,
   ErasedUi,
+  FormContext,
   FieldConfig,
   FormConfig,
   FormLayout,
-  FormLayoutContext,
   FormLayoutItem,
   FormLayoutItemKind,
   flattenFields,
@@ -123,13 +123,14 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
 
   const injector = options.injector ?? inject(Injector);
   const shared = options.shared ?? injector.get(FormadWizard, null)?.sharedOrNull() ?? null;
-  const handlerContext = (): FormContext => ({ ...(options.context?.() ?? {}), model: erased });
+  const formContext: FormContext = { model: erased, ui: config.ui, fields: tree.fields };
+  const handlerContext = (): FormContext => ({ ...(options.context?.() ?? {}), ...formContext });
   const scope: ViewScope = {
     injector,
     environment: injector.get(EnvironmentInjector),
     controls: injector.get(CONTROL_ADAPTER),
     layout: injector.get(LAYOUT_ADAPTER),
-    context: computed<FormLayoutContext>(() => ({ model: erased(), shared })),
+    context: formContext,
     model: erased,
     bindings: options.bindings ?? {},
     handlerContext,

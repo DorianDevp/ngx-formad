@@ -3,7 +3,7 @@ import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../form-config/form-config';
 import { ComponentNode, FormNode, LayoutNodeKind, StepNode } from './nodes';
 import { isStepNode, SequenceNode } from './flow';
-import { DeferTrigger, RuntimeStepContext } from './step-context';
+import { DeferTrigger, RuntimeStepperContext } from './step-context';
 import { StepperBuilder } from './stepper-builder';
 
 type Account = { email: string; password: string };
@@ -109,7 +109,7 @@ describe('StepperBuilder', () => {
   });
 
   it('keeps a bindings callback and hands it the step context', () => {
-    const seen: RuntimeStepContext[] = [];
+    const seen: RuntimeStepperContext[] = [];
     const stepper = new StepperBuilder()
       .withState({ email: '' })
       .createStep((step) =>
@@ -176,7 +176,7 @@ function leafAt(steps: readonly SequenceNode[], index: number): StepNode {
   return node;
 }
 
-const EMPTY_CONTEXT: RuntimeStepContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
+const EMPTY_CONTEXT: RuntimeStepperContext = { steps: {}, shared: {}, flow: undefined, parent: undefined };
 
 function pagesAt(steps: readonly SequenceNode[], index: number) {
   const step = leafAt(steps, index);

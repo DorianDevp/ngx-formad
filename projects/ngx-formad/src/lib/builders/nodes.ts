@@ -2,7 +2,7 @@ import { Binding, Signal, Type } from '@angular/core';
 import { ContentChild } from './content';
 import { BindingRecord, FormEffectHook } from '../form-config/form-bindings';
 import { LinkPair } from './shared-link';
-import { DeferTrigger, RuntimeStepContext } from './step-context';
+import { DeferTrigger, RuntimeStepperContext } from './step-context';
 
 /** Discriminates what a page lays out. */
 export enum LayoutNodeKind {
@@ -18,7 +18,7 @@ export interface ContentNode {
 
   readonly layout?: string;
 
-  visibleWhen?(ctx: RuntimeStepContext): boolean;
+  visibleWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly children: readonly ContentChild[];
 }
@@ -30,9 +30,9 @@ export interface ComponentNode {
   readonly component: Type<object>;
 
   /** A method, so a callback typed on a richer context fits; an authored array is wrapped in one. */
-  bindings(ctx: RuntimeStepContext): readonly Binding[];
+  bindings(ctx: RuntimeStepperContext): readonly Binding[];
 
-  visibleWhen?(ctx: RuntimeStepContext): boolean;
+  visibleWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly layout?: string;
 }
@@ -51,7 +51,7 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
 
   readonly name: string;
 
-  visibleWhen?(ctx: RuntimeStepContext): boolean;
+  visibleWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly links: readonly LinkPair[];
 
@@ -59,7 +59,7 @@ export interface FormNode<M extends Record<string, unknown> = Record<string, unk
 
   readonly effects: readonly FormEffectHook[];
 
-  initial?(ctx: RuntimeStepContext): Partial<M>;
+  initial?(ctx: RuntimeStepperContext): Partial<M>;
 
   readonly revisit?: FormRevisit;
 }
@@ -70,7 +70,7 @@ export interface RowNode {
 
   readonly layout?: string;
 
-  visibleWhen?(ctx: RuntimeStepContext): boolean;
+  visibleWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly children: readonly LayoutNode[];
 }
@@ -86,7 +86,7 @@ export interface PageOptions {
 
   readonly layout?: string;
 
-  visibleWhen?(ctx: RuntimeStepContext): boolean;
+  visibleWhen?(ctx: RuntimeStepperContext): boolean;
 }
 
 /** A page: its options and the nodes it lays out. */
@@ -104,7 +104,7 @@ export enum SequenceNodeKind {
 
 /** Pages built on entry from the live context; the build must be pure. */
 export interface DynamicPages {
-  build(ctx: RuntimeStepContext): readonly PageNode[];
+  build(ctx: RuntimeStepperContext): readonly PageNode[];
 }
 
 /** What a step does when navigation lands on it again. */
@@ -125,13 +125,13 @@ export interface StepNode {
 
   readonly label?: Signal<string>;
 
-  when?(ctx: RuntimeStepContext): boolean;
+  when?(ctx: RuntimeStepperContext): boolean;
 
   readonly optional?: boolean;
 
   readonly defer?: DeferTrigger;
 
-  completeWhen?(ctx: RuntimeStepContext): boolean;
+  completeWhen?(ctx: RuntimeStepperContext): boolean;
 
   readonly incompleteMessage?: string;
 

@@ -111,7 +111,7 @@ const shippingForm = defineForm({
     .control('window', { component: TimeWindowPicker, placement: { colSpan: 2 } })
     .field('newsletter')
     .content((c) => c.p('We will e-mail the confirmation.', { className: 'confirm-note' }), {
-      visibleWhen: (ctx) => (ctx.shared?.get('email') ?? '') !== '',
+      visibleWhen: (ctx) => ctx.model().method !== '',
     })
     .build(),
 });
