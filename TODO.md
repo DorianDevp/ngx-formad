@@ -43,7 +43,8 @@ A `FormConfig` has three parts. JSON gets you two for free; the third is the rea
 
 ## 3. Ecosystem adapters (each is a community on-ramp)
 
-- [ ] **Tailwind** layout adapter (ships as an option; note the safelist gotcha).
+- [x] **Tailwind** layout adapter — `tailwindLayout`; the SCSS generator and `classLayout`
+      went with it, and the README carries the `@source inline(...)` line.
 - [ ] **PrimeNG** control adapter.
 - [ ] Consider whether to re-export formodel's helpers from `ngx-formad` so adopters
   see one import surface (you own both packages — the seam is a packaging choice).
