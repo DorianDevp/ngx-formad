@@ -4,7 +4,7 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
-## Unreleased
+## 0.10.2
 
 ### Added
 
