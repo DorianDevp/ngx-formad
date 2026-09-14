@@ -18,13 +18,18 @@ the repo.
 
 ```bash
 pnpm install     # install dependencies
-pnpm test        # run the Vitest suite once
 pnpm build       # build the library into dist/ngx-formad
+pnpm test        # run the Vitest suite once
+pnpm release     # build, then publish dist/ngx-formad
 ```
 
-`pnpm build` and name the `ngx-formad` project explicitly — the
-workspace has more than one project, so a bare `ng build` is ambiguous. `pnpm test`
-runs the Angular `@angular/build:unit-test` builder on Vitest;
+**Build before you test.** `tsconfig.json` maps `ngx-formad` and `ngx-formad/material`
+to `dist/ngx-formad`, and the Material spec imports through those names, so the suite
+compiles against the last build: run `pnpm build` after any change to the public API,
+or the spec type-checks against a stale `dist/`.
+
+`pnpm build` is `ng build ngx-formad`, naming the project explicitly. `pnpm test` runs
+the Angular `@angular/build:unit-test` builder on Vitest;
 [`vitest.config.ts`](./vitest.config.ts) inlines `formodel` so its ESM resolves in the
 test runtime.
 
@@ -37,7 +42,7 @@ projects/ngx-formad/
     controls/     control adapter + zero-dependency plain-HTML controls
     form-config/  the formodel-backed field description the renderer consumes
     renderer/     instantiate a form and describe its view, then draw it (FormRenderer, NodesView, MountPoint)
-    sync/         cross-step shared state + the directional sync engine
+    sync/         the cross-step shared store (the directional sync itself is in runtime/)
     registry/     the signal-backed instance registry + completion fold
     builders/     the typed StepperBuilder chain and its node tree
     runtime/      materialize a step, and the navigable stepper shell
@@ -50,7 +55,8 @@ The package is published from the build output. `ng build` runs ng-packagr, whic
 copies the README and `LICENSE` into `dist/ngx-formad/`:
 
 ```bash
-pnpm build && cd dist/ngx-formad && npm publish
+pnpm release                                      # or, by hand:
+pnpm build && npm publish ./dist/ngx-formad --access public
 ```
 
 ## License & home

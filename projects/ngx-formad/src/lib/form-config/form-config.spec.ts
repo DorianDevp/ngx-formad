@@ -78,7 +78,7 @@ describe('extraInputsFor', () => {
     ]);
   });
 
-  it('includes a placeholder only activeWhen the node carries one', () => {
+  it('includes a placeholder only when the node carries one', () => {
     expect(extraInputsFor(text('Name'))).not.toHaveProperty('placeholder');
     expect(extraInputsFor(text('Name', { placeholder: 'Jane' }))['placeholder']()).toBe('Jane');
   });

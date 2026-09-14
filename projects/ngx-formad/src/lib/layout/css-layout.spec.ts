@@ -21,7 +21,7 @@ describe('cssLayout', () => {
     expect(style?.['gridTemplateColumns']).toBe('repeat(2, minmax(0, 1fr))');
   });
 
-  it('emits a column span/start only activeWhen asked for', () => {
+  it('emits a column span/start only when asked for', () => {
     expect(cssLayout.item({})).toEqual({});
     expect(cssLayout.item({ colSpan: 2 })).toEqual({
       style: { gridColumn: 'span 2 / span 2' },

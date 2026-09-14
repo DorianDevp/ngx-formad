@@ -226,7 +226,7 @@ describe('FormRenderer — repeating arrays', () => {
     expect(inputs().length).toBe(0);
   });
 
-  it('keeps the later item, view and value, activeWhen an earlier one is removed', async () => {
+  it('keeps the later item, view and value, when an earlier one is removed', async () => {
     button('Add item')!.click();
     await pump(fixture);
     button('Add item')!.click();
@@ -272,7 +272,7 @@ class ConditionalHost {
 }
 
 describe('FormRenderer — conditional fields via hidden()', () => {
-  it('drops a natively-hidden field and shows it activeWhen the condition flips', async () => {
+  it('drops a natively-hidden field and shows it when the condition flips', async () => {
     const fixture = TestBed.createComponent(ConditionalHost);
     await pump(fixture);
     const inputs = () =>
@@ -329,7 +329,7 @@ describe('FormRenderer — reactive select options', () => {
     expect(optionTexts()).toEqual(['Poland']);
   });
 
-  it('re-renders the select activeWhen the options are seeded after instantiation', async () => {
+  it('re-renders the select when the options are seeded after instantiation', async () => {
     fixture.componentInstance.live.ui.country.options.set([
       { value: 'pl', description: 'Poland' },
       { value: 'de', description: 'Germany' },
@@ -496,7 +496,7 @@ class SwapHost {
 }
 
 describe('FormRenderer - a swapped form', () => {
-  it('shows the formField of the second form activeWhen the state at the same key changes', async () => {
+  it('shows the formField of the second form when the state at the same key changes', async () => {
     const fixture = TestBed.createComponent(SwapHost);
     await pump(fixture);
     expect(fixture.nativeElement.textContent).toContain('First form');
@@ -583,7 +583,7 @@ describe('FormRenderer - formLayout().control()', () => {
     expect(stars().textContent?.trim()).toBe('0 / 5');
   });
 
-  it('refuses a customField() that no control() placed, activeWhen the form is instantiated', () => {
+  it('refuses a customField() that no control() placed, when the form is instantiated', () => {
     expect(() => TestBed.createComponent(BareHost)).toThrow(/customField\(\); place it with formLayout\(\).control/);
   });
 });

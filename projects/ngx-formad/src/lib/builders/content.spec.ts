@@ -112,7 +112,7 @@ describe('ContentBuilder', () => {
     expect(textOf(tree[1])).toBe('loose');
   });
 
-  it('writes into the innermost tag activeWhen inserts nest', () => {
+  it('writes into the innermost tag when inserts nest', () => {
     const tree = buildContent((c) =>
       c.p('outer ').insert((p) => p.span('inner ').insert((span) => span.strong('deep'))),
     );

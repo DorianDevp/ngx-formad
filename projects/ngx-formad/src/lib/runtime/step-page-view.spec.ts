@@ -122,7 +122,7 @@ class SharedGatedHost {
 }
 
 describe('StepPageView — completeWhen context', () => {
-  it('re-evaluates the guard activeWhen the shared state it reads changes', async () => {
+  it('re-evaluates the guard when the shared state it reads changes', async () => {
     const fixture = TestBed.createComponent(SharedGatedHost);
     await settle(fixture);
 

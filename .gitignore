@@ -7,9 +7,15 @@
 /bazel-out
 
 # Node
-/node_modules
+# Unanchored: a stray `pnpm install` run inside projects/<lib> writes its own
+# node_modules there, which shadows the workspace's own resolution.
+node_modules/
 npm-debug.log
 yarn-error.log
+
+# The workspace has one lockfile, at the root; any other is that same accident.
+pnpm-lock.yaml
+!/pnpm-lock.yaml
 
 # IDEs and editors
 .idea/

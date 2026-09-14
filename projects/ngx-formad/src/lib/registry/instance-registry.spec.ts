@@ -24,7 +24,7 @@ describe('InstanceRegistry', () => {
     expect(registry.live().length).toBe(1);
   });
 
-  it('is complete only activeWhen every live instance is valid', () => {
+  it('is complete only when every live instance is valid', () => {
     const registry = new InstanceRegistry();
     registry.add(fakeInstance({ valid: true, visible: true }));
     expect(registry.completed()).toBe(true);
@@ -58,7 +58,7 @@ describe('InstanceRegistry', () => {
     expect(registry.completed()).toBe(true);
   });
 
-  it('recomputes completion activeWhen a later instance lands', () => {
+  it('recomputes completion when a later instance lands', () => {
     const registry = new InstanceRegistry();
     const visible: WritableSignal<boolean> = signal(true);
     registry.add(fakeInstance({ valid: true, visible: true }));
