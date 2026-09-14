@@ -11,7 +11,7 @@ validation but render nothing, and supplies the rendering and multi-step orchest
 - **Multi-step wizards** — navigation, a completion gate, and cross-step prefill.
 - **Pluggable adapters** — swap controls and layout independently; the defaults need no extra dependencies.
 - **Native validation** — your `schema` runs on the real `FieldTree`; ngx-formad adds no validation layer of its own.
-- **One peer dependency** — [`formodel`](https://www.npmjs.com/package/formodel), the typed form description it renders.
+- **One non-Angular peer dependency** — [`formodel`](https://www.npmjs.com/package/formodel), the typed form description it renders.
 
 > **Status — pre-1.0.** This is `0.10.1`, built on the signal-forms API that is
 > *experimental* in Angular 21. Both the API underneath and this library's own surface
@@ -61,7 +61,7 @@ OUT — rendered with zero adapters (plain HTML, CSS grid):
 **A wizard** — sequence forms into steps; a shared key prefills the next one:
 
 ```ts
-import { StepperBuilder, StepperComponent } from 'ngx-formad';
+import { link, StepperBuilder, StepperComponent } from 'ngx-formad';
 
 // IN — two forms sequenced; `Company` typed on step 1 prefills step 2
 const wizard = new StepperBuilder()
@@ -191,12 +191,16 @@ export class ArticleEditor {
 ```
 
 With no adapters configured this renders native HTML controls in a CSS grid — no
-stylesheet, no build step:
+stylesheet, no build step. The default grid is **one column**, in declared order;
+putting two fields side by side is the layout overlay's job, below:
 
 ```
-┌ Title ────────────────┐  ┌ Slug ─────────────────┐
-│                        │  │ my-first-post          │
-└────────────────────────┘  └────────────────────────┘
+┌ Title ─────────────────────────────────────────────┐
+│                                                     │
+└─────────────────────────────────────────────────────┘
+┌ Slug ──────────────────────────────────────────────┐
+│ my-first-post                                       │
+└─────────────────────────────────────────────────────┘
 ┌ Body ──────────────────────────────────────────────┐
 │                                                     │
 └─────────────────────────────────────────────────────┘
@@ -204,9 +208,10 @@ stylesheet, no build step:
 
 `state.rootForm` is the live native `FieldTree`, so `rootForm.title().value()` and
 the field's validation are entirely native — a fact the page and the stepper lean on.
-`state.view` is the form's view: the container's layout classes and one row per node,
-each row carrying the injector its formField component is created from. The renderer
-walks that view and nothing else.
+`state.view` is the form's view: the container's layout classes and one row per node —
+a control row carrying the injector its formField component is created from, a group,
+array or layout row carrying its own nested level. The renderer walks that view and
+nothing else.
 
 ### Custom layout: place fields and components in a responsive grid
 
@@ -256,10 +261,12 @@ places: the renderer binds `FormField` to the field itself, and everything else 
 component takes is declared where the form is instantiated (see [Bindings](#bindings--one-place-per-form-instance)):
 
 ```ts
+type SourcePick = { source: string };
+
 const pickForm = defineForm({
-  model: (): Pick => ({ source: '' }),
+  model: (): SourcePick => ({ source: '' }),
   ui: { source: customField() },
-  layout: formLayout<Pick>().control('source', { component: RadioCards, placement: { colSpan: 2 } }).build(),
+  layout: formLayout<SourcePick>().control('source', { component: RadioCards, placement: { colSpan: 2 } }).build(),
 });
 ```
 
@@ -269,12 +276,13 @@ sits on which field, so the bindings of that field are typed by it. A `customFie
 left without a `control()` placement throws when the form is instantiated. There is no
 component slot inside a form: a widget that is not a field belongs to the page.
 
-A `content()` gate may read the **layout context**: the live model value and, inside a
-stepper page, the cross-step `shared` store (`null` standalone). Never the field tree.
+A `content()` gate reads the **form context** — `{ model, ui, fields }`: the model as a
+writable signal, the authored ui and the placed fields. Never the field tree, and never
+the step context; a gate over cross-step state belongs on the page, not in the overlay.
 
 ```ts
 .content((c) => c.p('Verified against the catalogue.'), {
-  visibleWhen: (ctx) => ctx.model.verified,
+  visibleWhen: (ctx) => ctx.model().verified,
 })
 ```
 
@@ -292,7 +300,7 @@ the same tag builder [pages use](#content--prose-as-data), gated on the same con
 .content((c) => c.h3('Contact for this report'))
 .fields('name', 'phone')
 .content((c) => c.p('We only call about this report.', { className: 'hint' }), {
-  visibleWhen: (ctx) => ctx.model.phone.length > 0,
+  visibleWhen: (ctx) => ctx.model().phone.length > 0,
 })
 ```
 
@@ -338,7 +346,7 @@ the `@if`. The same
 builder scales to many steps — here we use a single one.
 
 ```ts
-import { signal } from '@angular/core';
+import { inputBinding, signal } from '@angular/core';
 import { StepperBuilder, StepperComponent } from 'ngx-formad';
 
 const status = signal<'draft' | 'scheduled'>('draft');
@@ -376,7 +384,7 @@ way the form section described, the row arranges SEO into its own group, and
 renderer added and removed it for you. Flip the signal back to `'draft'` and the
 component is gone, with no `@if` anywhere in your code.
 
-## Content - prose as data
+## Content — prose as data
 
 A page is rarely only forms. There is the sentence above the field, the note that
 appears when a rule bites, the "or" between two blocks, the hint whose middle word is
@@ -424,8 +432,9 @@ page
 - **Content renders as part of change detection**, so it is in server-rendered output;
   hydration of a content block has not been verified yet, so treat SSR + hydration as
   untested rather than supported.
-- **`visibleWhen`** gates a tag (and its subtree) or the whole block; a gated tag keeps
-  its place in the DOM as `hidden`, so nothing below it jumps.
+- **`visibleWhen`** gates a tag (and its subtree) or the whole block; a gated tag stays
+  in the DOM and is hidden in place (`hidden` plus `display: none`) rather than torn
+  down and rebuilt, so its listeners and its identity survive the round trip.
 - **Classes are the whole styling surface.** The library ships no look for content: the
   `className` you pass is yours, resolved by nothing.
 - **Nothing is interpolated as markup**, and what a config may ask for is bounded
@@ -440,7 +449,7 @@ page
 
 Content is drawn by `Renderer2`, not a template, for one structural reason: recursing
 through a component would put its host element between a `<ul>` and its `<li>`. The
-tree renders exactly as authored, with no wrapper anywhere.
+tree renders exactly as authored, with no wrapper inside it.
 
 The same builder works inside a form, as `formLayout(...).content(build, { visibleWhen })`
 - [see the layout overlay](#custom-layout-place-fields-and-components-in-a-responsive-grid).
@@ -453,7 +462,7 @@ a completion gate (you cannot advance past an invalid step — it is folded from
 native `valid()` of every field), and cross-step shared state with **directional
 autofill**, where a value entered early flows forward into a later field and is never
 clobbered once the user edits it. It is the same builder, with more steps plus
-`withState` and `bind`.
+`withState` and `fieldValueBindings`.
 
 ```ts
 const wizard = new StepperBuilder()
@@ -483,9 +492,11 @@ export class PublishWizard {
 }
 ```
 
-`bind` is a record from model field to shared key, checked both ways: the key must
-exist in `withState` and carry the field's value type. A nested group binds through a
-nested record (`fieldValueBindings: (f, s) => [link(f.address.city, s.city)]`).
+`fieldValueBindings` is a callback handed typed field references and typed store
+slots; `link(field, slot)` joins a pair, and the list it returns is the form's links.
+Nothing is named by string, and the pair is checked both ways: the key must exist in
+`withState` and carry the field's value type. A nested field is reached by walking the
+references (`fieldValueBindings: (f, s) => [link(f.address.city, s.city)]`).
 
 At runtime the shell shows **Basics** with its heading and a Next that refuses to
 advance until the step is valid — that is the completion gate. Type a slug and
@@ -510,8 +521,8 @@ and none of it is imperative — it's all data the engine reads from the live co
 - **Nested models** render as nested fieldsets — an Article with an `seo: { title,
   metaDescription }` object becomes an SEO group with no extra work. See
   [Nested groups](#nested-groups).
-- **A step can be conditional or optional** — `createStep(build, { when })` drops a
-  step that doesn't apply; `{ optional: true }` lets the user skip it.
+- **A step can be conditional or optional** — `createStep(build, { activeWhen })` drops
+  a step that doesn't apply; `{ optional: true }` lets the user skip it.
 - **The end can fork.** Publishing splits — *publish now* vs *schedule* — into two
   short arms with **different results**:
 
@@ -558,9 +569,9 @@ After blurring an empty slug, the default control emits:
 
 ```html
 <label class="ngx-formad-field">
-  <span>Slug</span>
-  <input type="text">
-  <small class="ngx-formad-error">A slug is required to publish.</small>
+  <span>Slug<span class="ngx-formad-req" aria-hidden="true"> *</span></span>
+  <input type="text" aria-invalid="true" aria-describedby="ngxf-7-err" aria-required="true">
+  <small class="ngx-formad-error" id="ngxf-7-err" role="alert">A slug is required to publish.</small>
 </label>
 ```
 
@@ -595,7 +606,7 @@ const accountForm: FormConfig<Account> = {
 That renders `Name`, then an **Address** fieldset with City/Street/ZIP in a 2-column
 grid. Groups nest arbitrarily deep. Each leaf in `state.fields` carries its full
 `path` (`['address','city']`), so a custom chrome's validation summary can address
-nested fields, and the completion gate already counts them. **`bind` reaches nested
+nested fields, and the completion gate already counts them. **Shared links reach nested
 fields too** — `fieldValueBindings: (f, s) => [link(f.address.city, s.city)]` links a nested field to a shared
 key, so cross-step prefill works at any depth.
 
@@ -626,11 +637,11 @@ affordances.
 
 ## Conditional, optional & lazy steps
 
-Real wizards branch. `createStep` takes options — `when`, `optional`, `defer` —
+Real wizards branch. `createStep` takes options — `activeWhen`, `optional`, `defer` —
 that make a step conditional, skippable, or deferred, all as data. Two paths
 (say an admin vs. a regular account) are expressed by gating their steps on a
 condition; the common steps that follow are ungated, so **the branches rejoin
-automatically**. Because both branches `bind` to the same shared keys, everything
+automatically**. Because both branches link to the same shared keys, everything
 downstream is branch-agnostic — the shared state *is* the converging interface.
 
 ```ts
@@ -644,7 +655,7 @@ new StepperBuilder()
   .createForm('review', reviewForm)
   .createStep((s) => s.createPage(/* Basics */), { name: 'basics' })
   .createStep((s) => s.createPage(/* Advanced */), {
-    activeWhen: ({ steps }) => steps.basics?.basics.model().accountType === 'admin', // (a) a prior step
+    activeWhen: ({ steps }) => steps.basics.basics.model().accountType === 'admin', // (a) a prior step
     defer: DeferTrigger.Idle, // render this heavy step inside @defer
   })
   .createStep((s) => s.createPage(/* Settings */), {
@@ -662,18 +673,21 @@ new StepperBuilder()
   autocomplete; unknown keys are compile errors). It reads from three sources:
   **(a)** a previous step's live instance via `steps`, **(b)** the cross-step `shared`
   state, and **(c)** anything you close over — ignore the arg and read an external
-  signal. A gate may run before its predecessors exist, so every entry of `steps` is
-  optional there; a step under `when` (or in a branch arm) is optional everywhere.
-  It is reactive: flip the value and the step appears or disappears, and the
-  sequence re-shapes live. Unnamed steps are reachable by authored index only —
-  fragile under reordering — so name any step another one reads.
+  signal. A gate is asked only once every step before it has been entered or skipped,
+  so an ungated predecessor is there when the gate reads it — `steps.basics` above needs
+  no `?.`. A step under `activeWhen` (or in a branch arm) may have been skipped, so it
+  is `| undefined` everywhere. Until navigation reaches a gated step, it is *undecided*:
+  off the rail and out of `total`, its gate unasked. It is reactive: flip the value and
+  the step appears or disappears, and the sequence re-shapes live. Unnamed steps are
+  reachable by authored index only — fragile under reordering — so name any step
+  another one reads.
 - **`optional: true`** makes the step skippable — the bundled shell renders a **Skip**
   that advances past the completion gate.
 - **`completeWhen(ctx)`** is an extra gate ANDed with the form fold, reading the same
-  typed context as `when` (plus anything you close over). A step whose body is a
+  typed context as `activeWhen` (plus anything you close over). A step whose body is a
   dynamic component rather than a form contributes no fields to the fold, so it is
   otherwise *vacuously complete* and Next is always enabled; `completeWhen` lets it
-  gate Next on its own state — e.g. `{ completeWhen: ({ shared }) => shared.consented }`.
+  gate Next on its own state — e.g. `{ completeWhen: ({ shared }) => shared.consented() }`.
   Pair it with **`incompleteMessage`** ("Accept the terms to continue") — that is what
   the blocked-Next explainer shows when this guard is what holds. It is reactive.
   For a component that *carries a value* (a picker, a selection grid), put the value in
@@ -681,18 +695,18 @@ new StepperBuilder()
   gates Next declaratively and its errors explain themselves.
 - **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
   fetched only when its step is reached (eager steps stay synchronous). The pool type
-  still records `FormConfig<M>`, so `addForm`/`bind`/`steps` are unchanged.
+  still records `FormConfig<M>`, so `addForm`/`fieldValueBindings`/`steps` are unchanged.
 - **Seeding from a predecessor** — `addForm('details', { initial: ({ steps }) =>
   ({ manufacturer: steps.maker?.maker.model().manufacturer }) })` starts THIS instance
   from another step's live value when the step comes to life. It is the LOCAL channel;
-  `bind` (through shared state) is the global one — the same value should not travel
-  both ways. An entry whose value is `undefined` leaves the field's own default alone.
+  a shared link (through `fieldValueBindings`) is the global one — the same value should
+  not travel both ways. An entry whose value is `undefined` leaves the field's own default alone.
 - **What a revisit does is the author's call, per placement.** By default a step the
   user comes back to is exactly as they left it: `initial` ran once, and the fields
   keep what was typed — an address page does not reset because the cart was confirmed.
   Two opt-in policies, both enums: `addForm(name, { revisit: FormRevisit.Reseed })`
   reads `initial` again from the current context on every entry and writes it into the
-  fields the user has not edited (the pristine gate `bind` uses); `createStep(build,
+  fields the user has not edited (the same pristine gate shared links use); `createStep(build,
   { revisit: StepRevisit.Fresh })` drops the step on entry and builds it again, pages
   and forms alike, so nothing typed there survives. Shared links are reapplied to
   pristine fields on every entry regardless.
@@ -731,9 +745,9 @@ filter), `resolveStepForms(pages, pool)` (await lazy configs) and
 
 ### Branching
 
-Gating every step of a path with the same `when` is tedious, so `branch` groups
+Gating every step of a path with the same `activeWhen` is tedious, so `branch` groups
 them: a selector picks a branch by key, and each branch authors its own steps. It
-is **pure sugar** — every branch step compiles to a `when`-gated step, so the
+is **pure sugar** — every branch step compiles to an `activeWhen`-gated step, so the
 runtime is unchanged and **branches rejoin automatically** at the next ungated step.
 
 ```ts
@@ -745,7 +759,7 @@ new StepperBuilder()
   .createForm('done', doneForm)
   .createStep((s) => s.createPage(/* Start */))
   .branch((ctx) => ctx.shared.plan(), {
-    //        ▲ ctx is the same typed context as `when`: read shared or steps
+    //        ▲ ctx is the same typed context as `activeWhen`: read shared or steps
     pro: (b) =>
       b
         .createStep((s) => s.createPage(/* Billing */))
@@ -757,10 +771,12 @@ new StepperBuilder()
 ```
 
 The selector is typed against the wizard (`ctx.shared.plan` autocompletes); returning
-`null` selects no branch — nothing is guessed. Branches **nest** (`b.branch(...)`),
-and a step's own `when` is ANDed with the branch guard. Because branching reduces to
+`null` selects no branch — nothing is guessed. It is asked once per walk of the
+sequence, however many arms the branch has. Branches **nest** (`b.branch(...)`),
+and a step's own `activeWhen` is ANDed with the branch guard. Because branching reduces to
 conditions, the `steps` source works too: branch on a named predecessor's live answer,
-not just on shared. A branch step is gated by nature, so successors see it as
+not just on shared — the selector is asked once the steps before the branch are entered,
+so that predecessor is there. A branch step is gated by nature, so successors see it as
 `| undefined`.
 
 ### Forking
@@ -929,11 +945,14 @@ handle `text`, `email`, `password`, `tel`, `url`, `textarea`, `number`, `select`
 `radio`, `checkbox`, `date`, and `file`. The `checkbox` control also takes an
 `innerHTML` input (from the node) for a rich label — a consent line with links, say.
 
-> **Reserved input names.** `value`, `touched`, `errors`, `disabled`, `required`,
-> and the validation-metadata names `min`, `max`, `minLength`, `maxLength`,
-> `pattern`, `step` belong to the native `FormValueControl` contract (and are typed
-> — `min`/`max` are `number`). A presentational input must not reuse them, which is
-> why the bundled `date` control names its bounds `minDate`/`maxDate`.
+> **Reserved input names.** The native `FormValueControl` contract owns `value` and
+> `checked`, the state names `touched`, `errors`, `disabled`, `disabledReasons`,
+> `readonly`, `hidden`, `invalid`, `pending`, `dirty`, `name` and `required`, and the
+> validation-metadata names `min`, `minLength`, `max`, `maxLength` and `pattern` — all
+> typed by the contract (`min`/`max` are `number | undefined`, `pattern` a
+> `readonly RegExp[]`). `FormField` binds them itself, and a field binding is refused
+> on any of them, so a presentational input must not reuse one — which is why the
+> bundled `date` control names its bounds `minDate`/`maxDate`.
 
 ### Writing a layout adapter
 
@@ -944,7 +963,9 @@ that is the control axis.
 ```ts
 import { LayoutAdapter } from 'ngx-formad';
 
-export const tailwindLayout: LayoutAdapter = {
+// A hand-written one, for the shape of it; `tailwindLayout` ships this axis already,
+// and resolves every breakpoint of a responsive value rather than a constant.
+export const myGridLayout: LayoutAdapter = {
   container: ({ cols = 1, gap = 4 }) => ({ class: `grid grid-cols-${cols} gap-${gap}` }),
   item: ({ colSpan }) => (colSpan ? { class: `col-span-${colSpan}` } : {}),
 };
@@ -962,7 +983,7 @@ resolves differently per adapter — your form config never changes:
 | Adapter | What the container element gets |
 | --- | --- |
 | default (`cssLayout`) | `style="display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem"` |
-| `tailwindLayout` (above) | `class="grid grid-cols-2 gap-4"` |
+| `tailwindLayout` | `class="grid grid-cols-2 gap-4"` |
 
 > **Tailwind gotcha:** classes built by interpolation (`grid-cols-${cols}`) must be
 > discoverable by Tailwind's compiler — safelist them, or map specs to static names.
@@ -1081,11 +1102,11 @@ and let it answer.
 #### A flow that repeats — recurrent steppers
 
 A step list is a sequence, and some flows are rings: "add another device" runs the
-same steps again and lands back on a list. Before 0.9 that loop had to be spelled as
+same steps again and lands back on a list. Before 0.10 that loop had to be spelled as
 a jump; now it is its own abstraction, equal in rank to the linear stepper. A
 recurrent stepper is *pass steps* around a *dock*: finishing a pass folds its values
 into the flow's own state (a pure `(state, pass) => state` over the accumulator
-`initial` declares), the dock can only reopen the ring or complete the flow, and entry
+`state: () => C` declares), the dock can only reopen the ring or complete the flow, and entry
 is conditional — a state for which `dockReachable` holds lands on the dock, any other
 opens a pass on its first step (without `dockReachable`, the dock is reachable once a
 pass has folded). Validity derives from the state (`completeWhen`), never from the
@@ -1119,7 +1140,7 @@ new StepperBuilder()
 
 The flow occupies ONE slot of the parent sequence — one entry in the rail, one
 `index()` position — and renders through the same single chrome, however deep. Later
-steps read the state as `ctx.steps.devices`, typed to what `initial` declared. A
+steps read the state as `ctx.steps.devices`, typed to what `state` declared. A
 nested flow has its own namespace of step names (the same name may recur on another
 level) and reaches the level above explicitly through `ctx.parent`; its `ctx.shared`
 layers its own `withState` over the parent's; inside a ring `ctx.flow` exposes the
@@ -1127,7 +1148,7 @@ layers its own `withState` over the parent's; inside a ring `ctx.flow` exposes t
 A dock component stays dumb: it injects the two-method `FlowDock`, or marks its
 buttons with `ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller. The
 nesting also runs the other way (`createStepper` puts a linear sub-flow inside a
-pass), and a ring built at the root (`new RecurrentStepperBuilder({ initial })`, ending
+pass), and a ring built at the root (`new RecurrentStepperBuilder({ state })`, ending
 in `dock(...).build()`) goes straight into `<ngx-formad-stepper>`; its `completed`
 carries the state. A chrome that wants to draw the nesting reads
 `controller.progress()` — one level per controller along the active chain; a chrome
@@ -1151,9 +1172,10 @@ token.
 A few properties keep the orchestrator off the critical path of typing and clicking:
 
 - **Nothing is built ahead of time.** `build()` is data-only; the controller
-  materializes only the *current* step, caches it by node identity and keeps it on
-  revisit unless the author's `revisit` policy says otherwise. Later steps don't exist
-  until reached — proven by a test that counts model-factory calls.
+  materializes the *current* step (plus the eager, ungated steps before it, so the
+  context can name them), caches each by node identity and keeps it on revisit unless
+  the author's `revisit` policy says otherwise. Later steps don't exist until reached —
+  proven by a test that counts model-factory calls.
 - **Typing touches what reads it.** A gate reads what it names —
   `ctx.steps.basics.basics.model()` is the live model — so a keystroke re-evaluates
   the gates that read that form and nothing else. The field list is static, and a
@@ -1217,7 +1239,9 @@ new StepperBuilder()
 
 `CustomControlNode<Value, Props>` ties the node to its field by value type — a node
 built for `Product[]` is a type error on a `string` field. The renderer hands the
-component one `props` input, read live when the node's `props` is a signal. A control
+component one `props` input, wrapped in a signal once where the field mounts — a kind's
+`props` is structural, so it is taken in as authored and does not follow a signal;
+put what changes inside the bag behind signals of your own. A control
 with nothing to configure declares `Record<string, never>` and takes an empty bag. The
 product step, VAT-ID lookup, and similar widgets all become plain config fields this
 way; a widget used on one field only needs no kind at all — declare the field
@@ -1247,8 +1271,9 @@ without the message, the explainer can only say *"This step is not complete yet.
 
 Options often arrive later than the form: a country list from an API, sub-categories
 that depend on an earlier answer. Any *presentational* prop of a control node —
-select/radio `options`, `label`, `placeholder`, a date's `limit`, a custom control's
-`props` — may be a **signal** instead of a value. The renderer reads it live; set the
+select/radio `options`, `label`, `placeholder`, a date's `limit`, a textarea's `rows`,
+a file field's `accept`/`multiple`/`maxFiles`, a checkbox's `innerHTML` — may be a
+**signal** instead of a value. The renderer reads it live; set the
 signal whenever the data lands and the control follows. Nothing re-instantiates.
 
 ```ts
@@ -1324,7 +1349,7 @@ you like.
 Everything a field's component is bound with beyond what `FormField` binds — its
 inputs, its outputs, its two-way ones — is declared in ONE place per abstraction: the
 second argument of `instantiateForm(config, bindings)` for a form on its own,
-`bindings` in `page.addForm(name, cfg)` inside a stepper. The record is
+`componentBindings` in `page.addForm(name, cfg)` inside a stepper. The record is
 keyed by the form's field names; under a field sit `inputs` and `outputs`, each keyed by
 the component's own names, so the keys are typed by the component that draws the field:
 the one the layout placed with `control()`, or the one `ControlComponents` registers for
@@ -1342,7 +1367,7 @@ declare module 'ngx-formad' {
 }
 
 page.addForm('thirdParty', {
-  bindings: {
+  componentBindings: {
     taxId: {
       inputs: { label: 'VAT ID' },
       outputs: {
@@ -1410,11 +1435,11 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `FormConfig<M, U, P>` | A form as data: `{ model: () => M; ui: U; schema?: SchemaOrSchemaFn<M>; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `SignalUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
+| `FormConfig<M, U, P>` | A form as data: `{ model(): M; ui: U; schema?(p: SchemaPathTree<M>): void; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `SignalUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
 | `defineForm(config)` | Identity that keeps `U` and `P`, so `state.ui.<field>.<prop>` hands a signal back writable and the bindings are typed. |
 | `instantiateForm(config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. Needs an injection context. |
 | `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, shared?, bindings?, effects?, context? }`. |
-| `FormBindings<M, U, P, Ctx>` | What `instantiateForm` and `addForm` take: field name → `{ inputs?, outputs?, bindings? }` — static inputs typed by the component, output handlers (`(payload, ctx) => void`), and Angular `Binding[]` for reactive ones, typed by the placed component or by `ControlComponents[kind]`. |
+| `FormBindings<M, U, P, Ctx>` | What `instantiateForm`'s second argument and `addForm`'s `componentBindings` take: field name → `{ inputs?, outputs?, bindings? }` — static inputs typed by the component, output handlers (`(payload, ctx) => void`), and Angular `Binding[]` for reactive ones, typed by the placed component or by `ControlComponents[kind]`. |
 | `ControlComponents` | The typed side of the control registry, kind → component class; augment it in the application. |
 | `FormEffect<Ctx>` | `(ctx) => void`, run as an `effect()` for the life of the instance. |
 | `FormContext<M, U>` | What a callback inside one form reads: `{ model: WritableSignal<M>; ui; fields }` — a layout gate, a field's output handler and an effect alike. Inside a stepper the object also carries the step's level, which the placement types (`StepFormContext`). |
@@ -1423,7 +1448,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `FormState<M, U>` | `{ model; rootForm; ui; nodes; fields; grid?; view; destroy() }` — `nodes` is the render tree, `fields` the flat leaves (each with `path`), `view` the `FormLevel` the renderer draws, `destroy()` ends the effects. |
 | `FormLevel` / `ViewRow` | One level's container classes and its rows: `ControlRow` (a formField and the injector its mount point creates it from), `GroupRow`, `ArrayRow` (`items()`, `add()`, `remove(i)`), `LayoutRow`, `ContentRow`. |
 | `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` \| `ArrayNode` \| `FormContentNode` \| `FormRowNode`. `buildNodes(ui)` builds it from the ui, `buildLayoutNodes(ui, items)` from an overlay. |
-| `formLayout<M>()` | The layout overlay builder: `cols`, `gap`, `field`, `fields`, `control`, `content`, `row`, `build()`. |
+| `formLayout<M>()` | The layout overlay builder: `cols`, `gap`, `field`, `fields`, `control`, `content`, `row`, `omit`, `build()`. |
 | `FieldComponentConfig<T, C>` | What `control(key, …)` takes: `{ component: Type<C>; placement?: GridPlacement }`, `C` a `FormValueControl<T>`. |
 | `SignalUiConfig<M>` | `ui` with every control prop widened to `T \| Signal<T>`; taken in as a signal where the field mounts, so the runtime holds signals only. |
 | `FormRenderer` | The `<ngx-formad-form [state] />` component. Pure view — the formFields were created with the state. |
@@ -1433,9 +1458,9 @@ Everything is exported from the package root (`ngx-formad`).
 | Symbol | What it is |
 | --- | --- |
 | `StepperBuilder` | The fluent chain: `withState`, `createForm`, `provide`, `addControlType`/`overrideControlType` (typed: add rejects an existing kind, override requires one), `createStep`, `branch`, `createStepper`, `createRecurrentStepper`, `fork` (terminal) and `build()`. Each method narrows the type (see below). |
-| `RecurrentStepperBuilder` | The ring's chain: the same members plus `fold` and the terminal `dock`, whose config carries the flow's `completeWhen`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ state })` starts a ring at the root. |
+| `RecurrentStepperBuilder` | The ring's chain: the same members bar `fork`, plus `fold` and the terminal `dock`, whose config carries the flow's `completeWhen` and hands back the `build()`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ state })` starts a ring at the root. |
 | `FormadWizard` | Injectable per stepper — `committed()`, `controller()`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
-| `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `step()` and nested `branch()`. |
+| `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `createStep()` and nested `branch()`. |
 | `ForkArmBuilder` / `ForkArm` | Authors one fork arm (`withState`/`createForm`/`createStep`/`branch`) ending in `result(...)`. |
 | `Stepper<TForms, TCtx, TResult>` | The built linear flow: `{ forms, steps, shared, controlTypes, providers, resolveResult? }`. `RecurrentStepper<TForms, TCtx, C>` is the ring counterpart. |
 | `RuntimeStepper` / `RuntimeFlow` | The same with the authoring types erased — what the shell's `[stepper]` input and the controller take. A built `Stepper` is assignable as it is. |
@@ -1454,11 +1479,11 @@ Everything is exported from the package root (`ngx-formad`).
 | `StepperController` / `FormadStepperController` | The headless engine and the class that implements it: state signals (`step`, `index`, `canNext`, `progress`, `result`, `committed`, …) + `next`/`back`/`skip`/`goTo`/`reset`/`dockRestart`/`destroy`. |
 | `StepPageView` | `<ngx-formad-step-page [step] />` — renders one step's **whole page** (forms + components + rows + content); drop into your own `@defer`. |
 | `StepFormsView` | `<ngx-formad-step-forms [step] />` — the forms-only subset of `StepPageView`, for a chrome that never uses `addComponent`. |
-| `materializeStep(pages, options)` | Instantiates the forms and page components the pages place, registers the forms and seeds them from the entry context; `MaterializeOptions = { pool, shared, environment, injector?, entry }`. Returns a `LiveStep`. |
+| `materializeStep(pages, options)` | Instantiates the forms and page components the pages place, registers the forms and seeds them from the entry context; `MaterializeOptions = { pool, shared, environment, injector?, entry, context? }` — `context` is re-read on every emission, so handlers see the live steps. Returns a `LiveStep`. |
 | `resolveStepForms(pages, pool)` | Awaits the lazy loaders the pages place into a plain config map (eager ones pass through). |
-| `effectiveSteps(steps, ctx)` | The pure conditional filter — the sequence nodes whose `when` passes, in order. |
+| `effectiveSteps(steps, ctx, entered)` | The sequence decided so far, in order: every ungated node, plus each gated node whose `activeWhen` passes — asked only while every node listed before it is `entered` or skipped; gated nodes beyond that front stay undecided. |
 | `isStepNode` / `isFlowStep` | Narrow a `SequenceNode` to a leaf step or a nested flow slot. |
-| `LiveStep` / `LiveForm` | `LiveStep = { registry, forms, components, instances, pages }`; `LiveForm = { name, state, visible, issues, seed(ctx), reseed(ctx), commit(), touch() }`. |
+| `LiveStep` / `LiveForm` | `LiveStep = { registry, forms, components, instances, pages, context }`; `LiveForm = { name, state, visible, issues, seed(ctx), reseed(ctx), commit(), touch(), destroy() }`. |
 | `InstanceRegistry` | Collects a step's live forms; `completed()` folds `valid()` over the visible ones. |
 | `SharedState<S>` | The plain-signal cross-step store: `get(key)`, `select(key)`, `signals()`, `snapshot()`, `patch(partial)`, `reset()`. |
 | `StepperProgress` | What `progress()` returns: `levels`, each a `LinearProgressLevel` (rail) or a `RecurrentProgressLevel` (pass bar, dock, folds). |
@@ -1476,13 +1501,14 @@ Everything is exported from the package root (`ngx-formad`).
 ### The builder, method by method
 
 Each method moves the type forward — the form pool, the registered control kinds and
-the step context are `StepperBuilder`'s three generics, so `addForm`, `bind`, `when`
-and `initial` are checked against the exact forms, keys and named steps you declared.
+the step context are `StepperBuilder`'s three generics, so `addForm`,
+`fieldValueBindings`, `activeWhen` and `initial` are checked against the exact forms,
+keys and named steps you declared.
 Read each comment as the inferred type *after* the call:
 
 ```ts
 new StepperBuilder()
-//  StepperBuilder<{}, BuiltInControlKind, RootContext>           empty pool, built-in kinds, empty context
+//  StepperBuilder<{}, ControlKind, RootContext>                  empty pool, built-in kinds, empty context
   .withState({ slug: '' })
 //  StepperBuilder<{}, …, WithShared<RootContext, { slug: string }>>   ctx.shared.slug is a Signal<string>
   .createForm('article', articleForm)
@@ -1515,10 +1541,10 @@ The inner callbacks have small, fixed shapes:
 ```ts
 createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only with pages: StepPages.OnEntry
   name?: N,                                   // the key successors read this step under: ctx.steps.<name>
-  pages?: StepPages,                          // Once (default) | OnEntry                             // build the pages on every entry, over the live ctx
+  pages?: StepPages,                          // Once (default) | OnEntry — OnEntry rebuilds the pages on every entry, over the live ctx
   label?: string | Signal<string>,            // short name for a chrome's rail (controller.labels())
-  when?: (ctx) => boolean,                    // ctx: GateContext — ctx.shared.key() a signal,
-  optional?: boolean,                         //   ctx.steps.x?.form a live FormState
+  activeWhen?: (ctx) => boolean,              // ctx: the typed context — ctx.shared.key() a signal, ctx.steps.x.form a live
+  optional?: boolean,                         //   FormState (`| undefined` when x is gated); asked once its predecessors are entered
   defer?: DeferTrigger,                       // Idle | Viewport | Interaction
   completeWhen?: (ctx) => boolean,            // extra gate ANDed with the form fold; same ctx as `activeWhen`
   incompleteMessage?: string,                 // what `blockers` says when completeWhen is what holds
@@ -1536,7 +1562,7 @@ createStepper('name', { build: (sub) => sub…, label?, activeWhen?, defer? })  
 createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends in dock()
   state: () => C, dockReachable?: (state) => boolean, build: (loop) => loop…, label?, activeWhen?, defer?,
 })
-loop.dock((step) => …, { name?, label?, dynamic?, defer?, completeWhen?, incompleteMessage? })  // DockCfg: no
+loop.dock((step) => …, { name?, label?, pages?, defer?, completeWhen?, incompleteMessage? })  // DockCfg: no
 //   activeWhen, optional or revisit - the dock is the only way out of the ring
 step.createPage((page) => …, { heading?, subheading?, layout?, visibleWhen?: (ctx) => boolean })  // page: PageBuilder; headings take a string or a Signal<string>
 page.addForm('name', {                        // a pool name — declared forms only
@@ -1555,7 +1581,7 @@ page.addContent((c) => …, { layout?, visibleWhen?: (ctx) => boolean })  // pro
 //  c.p('Text', { className?, attrs?, on?, visibleWhen? }, (p) => …)   // text, options, children
 //  c.div({ className }, (d) => …)   c.ul((list) => …)        // containers: options and/or children
 //  c.a('Terms', { href })  c.button('Retry', { on: { click } })  c.img({ src, alt })
-//  c.text(() => live())                                     // a bare run at this level
+//  c.text(live)                                             // a bare run at this level; a signal, not a closure
 //  c.insert((p) => p.strong('2'), at?).continue(' left')     // into the tag before; cursor stays
 page.insertRow((row) => …, { layout?, visibleWhen?: (ctx) => boolean })  // a nested PageBuilder; the gate takes the row's children with it
 ```
@@ -1570,7 +1596,7 @@ promo code"** button mid-form. Here's the path — and the honest trade-offs.
 **1. It runs on signal forms, not reactive forms.** ngx-formad renders a native
 `form(model)` `FieldTree`, not a `FormGroup` — there's no wrapper, so adopting it
 means moving that form to signal forms. Do this **risk-first on one small form**, not
-the whole checkout at once. (formodel is the one peer dep to add.)
+the whole checkout at once. (formodel is the one non-Angular peer dep to add.)
 
 **2. Nested models map directly — no hand-flattening.** The `shippingAddress.*` /
 `billingAddress.*` / gift-options objects become groups; see
@@ -1583,7 +1609,7 @@ for your grid **once**, and every form reuses them. See [Theming with adapters](
 
 **4. The wizard shell maps cleanly.** `StepperBuilder` + `withState` + `createStep`,
 including prefill links (e.g. an email entered at the cart step arrives in the billing
-step via `bind`). This is where the payoff is clearest — repetitive field
+step via `fieldValueBindings`). This is where the payoff is clearest — repetitive field
 declarations and `<mat-form-field>` markup collapse into config.
 
 **5. Dynamic and business behaviors use the escape hatches:**
@@ -1592,7 +1618,7 @@ declarations and `<mat-form-field>` markup collapse into config.
 | --- | --- |
 | Async `<select>` options (country / region) | A signal as the node's `options` — see [Reactive props](#reactive-props--seed-a-select-after-the-form-exists); set it when the data lands. |
 | "Apply promo code" / "look up by SKU" mid-form | A dynamic component slot, `page.addComponent(PromoCard, …)`, that writes into shared/fields. |
-| Member-only fields, conditional sections | `visibleWhen` on a field/component, `activeWhen` on a step. |
+| Member-only fields, conditional sections | `hidden()` on a field, `visibleWhen` on a page node (form, component, content, row), `activeWhen` on a step. |
 | Guest vs. business-account checkout | [`branch`](#branching) (rejoins) or [`fork`](#forking) (different result). |
 | Nested address objects, line-item repeaters | [Nested groups](#nested-groups) and [repeating arrays](#repeating-arrays) — both render and bind natively. |
 
@@ -1631,8 +1657,9 @@ whose only input is the `StepperController`) and register it with
 components are config; the renderer produces the DOM, including the `@if` on visibility.
 
 **Does it support nested forms, arrays, and nested binding?** Yes to all three —
-nested objects render as fieldsets, model arrays render as Add/Remove repeaters, and
-`bind` reaches nested fields through a nested record. All validate natively. See
+nested objects render as fieldsets, model arrays render as Add/Remove repeaters, and a
+shared link reaches a nested field by walking the references
+(`link(f.address.city, s.city)`). All validate natively. See
 [Nested groups](#nested-groups) and [Repeating arrays](#repeating-arrays).
 
 **Is it accessible?** The default controls wrap their input in a `<label>` and wire
@@ -1645,10 +1672,10 @@ form to signal forms, add `ngx-formad/material`, then bring over the wizard shel
 steps. Full walkthrough and trade-offs in
 [Migrating an existing form](#migrating-an-existing-form).
 
-**Can steps be conditional, optional, or branch?** Yes. `createStep(build, { when })`
+**Can steps be conditional, optional, or branch?** Yes. `createStep(build, { activeWhen })`
 makes a step conditional, `{ optional: true }` makes it skippable, and `{ defer }`
 renders it inside `@defer`. For multi-step paths, `branch(select, { … })` groups
-guarded steps by key — pure sugar over `when`, so **branches rejoin automatically**.
+guarded steps by key — pure sugar over `activeWhen`, so **branches rejoin automatically**.
 See [Conditional, optional & lazy steps](#conditional-optional--lazy-steps) and
 [Branching](#branching).
 

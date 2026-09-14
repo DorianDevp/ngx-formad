@@ -320,10 +320,8 @@ export type DynamicStepCfg<TCtx extends RuntimeStepperContext, N extends string 
   readonly pages: StepPages.OnEntry;
 };
 
-/** A branch selector: the branch key, or null/undefined while undecided. */
-export type BranchSelect<TCtx extends RuntimeStepperContext, K extends string> = (
-  ctx: GateContext<TCtx>,
-) => K | null | undefined;
+/** A branch selector: the branch key, or null/undefined to select no arm. Asked once the steps before the branch are entered. */
+export type BranchSelect<TCtx extends RuntimeStepperContext, K extends string> = (ctx: TCtx) => K | null | undefined;
 
 /** The entries every arm of a `branch` adds, merged. */
 export type BranchAdded<B> = UnionToIntersection<
@@ -358,6 +356,23 @@ function guardedBy(gate: StepGate, node: SequenceNode): SequenceNode {
   const own = node.activeWhen;
 
   return { ...node, activeWhen: (ctx) => gate.activeWhen(ctx) && (own ? own(ctx) : true) };
+}
+
+/**
+ * A branch's selector asked once per walk: every arm compiles to its own gate, and each walk of the sequence hands
+ * them one context object, so the first arm asks and the rest read the same decision.
+ */
+function decidedOnce<C extends object, K>(select: (ctx: C) => K): (ctx: C) => K {
+  const decisions = new WeakMap<C, K>();
+
+  return (ctx) => {
+    if (decisions.has(ctx)) return decisions.get(ctx) as K;
+
+    const decision = select(ctx);
+    decisions.set(ctx, decision);
+
+    return decision;
+  };
 }
 
 function stepNode<TCtx extends RuntimeStepperContext>(spec: StepSpec<TCtx>): SequenceNode {
@@ -437,12 +452,13 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
     select: BranchSelect<WithSteps<TCtx, TAdded>, K>,
     branches: B,
   ): BranchBuilder<TForms, TCtx, TAdded & BranchAdded<B>> {
+    const decide = decidedOnce(select);
     for (const key in branches) {
       const nested: StepGate = {
-        activeWhen: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
+        activeWhen: (ctx: WithSteps<TCtx, TAdded>) => {
           if (!this.gate.activeWhen(ctx)) return false;
 
-          const selected: string | null | undefined = select(ctx);
+          const selected: string | null | undefined = decide(ctx);
 
           return selected === key;
         },
@@ -538,10 +554,11 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
     branches: B,
   ): ForkArmBuilder<TForms, TCtx, TAdded & BranchAdded<B>> {
     const steps: SequenceNode[] = [];
+    const decide = decidedOnce(select);
     for (const key in branches) {
       const gate: StepGate = {
-        activeWhen: (ctx: GateContext<WithSteps<TCtx, TAdded>>) => {
-          const selected: string | null | undefined = select(ctx);
+        activeWhen: (ctx: WithSteps<TCtx, TAdded>) => {
+          const selected: string | null | undefined = decide(ctx);
 
           return selected === key;
         },
@@ -802,10 +819,11 @@ export class StepperBuilder<
     branches: B,
   ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, BranchAdded<B>>> {
     const steps: SequenceNode[] = [];
+    const decide = decidedOnce(select);
     for (const key in branches) {
       const gate: StepGate = {
-        activeWhen: (ctx: GateContext<TCtx>) => {
-          const selected: string | null | undefined = select(ctx);
+        activeWhen: (ctx: TCtx) => {
+          const selected: string | null | undefined = decide(ctx);
 
           return selected === key;
         },
@@ -1040,7 +1058,7 @@ export class RecurrentStepperBuilder<
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>;
-  createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<TCtx, string>): never;
+  createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<WithSteps<TCtx, {}>, string>): never;
   createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
@@ -1058,12 +1076,13 @@ export class RecurrentStepperBuilder<
     branches: B,
   ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, BranchAdded<B>>> {
     const steps: SequenceNode[] = [];
+    const decide = decidedOnce(select);
     for (const key in branches) {
       const gate: StepGate = {
-        activeWhen: (ctx: GateContext<TCtx>) => {
+        activeWhen: (ctx: TCtx) => {
           if (!passGate.activeWhen(ctx)) return false;
 
-          const selected: string | null | undefined = select(ctx);
+          const selected: string | null | undefined = decide(ctx);
 
           return selected === key;
         },
@@ -1116,7 +1135,7 @@ export class RecurrentStepperBuilder<
       N
     > & { readonly pages: StepPages.OnEntry },
   >(build: DynamicStepBuild<TForms, TCtx, P>, opts: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
-  dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: DockCfg<TCtx, string>): never;
+  dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: DockCfg<WithSteps<TCtx, {}>, string>): never;
   dock<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},

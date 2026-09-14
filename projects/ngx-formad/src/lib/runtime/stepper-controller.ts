@@ -255,15 +255,29 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return this.contextOf(this.nav().memo);
   }
 
-  private effectiveOf(nav: Navigation): readonly SequenceNode[] {
-    return this.inContext(() => effectiveSteps(this.flow.steps, this.contextOf(nav.memo)));
+  /** The steps decided so far over `memo`: a step counts as entered once alive; a nested flow, once it has shown a step. */
+  private effectiveOf(memo: StepMemo): readonly SequenceNode[] {
+    const entered = (node: SequenceNode): boolean =>
+      isFlowStep(node) ? (this.children.get(node)?.started() ?? false) : memo.has(node);
+
+    return this.inContext(() => effectiveSteps(this.flow.steps, this.contextOf(memo), entered));
   }
 
+  private started(): boolean {
+    return this.nav().shown !== null;
+  }
+
+  /** The landing over `nav`; a navigation over the live steps as they are reuses the decided sequence. */
   private currentOf(nav: Navigation): SequenceNode | null {
-    return nav.landing(this.effectiveOf(nav), this.flow.steps);
+    const effective = nav.memo === this.memo() ? this.effective() : this.effectiveOf(nav.memo);
+
+    return nav.landing(effective, this.flow.steps);
   }
 
-  private readonly effective = computed(() => this.effectiveOf(this.nav()));
+  /** The live steps alone: a cursor move keeps the same map, so the sequence is not decided again for it. */
+  private readonly memo = computed(() => this.nav().memo);
+
+  private readonly effective = computed(() => this.effectiveOf(this.memo()));
 
   private readonly current = computed(() => this.nav().landing(this.effective(), this.flow.steps));
 

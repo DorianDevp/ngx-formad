@@ -53,8 +53,9 @@ function ctx(values: Record<string, unknown>): RuntimeStepperContext {
 
 describe('fork', () => {
   it('runs only the chosen arm’s steps — arms do not rejoin', () => {
-    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'individual' })))).toEqual(['Start', 'Personal']);
-    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'business' })))).toEqual([
+    const everyStepEntered = () => true;
+    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'individual' }), everyStepEntered))).toEqual(['Start', 'Personal']);
+    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'business' }), everyStepEntered))).toEqual([
       'Start',
       'Company',
       'Seats',

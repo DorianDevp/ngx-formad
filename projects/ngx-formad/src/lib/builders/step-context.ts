@@ -84,7 +84,10 @@ export type WithSteps<TCtx extends RuntimeStepperContext, E> = StepperContext<
   TCtx['flow']
 >;
 
-/** The context a gate reads: every predecessor optional, since a gate may run before it exists. */
+/**
+ * The context a fork's selector and arm results read: every predecessor optional, since the flow's `result` may be
+ * resolved before they exist. A step gate reads the typed context itself — it is asked only once its predecessors are.
+ */
 export type GateContext<TCtx extends RuntimeStepperContext> = StepperContext<
   TCtx['shared'],
   { readonly [K in keyof TCtx['steps']]?: TCtx['steps'][K] },
@@ -119,8 +122,11 @@ export type StepContext<TCtx extends RuntimeStepperContext, TForms> = TCtx & {
 /** The context the runtime builds for a step; every typed step context is assignable to it. */
 export type RuntimeStepContext = RuntimeStepperContext & { readonly forms: Readonly<Record<string, FormState>> };
 
-/** A reactive step gate as authored against a typed context. */
-export type StepCondition<TCtx extends RuntimeStepperContext> = (ctx: GateContext<TCtx>) => boolean;
+/**
+ * A reactive step gate as authored against a typed context. Asked only once every step before it has been entered or
+ * skipped, so an ungated predecessor is there as its type says; a gated one may have been skipped, hence `| undefined`.
+ */
+export type StepCondition<TCtx extends RuntimeStepperContext> = (ctx: TCtx) => boolean;
 
 /** A step gate as a node holds it; a typed `StepCondition` fits `activeWhen` because it is a method parameter. */
 export interface StepGate {

@@ -4,6 +4,34 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## Unreleased
+
+### Changed
+
+- **A step gate is asked only once its predecessors are entered.** `effectiveSteps`
+  used to ask every `activeWhen` on every recomputation, from the first render on -
+  so a gate reading `ctx.steps.basics.basics.model()` met `undefined` before the
+  wizard had shown a single step, and `GateContext` made every entry of `steps`
+  optional to say so. The sequence is now decided in order up to a *front*: the first
+  listed step not yet entered. Gated steps before it are decided; gated steps past it
+  are *undecided* - off the rail, out of `total`, their gates unasked - until
+  navigation reaches them. Ungated steps are listed throughout, no decision being
+  pending on them. A gate therefore finds what its type promises: an ungated
+  predecessor is there, a gated one is `| undefined` because it may have been
+  skipped, never because it has not been reached. `StepCondition` and `BranchSelect`
+  take the typed context itself; `GateContext` remains for a fork's selector and arm
+  results, which the flow's `result` may resolve early. `effectiveSteps(steps, ctx,
+  entered)` gains the third argument. A rail therefore grows as a gated section is
+  reached rather than showing it from the start.
+- **A branch's selector is asked once per walk.** Every arm compiles to its own gate,
+  and each used to call the selector for itself - N arms, N calls per recomputation,
+  on top of the walk a landing makes before the computed one. The arms of one branch
+  now share a decision: `effectiveSteps` hands every gate one context object per walk
+  of the sequence, and the branch remembers what the selector said for it. The
+  controller walks less as well: the decided sequence depends on the live steps, not
+  on the cursor, so moving between steps already alive decides nothing again, and a
+  landing reuses the decided sequence instead of walking once more before it.
+
 ## 0.10.1
 
 ### Added
@@ -14,14 +42,14 @@ versions may carry breaking changes.
   recurrent stepper is a flow abstraction equal in rank to the linear one - a ring
   of *pass steps* around a *dock*. Finishing a pass folds its values into the flow's
   own state through the author's pure `fold` and lands on the dock; the dock can only
-  reopen the ring or complete the flow. State is the flow's own: `initial` declares
-  the accumulator, it lives inside the ring as `ctx.flow.state()` (a dock hands it to
-  its components through `addComponent`'s bindings callback), and nothing outside
-  mutates it. Entry is conditional -
+  reopen the ring or complete the flow. State is the flow's own: `state: () => C`
+  declares the accumulator, it lives inside the ring as `ctx.flow.state()` (a dock
+  hands it to its components through `addComponent`'s bindings callback), and nothing
+  outside mutates it. Entry is conditional -
   a state for which `dockReachable` holds lands on the dock, any other opens a pass on
   its first step (without `dockReachable`, the dock is reachable once a pass has
   folded) - and validity derives from the state (`completeWhen`), never from the path
-  taken. A ring built at the root (`new RecurrentStepperBuilder({ initial })`) goes
+  taken. A ring built at the root (`new RecurrentStepperBuilder({ state })`) goes
   straight into `<ngx-formad-stepper>`; its `completed` carries the state.
 - **Nesting, both ways - `createStepper` on either builder.** A linear flow can hold
   a recurrent one as ONE step of its sequence and vice versa, driven by a child
@@ -40,18 +68,18 @@ versions may carry breaking changes.
   config on two steps is two independent instances. What a later step reads is
   therefore keyed by STEP: a step named in its options (`{ name: 'basics' }`) exposes
   its live instances to every successor as `ctx.steps.basics.<poolName>` — a
-  `FormState` (`.model()`, `.rootForm`) or a control's `{ field, value() }` — typed by
-  accumulation along the chain, `| undefined` when the step is gated (`when`, a
-  branch arm, a pass). Unnamed steps are reachable by authored index only, which
-  is fragile under reordering: name any step another one reads. `ctx.shared` is the
-  store as one signal per key (the GLOBAL channel, `bind`'s counterpart), and a
-  nested flow keeps its own namespace of step names, reaching the level above through
-  `ctx.parent`. Everything in the context is live: `when`, `completeWhen`, a branch
-  selector, a fold and a dynamic step all read the same reactive tree — no snapshots.
+  `FormState` (`.model()`, `.rootForm`) — typed by accumulation along the chain,
+  `| undefined` when the step is gated (`activeWhen`, a branch arm, a pass). Unnamed
+  steps are reachable by authored index only, which is fragile under reordering: name
+  any step another one reads. `ctx.shared` is the store as one signal per key (the
+  GLOBAL channel, `fieldValueBindings`' counterpart), and a nested flow keeps its own
+  namespace of step names, reaching the level above through `ctx.parent`. Everything in
+  the context is live: `activeWhen`, `completeWhen`, a branch selector, a fold and a
+  step built on entry all read the same reactive tree — no snapshots.
 - **Local seeding - `addForm(name, { initial: (ctx) => Partial<M> })`.** The LOCAL
   channel from a predecessor's live instance into this form, applied once, when the
   step comes to life; an `undefined` entry leaves the field's own default alone.
-  `bind` stays the global one.
+  A shared link (`fieldValueBindings`) stays the global one.
 - **Revisit policies - `StepRevisit` and `FormRevisit`.** What a step the user comes
   back to does is the author's call, per placement, and the default is to keep it:
   the pages, the forms and what was typed stay as they were, so an address page does
@@ -64,14 +92,14 @@ versions may carry breaking changes.
 - **`CommittedOf<typeof built>`.** `Stepper` now carries the accumulated step record
   (`TSteps`), so a host can narrow the erased `stepCommitted` record ONCE, at the
   boundary, to `{ [step]?: { [poolName]: model } }` instead of casting per field.
-- **Dynamic steps - `dynamic: true`.** `createStep((step, ctx) => ..., { dynamic:
-  true })` makes the step's STRUCTURE follow the live context: the callback runs when
-  the step is reached (a pure factory over the entry context), so which pooled forms
-  it places and what prose it shows can depend on the user's earlier answers. The flag
-  is the switch, not the callback's arity: a callback that takes `ctx` without the flag
-  is refused at compile time (an overload whose refusal names the flag) and at build
-  time. In-form
-  conditionality stays `hidden()`/`visibleWhen` — the dynamic step covers only what
+- **Pages built on entry - `pages: StepPages.OnEntry`.** `createStep((step, ctx) => ...,
+  { pages: StepPages.OnEntry })` makes the step's STRUCTURE follow the live context: the
+  callback runs when the step is reached (a pure factory over the entry context), so
+  which pooled forms it places and what prose it shows can depend on the user's earlier
+  answers. The option is the switch, not the callback's arity: a callback that takes
+  `ctx` under the default `StepPages.Once` is refused at compile time (an overload whose
+  refusal names the option) and at build time. In-form
+  conditionality stays `hidden()`/`visibleWhen` — building on entry covers only what
   those cannot: the page's structure.
 - **A page node bound and gated on the step context — `addComponent(Cmp, { bindings:
   (ctx) => [...], visibleWhen: (ctx) => … })`.** `bindings` takes a callback over the
@@ -86,8 +114,8 @@ versions may carry breaking changes.
   page has one — `addComponent`, `addForm`, `addContent`, `insertRow` and `createPage`
   itself — and stays what it was: a `computed` the renderer `@if`s on, so it follows
   what it reads. `LiveStep.context` carries that context to the page renderer.
-  `dynamic: true` is left to what it is for — a page whose STRUCTURE depends on the
-  context, not one input or one gate that does.
+  `pages: StepPages.OnEntry` is left to what it is for — a page whose STRUCTURE depends
+  on the context, not one input or one gate that does.
 - **Gates on the containers, and they count — `insertRow(build, { visibleWhen })`,
   `createPage(build, { visibleWhen })`.** Every leaf of a page could be gated and
   no container could, so one condition had to be repeated on each child. A row and a
@@ -121,8 +149,8 @@ versions may carry breaking changes.
   `EnvironmentInjector` (a nested flow's inherits its parent's, the root inherits
   the application's), torn down with the wizard. Step components resolve them
   directly — a page component stays clean, injecting what the flow declared
-  instead of taking wired inputs — and author callbacks (`when`, `completeWhen`,
-  dynamic steps, `fold`, branch selectors, result resolvers) run inside the flow
+  instead of taking wired inputs — and author callbacks (`activeWhen`, `completeWhen`,
+  pages built on entry, `fold`, branch selectors, result resolvers) run inside the flow
   context, so `inject(...)` works in them the way it does in a router guard.
   Providing a class token creates a NEW flow-scoped instance; hand an existing
   one over with `{ provide: Token, useValue: instance }`. `StepperController`
@@ -141,15 +169,17 @@ versions may carry breaking changes.
   type, and the layout's type remembers `C` under the field (`FormLayout<M, P>`,
   `FormConfig<M, U, P>`, kept by `defineForm`). The field is declared `customField()`
   in `ui` (formodel 0.3); one left without a `control()` placement throws when the form
-  is instantiated. A `content()` gate inside a form reads the layout context
-  (`{ model, shared }`), never the field tree.
+  is instantiated. A `content()` gate inside a form reads the form context
+  (`{ model, ui, fields }`), never the field tree and never the store.
 - **Bindings - one place per form instance.** Everything a field's component is bound
   with beyond `FormField` (inputs, outputs, two-way) is declared in the second argument
-  of `instantiateForm(config, bindings, effects?)` and in `addForm(name, { bindings })`:
-  a record keyed by field name, under it `inputs` and `outputs` keyed by the component's
-  own names, typed by the component the layout placed or by the one `ControlComponents`
-  (a new, augmentable interface: kind → component class) registers for the field's kind.
-  An input takes a `Live<T>`, an output a handler `(payload, ctx)`. `ctx` is the form's
+  of `instantiateForm(config, bindings, effects?)` and in
+  `addForm(name, { componentBindings })`: a record keyed by field name, under it
+  `inputs` and `outputs` keyed by the component's own names, typed by the component the
+  layout placed or by the one `ControlComponents` (a new, augmentable interface: kind →
+  component class) registers for the field's kind.
+  An input is a static value, an output a handler `(payload, ctx)`, and anything reactive
+  is Angular's own `bindings: [inputBinding(...)]` on the same entry. `ctx` is the form's
   writable `model`; inside a stepper the step context with `model` layered in
   (`StepFormContext`), read again on every emission, so `ctx.steps` names the steps alive
   then and not those alive when the step was entered (`InstantiateOptions.context` and
@@ -174,12 +204,14 @@ versions may carry breaking changes.
   programmatic write to the array. Page components go the same way:
   `LiveStep.components` maps each `ComponentNode` to the injector its mount point
   creates it from.
-- **`Live<T>` and `read()`.** `Live<T> = T | (() => T)` is the one way a config value
-  may follow a signal, and `read(value)` the one function that reads either.
-  `FormConfig` widens the authored ui with `LiveUiConfig<M>`, so any presentational
-  prop (`label`, `placeholder`, `options`, a date's `limit`, a custom node's `props`)
-  may be a signal; page headings, step labels, component inputs and content text take
-  the same type. formodel stays plain: 0.3.0 carries no reactive type at all.
+- **A config value that changes is a `Signal<T>`.** `FormConfig` widens the authored ui
+  with `SignalUiConfig<M>`, so any presentational prop (`label`, `placeholder`,
+  `options`, a date's `limit`, a textarea's `rows`, a file field's `accept`) accepts
+  `T | Signal<T>`; page headings, step labels and content text take the same shape. A
+  bare closure is not one of them, and a custom kind's `props` stay static — structure,
+  not presentation. A prop is taken in once, where the field mounts: a plain value is
+  wrapped in a `signal()` there and everything downstream holds a `Signal<T>` and calls
+  it. formodel stays plain: 0.3.0 carries no reactive type at all.
 - **`GridPlacement.colStart`** and `formLayout().row(build, { cols, gap, colSpan,
   colStart })` - a row's own grid plus its placement in the parent grid. `LayoutItem`
   (`[ngxFormadItem]`) puts a placement's class and style on the element it sits on;
@@ -187,13 +219,6 @@ versions may carry breaking changes.
 
 ### Removed
 
-- **`Live<T>` and `read(value)`.** A prop that may follow a signal is `T | Signal<T>` —
-  Angular's own type, written out where it is meant — and a bare closure (`() => T`) is
-  no longer one of the shapes. There is no reader function either: a config is taken in
-  where the field mounts, a plain value is wrapped in a `signal()` once (`intoSignal`),
-  and everything downstream holds a `Signal<T>` and calls it. Reactive text in a content
-  block is `p(computed(() => …))`, a heading is `heading: computed(...)` or a plain
-  string, and a custom kind's `props` are static — a kind's props were never dynamic.
 - **`addForm`'s `submitLabel`.** It was authored, stored on the node and read by
   nothing: the chrome owns its buttons.
 - **The bare content slot.** `addContent()` with no build callback drew an empty layout
@@ -211,11 +236,11 @@ versions may carry breaking changes.
   its own editor.
 - **The selector callbacks and their recorders.** `addForm((f) => f.lead, …)` is
   `addForm('lead', …)`; `bind: (l) => l.link((m) => m.company, (s) => s.company)` is
-  `bind: { company: 'company' }` (a nested group binds through a nested record);
-  `effects: (e) => e.on((m) => m.taxId, 'resolved', handler)` is `effects: { taxId:
-  [{ output: 'resolved', handler }] }`. `FieldRef`, `FieldRefs`, `SharedLink`,
-  `selectedKey` and `OutputHandler` go with them; the records are checked against the
-  model and the shared keys exactly as the callbacks were.
+  `fieldValueBindings: (f, s) => [link(f.company, s.company)]`;
+  `effects: (e) => e.on((m) => m.taxId, 'resolved', handler)` is `componentBindings:
+  { taxId: { outputs: { resolved: handler } } }`. `SharedLink`, `selectedKey` and
+  `OutputHandler` go with them; every replacement is checked against the model and the
+  shared keys exactly as the callbacks were.
 - **`asRenderable`, `asStepper` and `StepperResult`.** A `FormState<M, U>` is what
   `<ngx-formad-form [state]>` takes and a built `Stepper` or `RecurrentStepper` is
   what `<ngx-formad-stepper [stepper]>` takes; the erasure is assignability, not a
@@ -225,8 +250,9 @@ versions may carry breaking changes.
   the form is instantiated (`instantiateForm(config, bindings)`).
 - **`addForm({ effects })` as output handlers, `control({ bindings })`, and
   `addComponent({ inputs, outputs })`.** What a field is bound with lives in ONE place
-  per abstraction - the bindings argument of `instantiateForm` / `addForm` - so the
-  layout's `control()` no longer takes `bindings` and the old `effects` record
+  per abstraction - the bindings argument of `instantiateForm`, `componentBindings` on
+  `addForm` - so the layout's `control()` no longer takes `bindings` and the old
+  `effects` record
   (`{ field: [{ output, handler }] }`) is the field's own output key inside that
   argument. `OutputEffectCfg`, `FormEffects`, `EffectRecord`, `OutputEffect`,
   `recordEffects`, `toBindings`, `ComponentInputs` and `ComponentOutputs` go with it; a
@@ -234,13 +260,15 @@ versions may carry breaking changes.
   `ComponentCfg` no longer carries the component's type parameter.
   `effects` now means an Angular `effect()` over the form.
 - **The outlets and the sync helpers** — `FieldOutlet`, `ComponentOutlet`,
-  `BoundOutputEffect`, `samePath`, `SyncField`, `SharedSlot`, `seedFromShared`,
+  `BoundOutputEffect`, `samePath`, `SyncField`, `seedFromShared`,
   `commitToShared`, `fieldSync` and `SharedState.slot()`. The mount replaces the
   outlets; a `LiveForm` seeds and commits its own links through the field tree, and
-  `SharedState.select(key)` / `signals()` are the per-key signals.
-- **`ReactiveValue`, `readReactive`, `mapReactive`, `reactive`, `ReactiveControlNode`,
-  `ReactiveUiConfig`.** One type, `Live<T>`, one function, `read()`, and the
-  `LiveControlNode` / `LiveUiConfig` widenings.
+  `SharedState.select(key)` / `signals()` are the per-key signals. (`SharedSlot` is
+  back under the same name for a different job: the typed store slot `link()` takes.)
+- **`ReactiveValue`, `readReactive`, `mapReactive` and `reactive`.** A prop that may
+  follow a signal is `T | Signal<T>` — Angular's own type — so there is nothing left to
+  unwrap and no helper to thread a signal through formodel's plain builders: author the
+  field as a literal node instead.
 - **`stepFormNames`.** `formNodes(pages)` lists the form nodes the pages place.
 
 ### Changed
@@ -303,9 +331,10 @@ versions may carry breaking changes.
   [inputBinding('options', theSignal)]` on the same field entry, the same `Binding[]`
   vocabulary `addComponent` takes — so nothing in the renderer has to ask whether an
   input arrived as a value or as a signal.
-- **`LiveUiConfig` is `SignalUiConfig`, `LiveControlNode` is `SignalControlNode`.** The
-  widening now says what it does: every control prop accepts `T | Signal<T>`, and
-  `extraInputsFor` returns signals, which the mount binds as they are.
+- **`ReactiveUiConfig` is `SignalUiConfig`, `ReactiveControlNode` is
+  `SignalControlNode`.** The widening now says what it does: every control prop accepts
+  `T | Signal<T>`, and `extraInputsFor` returns signals, which the mount binds as they
+  are.
 - **`BranchBuilder.step` is `createStep`, and a row's layout class moved into its
   config.** One act, one name on every builder; `insertRow(build, { layout, visibleWhen
   })` puts the class where every other node carries it, and optional, since a row that
@@ -343,8 +372,9 @@ versions may carry breaking changes.
   `formLayout().row` take theirs.
 - **`materializeStep(pages, options)` and `resolveStepForms(pages, pool)`** take the
   step's pages and, for the former, a `MaterializeOptions` object (`pool`, `shared`,
-  `environment`, `injector?`, `entry`). `LiveStep` gains `components` and
-  `instances`; `LiveForm` gains `visible`, `issues`, `reseed(ctx)` and `touch()`.
+  `environment`, `injector?`, `entry`, `context?`). `LiveStep` gains `components`,
+  `instances` and `context`; `LiveForm` gains `visible`, `issues`, `reseed(ctx)`,
+  `touch()` and `destroy()`.
 - **`FormState` gains `grid` and `view`**, and `instantiateForm` creates the mount of
   every formField along with the field tree, so it runs in an injection context
   whether or not a template is ever drawn from it.

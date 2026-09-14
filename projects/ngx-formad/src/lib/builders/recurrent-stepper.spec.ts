@@ -107,16 +107,19 @@ describe('createRecurrentStepper - the emitted node', () => {
   });
 });
 
+// The pure walk over a ring every step of which has been entered: the gates alone decide.
+const everyStepEntered = () => true;
+
 describe('createRecurrentStepper - the ring gates', () => {
   it('shows exactly the dock while no pass is open', () => {
-    const visible = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: false }));
+    const visible = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: false }), everyStepEntered);
     expect(visible.length).toBe(1);
     expect(visible[0]).toBe(ring!.steps[ring!.dockAt]);
   });
 
   it('shows exactly the chosen branch of the pass while a pass is open', () => {
-    const manual = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'manual' } }));
-    const invoice = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'invoice' } }));
+    const manual = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'manual' } }), everyStepEntered);
+    const invoice = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'invoice' } }), everyStepEntered);
     expect(manual.length).toBe(1);
     expect(invoice.length).toBe(1);
     expect(manual[0]).not.toBe(invoice[0]);
@@ -131,7 +134,7 @@ describe('createRecurrentStepper - the ring gates', () => {
   });
 
   it('keeps every branch out of the sequence while the selector reports null', () => {
-    const undecided = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: null } }));
+    const undecided = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: null } }), everyStepEntered);
 
     expect(undecided.length).toBe(0);
   });
