@@ -6,6 +6,16 @@ versions may carry breaking changes.
 
 ## Unreleased
 
+### Added
+
+- **A form given at the page - `addForm(name, template, cfg?)`.** A page may place a
+  template of its own under a name, next to the pool: a config or a loader for one,
+  exactly what `createForm` takes. It is keyed, typed and committed by that name like a
+  pool entry - `ctx.steps.<step>.<name>` reads it - and the pool stays for what several
+  steps share. Two arms of a branch may thus place their own variant under one name.
+  A step's instances key by name, so a step placing one name twice is refused as it is
+  built.
+
 ### Changed
 
 - **A step gate is asked only once its predecessors are entered.** `effectiveSteps`
@@ -22,7 +32,10 @@ versions may carry breaking changes.
   take the typed context itself; `GateContext` remains for a fork's selector and arm
   results, which the flow's `result` may resolve early. `effectiveSteps(steps, ctx,
   entered)` gains the third argument. A rail therefore grows as a gated section is
-  reached rather than showing it from the start.
+  reached rather than showing it from the start. Inside a branch arm the same promise
+  holds one level down: an arm's earlier step reads as present to the arm's later steps
+  and nested selectors (it ran, or they would not be asked), and as `| undefined` only to
+  what comes after the branch.
 - **A branch's selector is asked once per walk.** Every arm compiles to its own gate,
   and each used to call the selector for itself - N arms, N calls per recomputation,
   on top of the walk a landing makes before the computed one. The arms of one branch

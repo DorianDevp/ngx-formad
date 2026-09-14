@@ -339,7 +339,9 @@ A real CMS editor screen is more than one form. It is a *page*: a few forms side
 side, a dynamic component or two (a publish-status banner, a live preview), and blocks
 that appear only when relevant — arranged in a layout. You author a page with the
 builder. `createPage` hands you a callback where you `addForm` (by name, from a typed
-pool), `addComponent`, `addContent` (prose - see [below](#content--prose-as-data)),
+pool — or `addForm(name, template)` with a config or loader given right there, keyed
+and typed by that name the same way), `addComponent`, `addContent` (prose - see
+[below](#content--prose-as-data)),
 `insertRow`, and gate any node — a row and the page itself included — with
 `visibleWhen`. Visibility is *data*: the renderer auto-`@if`s on it, so you never write
 the `@if`. The same
@@ -675,8 +677,10 @@ new StepperBuilder()
   state, and **(c)** anything you close over — ignore the arg and read an external
   signal. A gate is asked only once every step before it has been entered or skipped,
   so an ungated predecessor is there when the gate reads it — `steps.basics` above needs
-  no `?.`. A step under `activeWhen` (or in a branch arm) may have been skipped, so it
-  is `| undefined` everywhere. Until navigation reaches a gated step, it is *undecided*:
+  no `?.`. A step under `activeWhen` may have been skipped, so it is `| undefined`
+  everywhere; a branch arm's step is `| undefined` to everything after the branch, but
+  there to the later steps and nested selectors of its own arm — whatever asks inside
+  the arm runs only because the arm did. Until navigation reaches a gated step, it is *undecided*:
   off the rail and out of `total`, its gate unasked. It is reactive: flip the value and
   the step appears or disappears, and the sequence re-shapes live. Unnamed steps are
   reachable by authored index only — fragile under reordering — so name any step
@@ -696,6 +700,12 @@ new StepperBuilder()
 - **Lazy forms** — pass `createForm(name, () => Promise<FormConfig>)` and the config is
   fetched only when its step is reached (eager steps stay synchronous). The pool type
   still records `FormConfig<M>`, so `addForm`/`fieldValueBindings`/`steps` are unchanged.
+- **A template given at the page** — `addForm(name, template, cfg?)` places a config,
+  or a loader for one, where it is used instead of naming a pool entry; `steps.<step>.<name>`
+  and the committed record read it exactly like a pool form. The pool stays for what
+  several steps share; two arms of a branch may place their own variant under one name.
+  A step's instances key by name, so placing one name twice in a step is refused as the
+  step is built.
 - **Seeding from a predecessor** — `addForm('details', { initial: ({ steps }) =>
   ({ manufacturer: steps.maker?.maker.model().manufacturer }) })` starts THIS instance
   from another step's live value when the step comes to life. It is the LOCAL channel;
@@ -1565,6 +1575,7 @@ createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends
 loop.dock((step) => …, { name?, label?, pages?, defer?, completeWhen?, incompleteMessage? })  // DockCfg: no
 //   activeWhen, optional or revisit - the dock is the only way out of the ring
 step.createPage((page) => …, { heading?, subheading?, layout?, visibleWhen?: (ctx) => boolean })  // page: PageBuilder; headings take a string or a Signal<string>
+page.addForm('name', template, cfg?)          // a template given here: a FormConfig or () => Promise<FormConfig>, keyed by 'name'
 page.addForm('name', {                        // a pool name — declared forms only
   componentBindings?: { field: { inputs?: { name: T }, outputs?: { name: (payload, ctx) => … }, bindings?: Binding[] } },
   fieldValueBindings?: (f, s) => [link(f.field, s.sharedKey)],  // field ↔ store slot, both typed, no strings

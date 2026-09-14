@@ -90,6 +90,9 @@ export type StepEntry<N extends string, Inst, O> = [N] extends [never]
 /** What an always-gated step adds: its instances or `undefined`. */
 export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Record<N, Inst | undefined>;
 
+/** An arm's entries as the steps after the branch see them: each possibly absent, since the arm may not run. */
+export type Gated<T> = { readonly [K in keyof T]: T[K] | undefined };
+
 /** The values behind one step's instances: each form's model. */
 export type StepValues<Inst> = {
   readonly [F in keyof NonNullable<Inst>]: NonNullable<Inst>[F] extends FormState<infer M>
@@ -194,17 +197,29 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
     ]);
   }
 
+  /** Places a template given here under `name`: a config, or a loader for one — what `createForm` takes. */
+  addForm<K extends string, F extends AnyFormProvider>(
+    name: K,
+    template: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
+    cfg?: FormCfg<F, TCtx, TForms>,
+  ): PageBuilder<TForms, TCtx, P & Record<K, F>>;
+  /** Places a pool entry by name. */
   addForm<K extends FormKeys<TForms>>(
     name: K,
-    cfg: FormCfg<TForms[K], TCtx, TForms> = {},
-  ): PageBuilder<TForms, TCtx, P & Record<K, true>> {
-    return new PageBuilder<TForms, TCtx, P & Record<K, true>>([
+    cfg?: FormCfg<TForms[K], TCtx, TForms>,
+  ): PageBuilder<TForms, TCtx, P & Record<K, TForms[K]>>;
+  addForm(name: string, second?: unknown, third?: unknown): PageBuilder<TForms, TCtx, P> {
+    const inline = isTemplate(second);
+    const cfg = ((inline ? third : second) ?? {}) as FormCfg<AnyFormProvider, TCtx, TForms>;
+
+    return new PageBuilder<TForms, TCtx, P>([
       ...this.nodes,
       {
         kind: LayoutNodeKind.Form,
         name,
+        ...(inline ? { template: second } : {}),
         visibleWhen: cfg.visibleWhen,
-        links: cfg.fieldValueBindings?.(fieldRefs<FormModel<TForms[K]>>(), sharedSlots<TCtx['shared']>()) ?? [],
+        links: cfg.fieldValueBindings?.(fieldRefs<FormModel<AnyFormProvider>>(), sharedSlots<TCtx['shared']>()) ?? [],
         bindings: cfg.componentBindings ?? {},
         effects: (cfg.effects ?? []).map((run) => ({ run })),
         initial: cfg.initial,
@@ -347,9 +362,34 @@ function pagesOf<TForms, TCtx extends RuntimeStepperContext, P>(
 ): readonly PageNode[] | DynamicPages {
   if (!onEntry && build.length >= 2) throw new Error(`ngx-formad: ${NOT_DYNAMIC}.`);
 
-  const pages: DynamicPages = { build: (ctx: TCtx) => build(new StepBuilder<TForms, TCtx, {}>(), ctx).pages };
+  const pages: DynamicPages = {
+    build: (ctx: TCtx) => placedOnce(build(new StepBuilder<TForms, TCtx, {}>(), ctx).pages),
+  };
 
   return onEntry ? pages : pages.build(AUTHORING_CONTEXT);
+}
+
+/** A template given at the page: a config (`model` and `ui`) or a loader; a placement's options are neither. */
+function isTemplate(value: unknown): value is AnyFormProvider {
+  if (typeof value === 'function') return true;
+
+  return typeof value === 'object' && value !== null && 'model' in value && 'ui' in value;
+}
+
+/** Every form a step places sits under its own name: its instances and committed values key by it. */
+function placedOnce(pages: readonly PageNode[]): readonly PageNode[] {
+  const seen = new Set<string>();
+  const visit = (nodes: readonly LayoutNode[]): void => {
+    for (const node of nodes) {
+      if (node.kind === LayoutNodeKind.Row) visit(node.children);
+      if (node.kind !== LayoutNodeKind.Form) continue;
+      if (seen.has(node.name)) throw new Error(`ngx-formad: a step places the form "${node.name}" twice.`);
+      seen.add(node.name);
+    }
+  };
+  for (const page of pages) visit(page.children);
+
+  return pages;
 }
 
 function guardedBy(gate: StepGate, node: SequenceNode): SequenceNode {
@@ -399,8 +439,12 @@ function claimName(name: string, taken: object): void {
 
 /** Authors the steps of one branch; each is guarded by the branch condition. */
 export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = {}> {
-  /** Phantom: the step entries this arm adds to the context. Carried by the type system, never read at runtime. */
-  readonly __added?: TAdded;
+  /**
+   * Phantom: the step entries this arm adds to the context after the branch, each possibly absent. Inside the arm,
+   * `TAdded` reads them as they are: an earlier step of the same arm is there whenever a later one is asked.
+   * Carried by the type system, never read at runtime.
+   */
+  readonly __added?: Gated<TAdded>;
 
   constructor(
     private readonly push: PushStep,
@@ -417,7 +461,7 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   >(
     build: StaticStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts?: O & { readonly name?: N },
-  ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
+  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>>;
   createStep<
     N extends string = never,
     P = {},
@@ -428,21 +472,22 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   >(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts: O & { readonly name?: N },
-  ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
+  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>>;
   createStep(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, {}> & NotDynamic,
     opts?: StepCfg<WithSteps<TCtx, TAdded>, string>,
   ): never;
-  createStep<N extends string = never, P = {}>(
+  createStep<
+    N extends string = never,
+    P = {},
+    O extends StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+  >(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
-    opts: StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
-  ): BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
-    this.push(stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts, gate: this.gate }));
+    opts?: O & { readonly name?: N },
+  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>> {
+    this.push(stepNode({ pages: pagesOf(build, opts?.pages === StepPages.OnEntry), opts: opts ?? {}, gate: this.gate }));
 
-    return new BranchBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>(
-      this.push,
-      this.gate,
-    );
+    return new BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>>(this.push, this.gate);
   }
 
   branch<

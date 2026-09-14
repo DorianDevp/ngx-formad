@@ -28,6 +28,7 @@ import {
   formNodes,
   materializeStep,
   resolveStepForms,
+  templateOf,
 } from './materialize-step';
 import { Navigation, StepMemo } from './navigation';
 
@@ -817,14 +818,14 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   private hasLazyForms(pages: readonly PageNode[]): boolean {
     const pool = this.flow.forms;
-    return formNodes(pages).some((node) => typeof pool[node.name] === 'function');
+    return formNodes(pages).some((node) => typeof templateOf(node, pool) === 'function');
   }
 
   private eagerConfigs(pages: readonly PageNode[]): ResolvedForms {
     const pool = this.flow.forms;
     const resolved: ResolvedForms = {};
     for (const node of formNodes(pages)) {
-      const entry = pool[node.name];
+      const entry = templateOf(node, pool);
       if (entry && typeof entry !== 'function') resolved[node.name] = entry;
     }
 

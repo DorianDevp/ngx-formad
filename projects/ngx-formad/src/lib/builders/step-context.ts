@@ -29,9 +29,12 @@ export enum DeferTrigger {
 /** The live instance a placed template becomes. */
 export type InstanceOf<F> = [FormModel<F>] extends [never] ? never : FormState<FormModel<F>>;
 
-/** One step's live instances by pool name, for the names `P` the step placed. */
+/**
+ * One step's live instances by name, for the forms `P` the step placed: each typed by the template placed there —
+ * the pool entry it named, or the config given at the page. `TForms` stays for the signatures that carry it.
+ */
 export type StepInstance<TForms, P> = {
-  readonly [K in keyof P & keyof TForms]: InstanceOf<TForms[K]>;
+  readonly [K in keyof P]: InstanceOf<P[K]>;
 };
 
 /** A shared store as one read-only signal per key. */

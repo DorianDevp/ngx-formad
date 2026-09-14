@@ -294,6 +294,11 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
   };
 }
 
+/** The template a placed form resolves to: the one given at the page, else the pool entry it names. */
+export function templateOf(node: FormNode, pool: Record<string, AnyFormProvider>): AnyFormProvider | undefined {
+  return node.template ?? pool[node.name];
+}
+
 /** Resolves the templates the pages place: loaders are awaited, configs pass through. */
 export async function resolveStepForms(
   pages: readonly PageNode[],
@@ -301,7 +306,7 @@ export async function resolveStepForms(
 ): Promise<Record<string, RuntimeFormConfig>> {
   const entries = await Promise.all(
     formNodes(pages).map(async (node) => {
-      const entry = pool[node.name];
+      const entry = templateOf(node, pool);
       if (!entry) return null;
 
       const config = typeof entry === 'function' ? await entry() : entry;

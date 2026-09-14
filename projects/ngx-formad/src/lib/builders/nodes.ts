@@ -2,7 +2,7 @@ import { Binding, Signal, Type } from '@angular/core';
 import { ContentChild } from './content';
 import { BindingRecord, FormEffectHook } from '../form-config/form-bindings';
 import { LinkPair } from './shared-link';
-import { DeferTrigger, RuntimeStepperContext } from './step-context';
+import { AnyFormProvider, DeferTrigger, RuntimeStepperContext } from './step-context';
 
 /** Discriminates what a page lays out. */
 export enum LayoutNodeKind {
@@ -45,11 +45,17 @@ export enum FormRevisit {
   Reseed = 'reseed',
 }
 
-/** A pooled form placed by name, with its shared links, bindings, effects, local `initial` seed and revisit policy. */
+/**
+ * A form placed by name — a pool entry, or a template given at the page — with its shared links, bindings, effects,
+ * local `initial` seed and revisit policy.
+ */
 export interface FormNode<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: LayoutNodeKind.Form;
 
   readonly name: string;
+
+  /** The template given at the page; absent, the pool entry `name` points at is the template. */
+  readonly template?: AnyFormProvider;
 
   visibleWhen?(ctx: RuntimeStepperContext): boolean;
 
