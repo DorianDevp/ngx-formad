@@ -8,8 +8,12 @@
     "noPropertyAccessFromIndexSignature": true,
     "noImplicitReturns": true,
     "paths": {
-      "ngx-formad": ["./dist/ngx-formad"],
-      "ngx-formad/material": ["./dist/ngx-formad/material"]
+      "ngx-formad": ["./projects/ngx-formad/src/public-api.ts"],
+      "ngx-formad/core": ["./projects/ngx-formad/core/src/public-api.ts"],
+      "ngx-formad/template": ["./projects/ngx-formad/template/src/public-api.ts"],
+      "ngx-formad/chrome": ["./projects/ngx-formad/chrome/src/public-api.ts"],
+      "ngx-formad/tailwind": ["./projects/ngx-formad/tailwind/src/public-api.ts"],
+      "ngx-formad/material": ["./projects/ngx-formad/material/src/public-api.ts"]
     },
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,

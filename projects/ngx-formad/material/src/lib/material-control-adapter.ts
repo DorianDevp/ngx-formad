@@ -1,5 +1,5 @@
 import { Type } from '@angular/core';
-import { ControlAdapter } from 'ngx-formad';
+import { ControlAdapter } from 'ngx-formad/core';
 import {
   MatCheckboxControl,
   MatDateControl,

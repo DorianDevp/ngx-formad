@@ -9,7 +9,7 @@
     "ngx-formad": {
       "projectType": "library",
       "root": "projects/ngx-formad",
-      "sourceRoot": "projects/ngx-formad/src",
+      "sourceRoot": "projects/ngx-formad",
       "prefix": "lib",
       "architect": {
         "build": {
@@ -28,7 +28,8 @@
           "builder": "@angular/build:unit-test",
           "options": {
             "tsConfig": "projects/ngx-formad/tsconfig.spec.json",
-            "runnerConfig": "vitest.config.ts"
+            "runnerConfig": "vitest.config.ts",
+            "setupFiles": ["projects/ngx-formad/testing/setup.ts"]
           }
         }
       }

@@ -28,7 +28,8 @@ wizard. No templates either way.
 
 ```ts
 import { UiFormConfigBuilder, email, text } from 'formodel';
-import { FormRenderer, instantiateForm, FormConfig } from 'ngx-formad';
+import { FormRenderer, instantiateForm, FormConfig, provideFormadSuite } from 'ngx-formad/core';
+import { defaultControls } from 'ngx-formad/template';
 
 // IN — a form as configuration
 const leadForm: FormConfig<{ email: string; company: string }> = {
@@ -45,10 +46,13 @@ const leadForm: FormConfig<{ email: string; company: string }> = {
 class LeadForm {
   readonly state = instantiateForm(leadForm);
 }
+
+// once, at bootstrap: which formFields draw the fields (here the plain-HTML ones)
+bootstrapApplication(App, { providers: [provideFormadSuite({ controls: defaultControls })] });
 ```
 
 ```
-OUT — rendered with zero adapters (plain HTML, CSS grid):
+OUT — rendered with the plain-HTML formFields of `ngx-formad/template` and the CSS-grid layout:
 
 ┌ Email ─────────────────────────────┐
 │                                    │
@@ -61,7 +65,7 @@ OUT — rendered with zero adapters (plain HTML, CSS grid):
 **A wizard** — sequence forms into steps; a shared key prefills the next one:
 
 ```ts
-import { link, StepperBuilder, StepperComponent } from 'ngx-formad';
+import { link, StepperBuilder, StepperComponent } from 'ngx-formad/core';
 
 // IN — two forms sequenced; `Company` typed on step 1 prefills step 2
 const wizard = new StepperBuilder()
@@ -167,7 +171,7 @@ boilerplate — this is the atom that the page and the stepper are built from.
 ```ts
 import { Component } from '@angular/core';
 import { UiFormConfigBuilder, text, textarea } from 'formodel';
-import { FormRenderer, instantiateForm, FormConfig } from 'ngx-formad';
+import { FormRenderer, instantiateForm, FormConfig } from 'ngx-formad/core';
 
 type Article = { title: string; slug: string; body: string };
 
@@ -222,7 +226,7 @@ untouched; the overlay only decides order, grid placement, and where components 
 Build it with `formLayout(...)`:
 
 ```ts
-import { formLayout, FormConfig } from 'ngx-formad';
+import { formLayout, FormConfig } from 'ngx-formad/core';
 import { PasswordChecklist } from './password-checklist';
 
 type Signup = { first: string; last: string; password: string; repeat: string };
@@ -316,7 +320,8 @@ library ships no stylesheet and no generator, and your build emits exactly the c
 your configs name.
 
 ```ts
-import { provideFormadSuite, tailwindLayout } from 'ngx-formad';
+import { provideFormadSuite } from 'ngx-formad/core';
+import { tailwindLayout } from 'ngx-formad/tailwind';
 
 provideFormadSuite({ layout: tailwindLayout /* , controls, stepper */ });
 ```
@@ -349,7 +354,7 @@ builder scales to many steps — here we use a single one.
 
 ```ts
 import { inputBinding, signal } from '@angular/core';
-import { StepperBuilder, StepperComponent } from 'ngx-formad';
+import { StepperBuilder, StepperComponent } from 'ngx-formad/core';
 
 const status = signal<'draft' | 'scheduled'>('draft');
 
@@ -647,7 +652,7 @@ automatically**. Because both branches link to the same shared keys, everything
 downstream is branch-agnostic — the shared state *is* the converging interface.
 
 ```ts
-import { DeferTrigger, StepperBuilder } from 'ngx-formad';
+import { DeferTrigger, StepperBuilder } from 'ngx-formad/core';
 
 new StepperBuilder()
   .withState({ accountType: 'user' as 'user' | 'admin' })
@@ -856,20 +861,28 @@ provider. Nothing else changes; you change the adapter.
 - **Stepper chrome** — a component that draws the wizard shell (nav, progress,
   headings) around the headless `StepperController`. *How the wizard looks.*
 
-Controls and layout ship zero-dependency defaults (plain HTML, inline CSS grid);
-the stepper falls back to a bundled chrome. Override one, several, or none — a
-Material control adapter sits happily inside a Tailwind layout under a custom
-chrome, because the axes are orthogonal:
+The core (`ngx-formad/core`, which the package root `ngx-formad` re-exports) carries no
+controls and no chrome, so an application pays only for what it imports: the plain-HTML
+formFields live in **`ngx-formad/template`**, the bundled
+chrome in **`ngx-formad/chrome`**, the Tailwind layout in **`ngx-formad/tailwind`** and
+Material in **`ngx-formad/material`**. Only the layout has a zero-dependency default
+(`cssLayout`, inline CSS grid). Without a control adapter the first formField throws a
+message naming the fix; without a chrome, the first stepper does. Mix the axes freely —
+a Material control adapter sits happily inside a Tailwind layout under a custom chrome,
+because they are orthogonal:
 
 ```ts
-import { provideFormadSuite } from 'ngx-formad';
+import { provideFormadSuite } from 'ngx-formad/core';
+import { DefaultStepperChrome } from 'ngx-formad/chrome';
+import { defaultControls } from 'ngx-formad/template';
+import { tailwindLayout } from 'ngx-formad/tailwind';
 
 bootstrapApplication(App, {
   providers: [
     provideFormadSuite({
-      controls: myControls, // optional — omit to keep plain-HTML controls
+      controls: defaultControls, // or materialControls, or an adapter of your own
       layout: tailwindLayout, // optional — omit to keep the CSS-grid layout
-      stepper: MyStepperChrome, // optional — omit to keep the bundled chrome
+      stepper: DefaultStepperChrome, // or a chrome of your own
     }),
   ],
 });
@@ -922,7 +935,7 @@ export class AppText implements FormValueControl<string> {
 The adapter is a registry from kind to component:
 
 ```ts
-import { ControlAdapter } from 'ngx-formad';
+import { ControlAdapter } from 'ngx-formad/core';
 
 export const myControls: ControlAdapter = {
   controlFor: (kind) => {
@@ -971,7 +984,7 @@ both — for the **container** and for each **item**. It never sees a field's ki
 that is the control axis.
 
 ```ts
-import { LayoutAdapter } from 'ngx-formad';
+import { LayoutAdapter } from 'ngx-formad/core';
 
 // A hand-written one, for the shape of it; `tailwindLayout` ships this axis already,
 // and resolves every breakpoint of a responsive value rather than a constant.
@@ -1010,7 +1023,7 @@ pnpm add @angular/material @angular/cdk   # if you don't already have them
 ```
 
 ```ts
-import { provideFormadSuite } from 'ngx-formad';
+import { provideFormadSuite } from 'ngx-formad/core';
 import { materialControls } from 'ngx-formad/material';
 
 bootstrapApplication(App, {
@@ -1045,7 +1058,7 @@ input is the controller — and register it; you never reimplement the engine.
 
 ```ts
 import { Component, input } from '@angular/core';
-import { StepPageView, StepperController } from 'ngx-formad';
+import { StepPageView, StepperController } from 'ngx-formad/core';
 
 @Component({
   selector: 'app-chrome',
@@ -1369,7 +1382,7 @@ own `bindings: [inputBinding('options', theSignal)]`:
 
 ```ts
 // the registry, typed once: kind → component class
-declare module 'ngx-formad' {
+declare module 'ngx-formad/core' {
   interface ControlComponents {
     text: typeof TextControl;
     taxId: typeof TaxIdControl; // emits `resolved`
@@ -1502,9 +1515,9 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `provideFormadSuite(opts?)` | Registers the three adapters. No args = zero-dependency defaults + the bundled chrome. `controlTypes` (a `ControlTypeMap`) layers custom kinds over the base adapter, app-wide. |
-| `ControlAdapter` / `LayoutAdapter` | The control and layout axes; `defaultControls` and `cssLayout` are the defaults, `tailwindLayout` the class-emitting alternative. |
-| `CONTROL_ADAPTER` / `LAYOUT_ADAPTER` / `STEPPER_ADAPTER` | The three tokens; `DefaultStepperChrome` is the bundled chrome. |
+| `provideFormadSuite(opts)` | Registers the three adapters. `controls` and `stepper` come from a secondary entry point (`ngx-formad/template`, `ngx-formad/chrome`, `ngx-formad/material`) or your own code; `layout` defaults to `cssLayout`. `controlTypes` (a `ControlTypeMap`) layers custom kinds over `controls`, app-wide. |
+| `ControlAdapter` / `LayoutAdapter` | The control and layout axes; `defaultControls` (`ngx-formad/template`) and `cssLayout` are the plain ones, `tailwindLayout` (`ngx-formad/tailwind`) the class-emitting alternative. |
+| `CONTROL_ADAPTER` / `LAYOUT_ADAPTER` / `STEPPER_ADAPTER` | The three tokens; `DefaultStepperChrome` (`ngx-formad/chrome`) is the bundled chrome. |
 | `GridLayout` / `GridPlacement` / `Responsive<T>` / `responsiveEntries` | The layout specs an adapter resolves, and the helper that unfolds a responsive value. |
 | `LayoutItem` | The `[ngxFormadItem]` directive that puts a placement's class and style on the element it sits on; the renderer attaches it to every placed formField. |
 

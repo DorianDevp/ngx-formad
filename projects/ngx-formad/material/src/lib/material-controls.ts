@@ -8,7 +8,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInput, MatInputModule } from '@angular/material/input';
 import { MatOption, MatSelect } from '@angular/material/select';
-import { ControlOption } from 'ngx-formad';
+import { ControlOption } from 'ngx-formad/core';
 
 type Errors = readonly ValidationError.WithOptionalFieldTree[];
 
