@@ -71,18 +71,9 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
     );
   }
 
-  /** Draws the field with a component of your own, one that edits the field's value type; what it is bound with is declared where the form is instantiated. */
-  comopnent<C extends any>(
-    config: ComponentConfig<C>,
-  ): FormLayoutBuilder<M, P & C> {
-    return new FormLayoutBuilder<M, P & C>(
-      [
-        ...this.items,
-        { kind: FormLayoutItemKind.Component, bindings: config }
-      ],
-      this.grid,
-      this.omitted,
-    );
+  /** Puts a component of your own between the fields, bound over the form context; a layout slot, not a field. */
+  component(config: ComponentConfig<M>): FormLayoutBuilder<M, P> {
+    return this.with({ kind: FormLayoutItemKind.Component, config });
   }
 
   content(build: ContentBuild, cfg: FormContentCfg<M> = {}): FormLayoutBuilder<M, P> {
@@ -93,7 +84,6 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
       item: itemOf(cfg),
     });
   }
-
 
   row<P2 extends {}>(
     build: (row: FormLayoutBuilder<M, {}>) => FormLayoutBuilder<M, P2>,

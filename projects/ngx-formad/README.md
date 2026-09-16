@@ -277,8 +277,27 @@ const pickForm = defineForm({
 `control(key, config)` takes a `FieldComponentConfig<M[K]>`, so the component must be a
 `FormValueControl` of the field's own value type; the layout remembers which component
 sits on which field, so the bindings of that field are typed by it. A `customField()`
-left without a `control()` placement throws when the form is instantiated. There is no
-component slot inside a form: a widget that is not a field belongs to the page.
+left without a `control()` placement throws when the form is instantiated.
+
+A widget that is not a field - a running total, a hint card, a lookup button - takes a
+layout slot of its own with `.component(config)`. It is bound the way a page component
+is: `bindings` gets the **form context** and returns Angular's own `Binding[]`, read once
+at mount, so a getter inside `inputBinding` is what keeps an input following the model:
+
+```ts
+.component({
+  component: OrderTotal,
+  bindings: (ctx) => [
+    inputBinding('total', () => ctx.model().qty * ctx.model().price),
+    outputBinding('clear', () => ctx.model.update((order) => ({ ...order, qty: 0 }))),
+  ],
+  placement: { colSpan: 2 },
+})
+```
+
+Nothing ties the component to a field: no `FormField`, no validity, no place in the
+schema. A widget that *edits* a value is a field, declared `customField()` and placed
+with `control()`.
 
 A `content()` gate reads the **form context** — `{ model, ui, fields }`: the model as a
 writable signal, the authored ui and the placed fields. Never the field tree, and never
@@ -1471,7 +1490,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `FormState<M, U>` | `{ model; rootForm; ui; nodes; fields; grid?; view; destroy() }` — `nodes` is the render tree, `fields` the flat leaves (each with `path`), `view` the `FormLevel` the renderer draws, `destroy()` ends the effects. |
 | `FormLevel` / `ViewRow` | One level's container classes and its rows: `ControlRow` (a formField and the injector its mount point creates it from), `GroupRow`, `ArrayRow` (`items()`, `add()`, `remove(i)`), `LayoutRow`, `ContentRow`. |
 | `RenderNode` | A render-tree node: `ControlNode` \| `GroupNode` \| `ArrayNode` \| `FormContentNode` \| `FormRowNode`. `buildNodes(ui)` builds it from the ui, `buildLayoutNodes(ui, items)` from an overlay. |
-| `formLayout<M>()` | The layout overlay builder: `cols`, `gap`, `field`, `fields`, `control`, `content`, `row`, `omit`, `build()`. |
+| `formLayout<M>()` | The layout overlay builder: `cols`, `gap`, `field`, `fields`, `control`, `component`, `content`, `row`, `omit`, `build()`. |
 | `FieldComponentConfig<T, C>` | What `control(key, …)` takes: `{ component: Type<C>; placement?: GridPlacement }`, `C` a `FormValueControl<T>`. |
 | `SignalUiConfig<M>` | `ui` with every control prop widened to `T \| Signal<T>`; taken in as a signal where the field mounts, so the runtime holds signals only. |
 | `FormRenderer` | The `<ngx-formad-form [state] />` component. Pure view — the formFields were created with the state. |

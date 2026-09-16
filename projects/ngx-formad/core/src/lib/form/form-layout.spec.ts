@@ -1,8 +1,10 @@
-import { signal } from '@angular/core';
+import { inputBinding, signal } from '@angular/core';
 import { ContentTagChild } from '../content';
 import { formLayout } from './form-layout';
 import { FormContext } from './types/form-context';
 import { FormContentSpec, FormFieldItem, FormLayoutItem, FormLayoutItemKind, FormRowItem } from './types/form-layout';
+
+class Probe {}
 
 type Model = { first: string; last: string; password: string };
 
@@ -60,5 +62,15 @@ describe('formLayout', () => {
     expect(items[0]).toMatchObject({ kind: FormLayoutItemKind.Row, grid: { cols: 2 } });
     const row = items[0] as FormRowItem<Model>;
     expect(row.children.map((c) => (isField(c) ? c.key : c.kind))).toEqual(['first', 'last']);
+  });
+
+  it('places a component with its bindings over the form context and its placement', () => {
+    const bindings = (ctx: FormContext<Model>) => [inputBinding('first', () => ctx.model().first)];
+    const { items } = formLayout<Model>().component({ component: Probe, bindings, placement: { colSpan: 2 } }).build();
+
+    expect(items[0]).toMatchObject({
+      kind: FormLayoutItemKind.Component,
+      config: { component: Probe, bindings, placement: { colSpan: 2 } },
+    });
   });
 });

@@ -1,6 +1,6 @@
-import { ComponentConfig } from 'ngx-formad';
 import { ContentChild } from '../../content';
 import { GridLayout, GridPlacement } from '../../layout';
+import { ComponentConfig } from './component-config';
 import { FieldConfig, FormContext } from './form-context';
 import { ErasedArrayNode } from './ui-nodes';
 
@@ -19,10 +19,13 @@ export interface ControlNode extends FieldConfig {
   readonly kind: RenderNodeKind.Control;
 }
 
-export interface ComponentNode {
+/** A component placed between the fields, bound over the form context. */
+export interface FormComponentNode {
   readonly kind: RenderNodeKind.Component;
+  readonly key: string;
+  readonly path: readonly string[];
+  readonly config: ComponentConfig;
   readonly layout?: GridPlacement;
-  readonly config?: ComponentConfig<any>;
 }
 
 /** A nested group: its label, column count and children. */
@@ -67,4 +70,4 @@ export interface FormRowNode {
 }
 
 /** Anything the renderer draws at one level of the tree. */
-export type RenderNode = ControlNode | GroupNode | ArrayNode | FormContentNode | FormRowNode | ComponentNode;
+export type RenderNode = ControlNode | GroupNode | ArrayNode | FormContentNode | FormRowNode | FormComponentNode;

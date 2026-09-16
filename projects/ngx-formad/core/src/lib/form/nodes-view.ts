@@ -22,6 +22,9 @@ import { RenderNodeKind } from './types/render-tree';
           @case (kinds.Control) {
             <ng-container *ngComponentOutlet="mountPoint; injector: row.injector" />
           }
+          @case (kinds.Component) {
+            <ng-container *ngComponentOutlet="mountPoint; injector: row.injector" />
+          }
           @case (kinds.Group) {
             <fieldset [class]="row.item.class" [style]="row.item.style">
               @if (row.node.label) {

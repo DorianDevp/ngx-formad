@@ -1,7 +1,7 @@
-import { Component, input, inputBinding, model, signal } from '@angular/core';
+import { Component, input, inputBinding, model, output, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl, hidden } from '@angular/forms/signals';
-import { array, customField, UiFormConfigBuilder, email, text, select } from 'formodel';
+import { array, customField, UiFormConfigBuilder, email, number, text, select } from 'formodel';
 import { isItems, isLevel } from './field-tree';
 import { defineForm } from './form-config';
 import { formLayout } from './form-layout';
@@ -588,5 +588,89 @@ describe('FormRenderer - formLayout().control()', () => {
 
   it('refuses a customField() that no control() placed, when the form is instantiated', () => {
     expect(() => TestBed.createComponent(BareHost)).toThrow(/customField\(\); place it with formLayout\(\).control/);
+  });
+});
+
+// ── formLayout().component(): a component of your own between the fields, bound over the form context ──
+@Component({
+  selector: 'order-total',
+  template: `
+    <p class="total">{{ total() }}</p>
+    <button type="button" class="clear" (click)="clear.emit()">clear</button>
+  `,
+})
+class OrderTotal {
+  total = input.required<number>();
+  clear = output<void>();
+}
+
+type Order = { qty: number; price: number };
+const orderConfig: FormConfig<Order> = {
+  model: () => ({ qty: 2, price: 5 }),
+  ui: UiFormConfigBuilder.from({ qty: 0, price: 0 }).qty(number('Qty')).price(number('Price')),
+  layout: formLayout<Order>()
+    .cols(2)
+    .fields('qty', 'price')
+    .component({
+      component: OrderTotal,
+      // A getter inside the binding is what makes the input follow the model; the callback itself runs once, at mount.
+      bindings: (ctx) => [
+        inputBinding('total', () => ctx.model().qty * ctx.model().price),
+        outputBinding('clear', () => ctx.model.update((order) => ({ ...order, qty: 0 }))),
+      ],
+      placement: { colSpan: 2 },
+    })
+    .build(),
+};
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class OrderHost {
+  readonly state = instantiateForm(orderConfig);
+}
+
+describe('FormRenderer - formLayout().component()', () => {
+  let fixture: ComponentFixture<OrderHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(OrderHost);
+    await pump(fixture);
+  });
+
+  const total = () => (fixture.nativeElement.querySelector('.total') as HTMLElement).textContent?.trim();
+  const inputs = () => Array.from(fixture.nativeElement.querySelectorAll('input') as NodeListOf<HTMLInputElement>);
+
+  it('renders the component after the fields, placed in the grid, with its input read from the model', () => {
+    const host = fixture.nativeElement.querySelector('order-total') as HTMLElement;
+    const order = Array.from(fixture.nativeElement.querySelectorAll('input, order-total') as NodeListOf<HTMLElement>);
+
+    expect(order.map((el) => el.tagName.toLowerCase())).toEqual(['input', 'input', 'order-total']);
+    expect(host.style.gridColumn).toBe('span 2 / span 2');
+    expect(total()).toBe('10');
+  });
+
+  it('follows a user edit in a field', async () => {
+    inputs()[0].value = '3';
+    inputs()[0].dispatchEvent(new Event('input'));
+    await pump(fixture);
+
+    expect(total()).toBe('15');
+  });
+
+  it('follows a programmatic write into the model', async () => {
+    fixture.componentInstance.state.model.update((order) => ({ ...order, price: 7 }));
+    await pump(fixture);
+
+    expect(total()).toBe('14');
+  });
+
+  it('lets an output write back into the form', async () => {
+    (fixture.nativeElement.querySelector('.clear') as HTMLButtonElement).click();
+    await pump(fixture);
+
+    expect(fixture.componentInstance.state.model().qty).toBe(0);
+    expect(total()).toBe('0');
   });
 });

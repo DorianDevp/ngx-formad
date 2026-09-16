@@ -26,9 +26,10 @@ export interface FormControlItem<M extends Record<string, unknown> = Record<stri
   readonly control: FieldComponentConfig<any, object>;
 }
 
+/** A component of your own placed between the fields. */
 export interface FormComponentItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Component;
-  readonly config: ComponentConfig<any>;
+  readonly config: ComponentConfig<M>;
 }
 
 /** A content block with its gate and placement. */

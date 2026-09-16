@@ -143,6 +143,21 @@ describe('buildLayoutNodes', () => {
     expect(row.grid).toEqual({ cols: 2 });
     expect(row.children.map((c) => c.key)).toEqual(['first', 'last']);
   });
+
+  it('builds a component node keyed by its position, carrying the config as placed', () => {
+    const config = { component: class Probe {}, placement: { colSpan: 2 } };
+    const { items } = formLayout<Names>().field('first').component(config).build();
+
+    const nodes = buildLayoutNodes(ui, items);
+
+    expect(nodes[1]).toMatchObject({
+      kind: RenderNodeKind.Component,
+      key: '@component:1',
+      path: ['@component:1'],
+      config,
+      layout: { colSpan: 2 },
+    });
+  });
 });
 
 // The refusal for an unplaced `customField()` is a TYPE, so only a type can guard it - a

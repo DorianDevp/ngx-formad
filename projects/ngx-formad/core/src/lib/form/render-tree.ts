@@ -1,7 +1,7 @@
 import { GridPlacement } from '../layout';
 import { FieldConfig } from './types/form-context';
 import {
-    FormComponentItem,
+  FormComponentItem,
   FormContentSpec,
   FormControlItem,
   FormFieldItem,
@@ -9,7 +9,14 @@ import {
   FormLayoutItemKind,
   FormRowItem,
 } from './types/form-layout';
-import { ComponentNode, ControlNode, FormContentNode, FormRowNode, RenderNode, RenderNodeKind } from './types/render-tree';
+import {
+  ControlNode,
+  FormComponentNode,
+  FormContentNode,
+  FormRowNode,
+  RenderNode,
+  RenderNodeKind,
+} from './types/render-tree';
 import { ErasedUi, ErasedUiNode } from './types/ui-nodes';
 
 interface FieldSlot {
@@ -90,10 +97,15 @@ function controlNode(item: FormControlItem, slot: LayoutSlot): ControlNode | nul
   };
 }
 
-function componentNode(item: FormComponentItem, slot: LayoutSlot): ComponentNode | null {
+function componentNode(item: FormComponentItem, slot: LayoutSlot): FormComponentNode {
+  const key = `@component:${slot.index}`;
+
   return {
     kind: RenderNodeKind.Component,
+    key,
+    path: [...slot.path, key],
     config: item.config,
+    layout: item.config.placement,
   };
 }
 

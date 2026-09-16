@@ -4,7 +4,15 @@ import { LayoutAdapter, LayoutClasses } from '../../layout';
 import { FieldLevel } from './field-tree';
 import { BindingRecord } from './form-bindings';
 import { FormContext } from './form-context';
-import { ArrayNode, ControlNode, FormContentNode, FormRowNode, GroupNode, RenderNodeKind } from './render-tree';
+import {
+  ArrayNode,
+  ControlNode,
+  FormComponentNode,
+  FormContentNode,
+  FormRowNode,
+  GroupNode,
+  RenderNodeKind,
+} from './render-tree';
 
 /** What a form's view is built against, captured once where the form is instantiated; `context` feeds the content gates. */
 export interface ViewScope {
@@ -41,6 +49,13 @@ export interface ControlRow {
 
   readonly node: ControlNode;
 
+  readonly injector: Injector;
+}
+
+/** A placed component's row; `injector` hands the mount point what to create. */
+export interface ComponentRow {
+  readonly kind: RenderNodeKind.Component;
+  readonly node: FormComponentNode;
   readonly injector: Injector;
 }
 
@@ -98,7 +113,7 @@ export interface ArrayRow {
 }
 
 /** Anything a level draws. */
-export type ViewRow = ControlRow | GroupRow | ArrayRow | ContentRow | LayoutRow;
+export type ViewRow = ControlRow | ComponentRow | GroupRow | ArrayRow | ContentRow | LayoutRow;
 
 /** What a mount point creates: the component, the directives on its host with their bindings, its own bindings, its environment. */
 export interface ComponentMount {

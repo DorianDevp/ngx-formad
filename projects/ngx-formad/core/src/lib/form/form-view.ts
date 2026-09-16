@@ -22,7 +22,7 @@ import { FieldItems, FieldLeaf, FieldLevel } from './types/field-tree';
 import { BindingRecord } from './types/form-bindings';
 import { FormContext } from './types/form-context';
 import { ArrayItem, ArrayRow, ComponentMount, FormLevel, ViewRow, ViewScope } from './types/form-view';
-import { ArrayNode, ControlNode, RenderNode, RenderNodeKind } from './types/render-tree';
+import { ArrayNode, ControlNode, FormComponentNode, RenderNode, RenderNodeKind } from './types/render-tree';
 import { FieldNode } from './types/ui-nodes';
 
 interface Entry {
@@ -123,6 +123,19 @@ function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): Comp
   };
 }
 
+/** A placed component as its mount point will create it: `LayoutItem` placing it, its bindings read once over the form context. */
+function componentMount(node: FormComponentNode, scope: ViewScope): ComponentMount {
+  const placement = itemOf(scope, node.layout);
+  const bindings = node.config.bindings ?? [];
+
+  return {
+    component: node.config.component,
+    directives: [{ type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => placement)] }],
+    bindings: typeof bindings === 'function' ? bindings(scope.context) : bindings,
+    environment: scope.environment,
+  };
+}
+
 /** The injector a row hands `NgComponentOutlet`: the mount for its mount point, over the scope's element injector. */
 export function mountInjector(mount: ComponentMount, parent: Injector): Injector {
   return Injector.create({ providers: [{ provide: COMPONENT_MOUNT, useValue: mount }], parent });
@@ -151,6 +164,7 @@ function blankEntries(node: RenderNode): [string, BlankValue][] {
   switch (node.kind) {
     case RenderNodeKind.Content:
     case RenderNodeKind.Row:
+    case RenderNodeKind.Component:
       return [];
     case RenderNodeKind.Group:
       return [[node.key, blankItem(node.children)]];
@@ -205,6 +219,11 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
     return {
       row: { kind: node.kind, node, level, item: itemOf(scope, node.layout) },
       visible: computed(() => level.rows().length > 0),
+    };
+  } else if (node.kind === RenderNodeKind.Component) {
+    return {
+      row: { kind: node.kind, node, injector: mountInjector(componentMount(node, scope), scope.injector) },
+      visible: computed(() => true),
     };
   }
 
