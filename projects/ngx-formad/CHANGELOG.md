@@ -4,6 +4,59 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.10.3
+
+### Added
+
+- **A component slot in a form - `formLayout().component(config)`.** A widget that is not
+  a field - a running total, a hint card, a lookup button - takes a layout slot of its own
+  between the fields. `ComponentConfig` names the component, its `placement` and its
+  `bindings`: a callback over the **form context** returning Angular's own `Binding[]`,
+  the way `addComponent` binds a page component. The callback runs once, at mount; a
+  getter inside `inputBinding` is what keeps an input following the model, and an
+  `outputBinding` may write back through `ctx.model`. Nothing ties the slot to a field:
+  no `FormField`, no validity, no place in the schema - a widget that *edits* a value is
+  still a `customField()` placed with `control()`. The render tree gains
+  `FormComponentNode` (keyed `@component:<index>`, like content and rows), the view a
+  `ComponentRow`.
+
+### Changed
+
+- **The templates left the core; the package is entry points now.** `ngx-formad/core` is
+  the library proper (config, layout, form, stepper, the adapter contracts, `cssLayout`),
+  and the package root `ngx-formad` re-exports it, so `import from 'ngx-formad'` keeps
+  working and weighs the same. Everything presentational is its own entry point, paid for
+  only when imported: **`ngx-formad/template`** (the plain-HTML formFields,
+  `defaultControls`), **`ngx-formad/chrome`** (`DefaultStepperChrome`),
+  **`ngx-formad/tailwind`** (`tailwindLayout`), beside the existing `ngx-formad/material`.
+  On disk that is 132 kB of core against 36, 16 and 4 kB of templates.
+- **BREAKING: `provideFormadSuite` has no default controls and no default chrome.** The
+  core cannot reach into a secondary entry point, so the built-in fallbacks are gone.
+  Without `controls`, the first formField throws a message naming the fix
+  (`provideFormadSuite({ controls: defaultControls })` from `ngx-formad/template`,
+  `materialControls`, or an adapter of your own); without `stepper`, the first
+  `<ngx-formad-stepper>` does the same for `ngx-formad/chrome`. `layout` keeps its
+  `cssLayout` default. `controlTypes` given without `controls` layers over nothing: only
+  the listed kinds exist. An application that already provides all three axes is
+  unaffected; one that leaned on the defaults adds two imports.
+- **The core is laid out as modules, each with its own `types/`.** `types`, `layout`,
+  `content`, `controls`, `shared`, `form`, `stepper`, with imports running only downward
+  and one `index.ts` per module deciding what is public. Type names are unchanged; a few
+  members reached the surface because a neighbouring module needs them through the
+  barrel: `buildLevel`, `mountInjector`, `MountPoint`, `isLevel`/`isItems`, `ModelKeys`/
+  `ModelVal`, the `SHARED_STATE` token (the stepper's store, for a form instantiated
+  inside one without being handed a store) and `noControls`, the refusing registry.
+  `StepperBuilder` is split into `page-builder`, `step-builder`, `branch-builder` and
+  `stepper-builder`; the controller's progress types live in `stepper/types/controller`.
+- **`isLevel` / `isItems` take `FieldLeaf | FieldLevel | FieldItems`.** On Angular 22 a
+  `FieldTree<unknown>` is not a supertype of the other two, so the narrower predicate did
+  not type-check in an application without `skipLibCheck`.
+
+### Removed
+
+- `defaultControls`, `DefaultStepperChrome` and `tailwindLayout` are no longer exported
+  from `ngx-formad`; see the entry points above.
+
 ## 0.10.2
 
 ### Added

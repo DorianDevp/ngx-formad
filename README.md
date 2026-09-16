@@ -9,7 +9,7 @@ contains one project:
 
 `ngx-formad` is config-driven rendering and multi-step orchestration on top of
 Angular's headless signal forms: describe a form or wizard as data, and one renderer
-walks it. It is pre-1.0 (0.10.2) and built on the signal-forms API that is
+walks it. It is pre-1.0 (0.10.3) and built on the signal-forms API that is
 *experimental* in Angular 21, so expect breaking changes. The full story lives in the
 [library README](./projects/ngx-formad/README.md); this file only covers working in
 the repo.

@@ -13,7 +13,7 @@ validation but render nothing, and supplies the rendering and multi-step orchest
 - **Native validation** — your `schema` runs on the real `FieldTree`; ngx-formad adds no validation layer of its own.
 - **One non-Angular peer dependency** — [`formodel`](https://www.npmjs.com/package/formodel), the typed form description it renders.
 
-> **Status — pre-1.0.** This is `0.10.2`, built on the signal-forms API that is
+> **Status — pre-1.0.** This is `0.10.3`, built on the signal-forms API that is
 > *experimental* in Angular 21. Both the API underneath and this library's own surface
 > may change in breaking ways before a 1.0; minor versions carry breaking changes, listed
 > in the [changelog](./CHANGELOG.md). It has unit tests but no significant production
