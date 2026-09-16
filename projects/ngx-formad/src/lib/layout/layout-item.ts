@@ -1,5 +1,5 @@
 import { Directive, input } from '@angular/core';
-import { LayoutClasses } from './layout-adapter';
+import { LayoutClasses } from './types/layout';
 
 /** Places its host in the parent grid: the adapter's class on top of the host's own, its styles inline. */
 @Directive({

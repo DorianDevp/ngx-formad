@@ -1,6 +1,9 @@
-import { Type } from '@angular/core';
+import { InjectionToken } from '@angular/core';
+import { defaultControls } from './default-control-adapter';
+import { ControlAdapter } from './types/control-adapter';
 
-/** Resolves a field's control kind to its `FormValueControl` component; `null` lets the renderer fall back to text. */
-export interface ControlAdapter {
-  controlFor(kind: string): Type<object> | null;
-}
+/** The active control registry (kind → component). */
+export const CONTROL_ADAPTER = new InjectionToken<ControlAdapter>('ngx-formad.controls', {
+  providedIn: 'root',
+  factory: () => defaultControls,
+});

@@ -1,6 +1,6 @@
 import { Component, computed, input, model } from '@angular/core';
 import { FormValueControl, ValidationError } from '@angular/forms/signals';
-import { ControlOption } from '../form-config/form-config';
+import { ControlOption } from './types/control-option';
 
 type Errors = readonly ValidationError.WithOptionalFieldTree[];
 

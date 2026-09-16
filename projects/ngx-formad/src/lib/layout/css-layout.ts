@@ -1,4 +1,4 @@
-import { GridPlacement, LayoutAdapter, GridLayout, Responsive } from './layout-adapter';
+import { GridPlacement, LayoutAdapter, GridLayout, Responsive } from './types/layout';
 
 function baseOf(value: Responsive<number> | null | undefined): number | undefined {
   if (value == null) return undefined;

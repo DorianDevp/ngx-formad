@@ -1,0 +1,58 @@
+import { Provider, Signal } from '@angular/core';
+import { ControlTypeMap } from '../../controls';
+import { SharedState } from '../../shared';
+import { SequenceNodeKind, StepNode } from './nodes';
+import { AnyFormProvider, DeferTrigger, RuntimeStepperContext } from './step-context';
+
+/** The erased runtime shape of a flow: its sequence, form templates, shared store, control kinds and providers. */
+export interface FlowDefinition<TResult = unknown> {
+  readonly steps: readonly SequenceNode[];
+
+  readonly forms: Record<string, AnyFormProvider>;
+
+  readonly shared: SharedState;
+
+  readonly controlTypes: ControlTypeMap;
+
+  readonly providers: readonly Provider[];
+
+  resolveResult?(ctx: RuntimeStepperContext): TResult;
+}
+
+/** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state, which is also its result. */
+export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> {
+  readonly recurrent: true;
+
+  readonly dockAt: number;
+
+  readonly state: () => C;
+
+  fold?(state: C, pass: RuntimeStepperContext): C;
+
+  dockReachable?(state: C): boolean;
+}
+
+/** Any flow the runtime drives. */
+export type RuntimeFlow<TResult = unknown> = FlowDefinition<TResult> | RecurrentFlowDefinition<TResult>;
+
+/** A nested flow occupying one slot of a sequence; its egress reaches successors under `name`. */
+export interface FlowStepNode {
+  readonly kind: SequenceNodeKind.Flow;
+
+  readonly name: string;
+
+  readonly flow: RuntimeFlow;
+
+  readonly label?: Signal<string>;
+
+  activeWhen?(ctx: RuntimeStepperContext): boolean;
+
+  readonly defer?: DeferTrigger;
+
+  completeWhen?(ctx: RuntimeStepperContext): boolean;
+
+  readonly incompleteMessage?: string;
+}
+
+/** One slot of a sequence: a leaf step or a nested flow. */
+export type SequenceNode = StepNode | FlowStepNode;

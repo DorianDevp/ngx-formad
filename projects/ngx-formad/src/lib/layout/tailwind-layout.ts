@@ -1,4 +1,5 @@
-import { Breakpoint, GridLayout, GridPlacement, LayoutAdapter, responsiveEntries } from './layout-adapter';
+import { responsiveEntries } from './layout-adapter';
+import { Breakpoint, GridLayout, GridPlacement, LayoutAdapter } from './types/layout';
 
 function at(bp: Breakpoint, utility: string): string {
   return bp === 'base' ? utility : `${bp}:${utility}`;

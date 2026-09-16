@@ -1,29 +1,7 @@
-import { InjectionToken, Provider, Type } from '@angular/core';
-import { ControlAdapter } from './controls/control-adapter';
-import { defaultControls } from './controls/default-control-adapter';
-import { LayoutAdapter } from './layout/layout-adapter';
-import { cssLayout } from './layout/css-layout';
-
-/** Control kind → its `FormValueControl` component, as a registry stores it. */
-export type ControlTypeMap = Record<string, Type<object>>;
-
-/** The active control registry (kind → component). */
-export const CONTROL_ADAPTER = new InjectionToken<ControlAdapter>('ngx-formad.controls', {
-  providedIn: 'root',
-  factory: () => defaultControls,
-});
-
-/** The active layout adapter (spec → classes or styles). */
-export const LAYOUT_ADAPTER = new InjectionToken<LayoutAdapter>('ngx-formad.layout', {
-  providedIn: 'root',
-  factory: () => cssLayout,
-});
-
-/** The active stepper chrome; `null` selects the bundled default. */
-export const STEPPER_ADAPTER = new InjectionToken<Type<object> | null>('ngx-formad.stepper', {
-  providedIn: 'root',
-  factory: () => null,
-});
+import { Provider, Type } from '@angular/core';
+import { CONTROL_ADAPTER, ControlAdapter, ControlTypeMap, defaultControls } from './controls';
+import { LAYOUT_ADAPTER, LayoutAdapter } from './layout';
+import { STEPPER_ADAPTER } from './stepper';
 
 /** The three adapter axes; an omitted axis keeps its default. */
 export interface FormadSuiteOptions {

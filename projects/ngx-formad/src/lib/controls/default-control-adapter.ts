@@ -1,5 +1,5 @@
 import { Type } from '@angular/core';
-import { ControlAdapter } from './control-adapter';
+import { ControlAdapter } from './types/control-adapter';
 import {
   CheckboxControl,
   DateControl,
