@@ -1,6 +1,6 @@
 import { ContentBuild, buildContent } from '../builders/content';
 import { GridPlacement, GridLayout } from '../layout/layout-adapter';
-import { FormContext, FormLayout, FormLayoutItem, FormLayoutItemKind, FieldComponentConfig } from './form-config';
+import { FormContext, FormLayout, FormLayoutItem, FormLayoutItemKind, FieldComponentConfig, ComponentConfig } from './form-config';
 
 /** Placement of a content block: its grid span and a gate read from the layout context. */
 export interface FormContentCfg<M extends Record<string, unknown>> extends GridPlacement {
@@ -72,6 +72,20 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
     );
   }
 
+  /** Draws the field with a component of your own, one that edits the field's value type; what it is bound with is declared where the form is instantiated. */
+  comopnent<C extends any>(
+    config: ComponentConfig<C>,
+  ): FormLayoutBuilder<M, P & C> {
+    return new FormLayoutBuilder<M, P & C>(
+      [
+        ...this.items,
+        { kind: FormLayoutItemKind.Component, bindings: config }
+      ],
+      this.grid,
+      this.omitted,
+    );
+  }
+
   content(build: ContentBuild, cfg: FormContentCfg<M> = {}): FormLayoutBuilder<M, P> {
     return this.with({
       kind: FormLayoutItemKind.Content,
@@ -80,6 +94,7 @@ export class FormLayoutBuilder<M extends Record<string, unknown>, P extends {} =
       item: itemOf(cfg),
     });
   }
+
 
   row<P2 extends {}>(
     build: (row: FormLayoutBuilder<M, {}>) => FormLayoutBuilder<M, P2>,

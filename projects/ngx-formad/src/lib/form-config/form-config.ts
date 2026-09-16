@@ -89,6 +89,16 @@ export interface FormContext<M extends Record<string, unknown> = Record<string, 
   readonly fields: readonly FieldConfig[];
 }
 
+
+type ComponentType<T> = T extends object ? T extends (...args: any) => any ? never : T & Type<T> : never;
+
+/** A component placed on a field of value `T` by `formLayout().control()`: its class and its placement; its bindings are declared where the form is instantiated. */
+export interface ComponentConfig<T = any> {
+  readonly component: ComponentType<T>
+
+  readonly placement?: GridPlacement;
+}
+
 /** A component placed on a field of value `T` by `formLayout().control()`: its class and its placement; its bindings are declared where the form is instantiated. */
 export interface FieldComponentConfig<T = any, C extends object = FormValueControl<T>> {
   readonly component: Type<C> & Type<FormValueControl<T>>;
@@ -98,6 +108,7 @@ export interface FieldComponentConfig<T = any, C extends object = FormValueContr
 
 /** Discriminates the nodes of the render tree. */
 export enum RenderNodeKind {
+  Component = 'component',
   Control = 'control',
   Group = 'group',
   Array = 'array',
@@ -173,15 +184,10 @@ export interface FormContentNode {
 /** A layout-only row: its own grid over children of the same field level. */
 export interface FormRowNode {
   readonly kind: RenderNodeKind.Row;
-
   readonly key: string;
-
   readonly path: readonly string[];
-
   readonly grid: GridLayout;
-
   readonly layout?: GridPlacement;
-
   readonly children: readonly RenderNode[];
 }
 
@@ -190,6 +196,7 @@ export type RenderNode = ControlNode | GroupNode | ArrayNode | FormContentNode |
 
 /** Discriminates the entries of a layout overlay. */
 export enum FormLayoutItemKind {
+  Component = 'component',
   Field = 'field',
   Control = 'control',
   Content = 'content',
@@ -199,40 +206,35 @@ export enum FormLayoutItemKind {
 /** A field placed by its model key. */
 export interface FormFieldItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Field;
-
   readonly key: string;
-
   readonly item?: GridPlacement;
 }
 
 /** A field drawn by a chosen control. */
 export interface FormControlItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Control;
-
   readonly key: string;
-
   readonly control: FieldComponentConfig<any, object>;
+}
+
+export interface FormComponentItem<M extends Record<string, unknown> = Record<string, unknown>> {
+  readonly kind: FormLayoutItemKind.Component;
+  readonly bindings: any;
 }
 
 /** A content block with its gate and placement. */
 export interface FormContentSpec<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Content;
-
   readonly children: readonly ContentChild[];
-
   visibleWhen?(ctx: FormContext<M>): boolean;
-
   readonly item?: GridPlacement;
 }
 
 /** A nested row of items with its own grid. */
 export interface FormRowItem<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: FormLayoutItemKind.Row;
-
   readonly grid?: GridLayout;
-
   readonly item?: GridPlacement;
-
   readonly children: readonly FormLayoutItem<M>[];
 }
 
@@ -241,16 +243,14 @@ export type FormLayoutItem<M extends Record<string, unknown> = Record<string, un
   | FormFieldItem<M>
   | FormControlItem<M>
   | FormContentSpec<M>
-  | FormRowItem<M>;
+  | FormRowItem<M>
+  | FormComponentItem<M>;
 
 /** A form's layout overlay: the container grid and the ordered items; built with `formLayout()`. `P` names the components `control()` placed, by field. */
 export interface FormLayout<M extends Record<string, unknown> = Record<string, unknown>, P extends {} = {}> {
   readonly __placed?: P;
-
   readonly grid?: GridLayout;
-
   readonly items: readonly FormLayoutItem<M>[];
-
   /** The fields left out on purpose; the dev-mode warning about unplaced fields skips them. */
   readonly omitted?: readonly string[];
 }
