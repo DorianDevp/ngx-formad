@@ -29,7 +29,11 @@ versions may carry breaking changes.
   only when imported: **`ngx-formad/template`** (the plain-HTML formFields,
   `defaultControls`), **`ngx-formad/chrome`** (`DefaultStepperChrome`),
   **`ngx-formad/tailwind`** (`tailwindLayout`), beside the existing `ngx-formad/material`.
-  On disk that is 132 kB of core against 36, 16 and 4 kB of templates.
+  On disk that is 132 kB of core against 36, 16 and 4 kB of templates. One consequence for
+  typing: an application that augments `ControlComponents` must now write
+  `declare module 'ngx-formad/core'`, the module that declares the interface; an
+  augmentation of `'ngx-formad'` no longer reaches it, and every field of that kind falls
+  back to the "no component is registered" refusal.
 - **BREAKING: `provideFormadSuite` has no default controls and no default chrome.** The
   core cannot reach into a secondary entry point, so the built-in fallbacks are gone.
   Without `controls`, the first formField throws a message naming the fix
