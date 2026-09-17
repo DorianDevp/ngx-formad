@@ -35,6 +35,7 @@ import {
   RootContext,
   RuntimeStepperContext,
   StepGate,
+  StepperContext,
   StepInstance,
   WithShared,
   WithSteps,
@@ -233,31 +234,31 @@ export class StepperBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends StaticStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = StaticStepCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: StaticStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>>;
+  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)]: (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)[K] }, TCtx['parent'], TCtx['flow']>>;
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = DynamicStepCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>>;
+  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)]: (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)[K] }, TCtx['parent'], TCtx['flow']>>;
   createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<TCtx, string>): never;
-  createStep<N extends string = never, P = {}, O extends StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {}>(
+  createStep<N extends string = never, P = {}, O extends StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>> {
-    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepInstance<TForms, P>, O>>>(
+  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)]: (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)[K] }, TCtx['parent'], TCtx['flow']>> {
+    return new StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)]: (TCtx['steps'] & StepEntry<N, StepInstance<P>, O>)[K] }, TCtx['parent'], TCtx['flow']>>(
       this.appended([stepNode({ pages: pagesOf(build, opts?.pages === StepPages.OnEntry), opts: opts ?? {} })]),
     );
   }
@@ -268,7 +269,7 @@ export class StepperBuilder<
   >(
     select: BranchSelect<TCtx, K>,
     branches: B,
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, BranchAdded<B>>> {
+  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & BranchAdded<B>)]: (TCtx['steps'] & BranchAdded<B>)[K] }, TCtx['parent'], TCtx['flow']>> {
     const steps: SequenceNode[] = [];
     const decide = decidedOnce(select);
     for (const key in branches) {
@@ -282,7 +283,7 @@ export class StepperBuilder<
       branches[key](new BranchBuilder<TForms, TCtx, {}>((node) => steps.push(node), gate));
     }
 
-    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, BranchAdded<B>>>(this.appended(steps));
+    return new StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & BranchAdded<B>)]: (TCtx['steps'] & BranchAdded<B>)[K] }, TCtx['parent'], TCtx['flow']>>(this.appended(steps));
   }
 
   fork<A extends ForkArms<TForms, TCtx>>(
@@ -318,10 +319,10 @@ export class StepperBuilder<
   createStepper<N extends string, F2, TK2 extends string, TCtx2 extends RuntimeStepperContext, O extends FlowSlotCfg<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, StepperBuilder<F2, TK2, TCtx2>>,
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<TCtx2['steps']>, O>>> {
+  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, StepsCommitted<TCtx2['steps']>, O>)]: (TCtx['steps'] & StepEntry<N, StepsCommitted<TCtx2['steps']>, O>)[K] }, TCtx['parent'], TCtx['flow']>> {
     const built = flow.build(new StepperBuilder<{}, TKinds, ChildContext<TCtx>>()).build();
 
-    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, StepsCommitted<TCtx2['steps']>, O>>>(
+    return new StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, StepsCommitted<TCtx2['steps']>, O>)]: (TCtx['steps'] & StepEntry<N, StepsCommitted<TCtx2['steps']>, O>)[K] }, TCtx['parent'], TCtx['flow']>>(
       this.appended([flowStepNode({ name, flow: built, opts: flow })]),
     );
   }
@@ -329,10 +330,10 @@ export class StepperBuilder<
   createRecurrentStepper<N extends string, C, F2, TCtx2 extends RingRuntimeContext<C>, O extends FlowSlotCfg<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C, TKinds, TCtx, RecurrentTerminal<F2, TCtx2, C>>,
-  ): StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, C, O>>> {
+  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, C, O>)]: (TCtx['steps'] & StepEntry<N, C, O>)[K] }, TCtx['parent'], TCtx['flow']>> {
     const built = ring.build(new RecurrentStepperBuilder<{}, C, TKinds, RingContext<TCtx, C>>(ring)).build();
 
-    return new StepperBuilder<TForms, TKinds, WithSteps<TCtx, StepEntry<N, C, O>>>(
+    return new StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & StepEntry<N, C, O>)]: (TCtx['steps'] & StepEntry<N, C, O>)[K] }, TCtx['parent'], TCtx['flow']>>(
       this.appended([flowStepNode({ name, flow: built, opts: ring })]),
     );
   }
@@ -482,31 +483,31 @@ export class RecurrentStepperBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends StaticStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = StaticStepCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: StaticStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
-  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>;
+  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>>;
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = DynamicStepCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
-  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>;
+  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>>;
   createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<WithSteps<TCtx, {}>, string>): never;
   createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
-    opts: StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
-  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>> {
-    return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>>(
+    opts: StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = {},
+  ): RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>> {
+    return new RecurrentStepperBuilder<TForms, C, TKinds, WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>>(
       this.appended([stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts, gate: passGate })]),
     );
   }
@@ -565,23 +566,23 @@ export class RecurrentStepperBuilder<
   dock<
     N extends string = never,
     P = {},
-    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly pages?: StepPages.Once } = DockCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> & { readonly pages?: StepPages.Once } = DockCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     > & { readonly pages?: StepPages.Once },
   >(build: StaticStepBuild<TForms, TCtx, P>, opts?: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
   dock<
     N extends string = never,
     P = {},
-    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> & { readonly pages: StepPages.OnEntry } = DockCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> & { readonly pages: StepPages.OnEntry } = DockCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     > & { readonly pages: StepPages.OnEntry },
   >(build: DynamicStepBuild<TForms, TCtx, P>, opts: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
   dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: DockCfg<WithSteps<TCtx, {}>, string>): never;
   dock<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
-    opts: DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+    opts: DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = {},
   ): RecurrentTerminal<TForms, TCtx, C> {
     if (this.docked) throw new Error('A recurrent flow has exactly one dock.');
 

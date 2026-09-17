@@ -31,7 +31,7 @@ export type InstanceOf<F> = [FormModel<F>] extends [never] ? never : FormState<F
  * One step's live instances by name, for the forms `P` the step placed: each typed by the template placed there —
  * the pool entry it named, or the config given at the page. `TForms` stays for the signatures that carry it.
  */
-export type StepInstance<TForms, P> = {
+export type StepInstance<P> = {
   readonly [K in keyof P]: InstanceOf<P[K]>;
 };
 
@@ -55,11 +55,8 @@ export interface StepperContext<
   TFlow extends RecurrentSignals | undefined = RecurrentSignals | undefined,
 > {
   readonly steps: TSteps;
-
   readonly shared: TShared;
-
   readonly flow: TFlow;
-
   readonly parent: TParent;
 }
 
@@ -70,20 +67,14 @@ export interface RuntimeStepperContext extends StepperContext {}
 export type RootContext = StepperContext<SharedSignals<{}>, {}, undefined, undefined>;
 
 /** The context with a shared slice layered in. */
-export type WithShared<TCtx extends RuntimeStepperContext, S extends Record<string, unknown>> = StepperContext<
-  TCtx['shared'] & SharedSignals<S>,
-  TCtx['steps'],
-  TCtx['parent'],
-  TCtx['flow']
->;
+export type WithShared<TCtx extends RuntimeStepperContext, S extends Record<string, unknown>> = TCtx & {
+  readonly shared: SharedSignals<S>;
+};
 
 /** The context with a step entry added. */
-export type WithSteps<TCtx extends RuntimeStepperContext, E> = StepperContext<
-  TCtx['shared'],
-  TCtx['steps'] & E,
-  TCtx['parent'],
-  TCtx['flow']
->;
+export type WithSteps<TCtx extends RuntimeStepperContext, E> = TCtx & {
+  readonly steps: E;
+};
 
 /**
  * The context a fork's selector and arm results read: every predecessor optional, since the flow's `result` may be

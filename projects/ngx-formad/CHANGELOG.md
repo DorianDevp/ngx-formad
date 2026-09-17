@@ -4,7 +4,7 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
-## 0.10.3
+## 0.11.0
 
 ### Added
 
@@ -55,6 +55,23 @@ versions may carry breaking changes.
 - **`isLevel` / `isItems` take `FieldLeaf | FieldLevel | FieldItems`.** On Angular 22 a
   `FieldTree<unknown>` is not a supertype of the other two, so the narrower predicate did
   not type-check in an application without `skipLibCheck`.
+- **BREAKING: `StepInstance` takes one type parameter.** The pool it carried in front of
+  the placed forms was phantom: the mapped body reads `P` alone, so every step entry
+  printed the whole form pool beside its own instances. `StepInstance<TForms, P>` is
+  `StepInstance<P>`; the type a step resolves to is unchanged, only its spelling, and an
+  application that spelled the alias by hand drops the first argument. On a wizard with
+  ten pooled forms the hover of a half-built chain fell from 18.5k to 5k characters.
+- **The context layers instead of nesting.** `WithSteps` and `WithShared` no longer
+  re-instantiate `StepperContext` at every step; they lay the new slice over the context
+  (`TCtx & { readonly steps: E }`), and the step-adding methods of `StepperBuilder`
+  materialize that record inline, so a chain's context reads as one record of step names
+  instead of a stack of `WithSteps<WithSteps<...>>`. What a gate sees is unchanged, and so
+  is what a constraint accepts: a step is matched by name wherever in the chain it was
+  added. The flow boundaries keep their old shape, because `GateContext`, `ChildContext`
+  and `RingContext` replace `steps`, `parent` and `flow` rather than adding to them, and
+  an intersection there reduces the context to `never`. The materialization has a price:
+  a chain of bare `createStep` calls meets `TS2589` between 40 and 80 steps, where the
+  nested form met it between 80 and 120.
 
 ### Removed
 

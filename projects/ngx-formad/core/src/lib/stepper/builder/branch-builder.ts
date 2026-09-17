@@ -48,25 +48,25 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
-      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends StaticStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>, N> = StaticStepCfg<
+      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: StaticStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts?: O & { readonly name?: N },
-  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>>;
+  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<P>, O>>;
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
-      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends DynamicStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>, N> = DynamicStepCfg<
+      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts: O & { readonly name?: N },
-  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>>;
+  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<P>, O>>;
   createStep(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, {}> & NotDynamic,
     opts?: StepCfg<WithSteps<TCtx, TAdded>, string>,
@@ -74,14 +74,14 @@ export class BranchBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded = 
   createStep<
     N extends string = never,
     P = {},
-    O extends StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
+    O extends StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>, N> = {},
   >(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts?: O & { readonly name?: N },
-  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>> {
+  ): BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<P>, O>> {
     this.push(stepNode({ pages: pagesOf(build, opts?.pages === StepPages.OnEntry), opts: opts ?? {}, gate: this.gate }));
 
-    return new BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<TForms, P>, O>>(this.push, this.gate);
+    return new BranchBuilder<TForms, TCtx, TAdded & StepEntry<N, StepInstance<P>, O>>(this.push, this.gate);
   }
 
   branch<
@@ -137,34 +137,34 @@ export class ForkArmBuilder<TForms, TCtx extends RuntimeStepperContext, TAdded =
   createStep<
     N extends string = never,
     P = {},
-    O extends StaticStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = StaticStepCfg<
-      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends StaticStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>, N> = StaticStepCfg<
+      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: StaticStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts?: O & { readonly name?: N },
-  ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
+  ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<P>>>;
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = DynamicStepCfg<
-      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>,
+    O extends DynamicStepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>, N> = DynamicStepCfg<
+      WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>,
       N
     >,
   >(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
     opts: O & { readonly name?: N },
-  ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>;
+  ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<P>>>;
   createStep(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, {}> & NotDynamic,
     opts?: StepCfg<WithSteps<TCtx, TAdded>, string>,
   ): never;
   createStep<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, WithSteps<TCtx, TAdded>, P>,
-    opts: StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>, N> = {},
-  ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>> {
-    return new ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<TForms, P>>>({
+    opts: StepCfg<WithSteps<TCtx, TAdded & GatedEntry<N, StepInstance<P>>>, N> = {},
+  ): ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<P>>> {
+    return new ForkArmBuilder<TForms, TCtx, TAdded & GatedEntry<N, StepInstance<P>>>({
       ...this.arm,
       steps: [...this.arm.steps, stepNode({ pages: pagesOf(build, opts.pages === StepPages.OnEntry), opts })],
     });
