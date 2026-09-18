@@ -1,5 +1,5 @@
-import { UiFormConfigBuilder, text } from 'formodel';
 import { Signal, signal } from '@angular/core';
+import { text, UiFormConfigBuilder } from 'formodel';
 import { FormConfig } from '../../form';
 import { isStepNode } from '../builder/flow';
 import { StepperBuilder } from '../builder/stepper-builder';
@@ -22,26 +22,28 @@ const headings = (steps: readonly SequenceNode[]) =>
     return typeof heading === 'function' ? heading() : heading;
   });
 
-// Individual vs. business: two arms with their own state/forms/steps and their own
-// typed result. They do not rejoin — there is no step after the fork.
+// Individual vs. business: two arms with their own state/forms/steps. They do not rejoin -
+// there is no step after the fork - and the flow's egress is the chosen arm's committed
+// steps under its key. The business arm forks again, so its egress is a union of its own.
 const wizard = new StepperBuilder()
-  .withState({ kind: '' as '' | 'individual' | 'business' })
+  .withState({ kind: '' as '' | 'individual' | 'business', seats: '' as '' | 'few' | 'many' })
   .createForm('start', form('Start'))
-  .createStep((s) => s.createPage((p) => p.addForm('start'), { heading: 'Start' }))
+  .createStep((s) => s.createPage((p) => p.addForm('start'), { heading: 'Start' }), { name: 'start' })
   .fork((c) => c.shared.kind(), {
     individual: (arm) =>
       arm
         .withState({ ssn: '' })
         .createForm('person', form('Person'))
-        .createStep((s) => s.createPage((p) => p.addForm('person'), { heading: 'Personal' }))
-        .result(({ shared }) => ({ kind: 'individual' as const, ssn: shared.ssn() })),
+        .createStep((s) => s.createPage((p) => p.addForm('person'), { heading: 'Personal' }), { name: 'person' }),
     business: (arm) =>
       arm
         .withState({ vat: '' })
         .createForm('company', form('Company'))
-        .createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Company' }))
-        .createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Seats' }))
-        .result(({ shared }) => ({ kind: 'business' as const, vat: shared.vat() })),
+        .createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Company' }), { name: 'company' })
+        .fork((c) => c.shared.seats(), {
+          few: (inner) => inner.createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Seats' }), { name: 'seats' }),
+          many: (inner) => inner.createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Fleet' }), { name: 'fleet' }),
+        }),
   })
   .build();
 
@@ -52,30 +54,48 @@ function ctx(values: Record<string, unknown>): RuntimeStepperContext {
   return { steps: {}, shared, flow: undefined, parent: undefined };
 }
 
+const committed = {
+  start: { start: { v: 'go' } },
+  person: { person: { v: 'Ada' } },
+  company: { company: { v: 'Acme' } },
+  seats: { company: { v: '3' } },
+};
+
 describe('fork', () => {
   it('runs only the chosen arm’s steps — arms do not rejoin', () => {
     const everyStepEntered = () => true;
     expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'individual' }), everyStepEntered))).toEqual(['Start', 'Personal']);
-    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'business' }), everyStepEntered))).toEqual([
+    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'business', seats: 'few' }), everyStepEntered))).toEqual([
       'Start',
       'Company',
       'Seats',
     ]);
   });
 
-  it('resolves the active arm’s discriminated, typed result', () => {
-    expect(wizard.resolveResult!(ctx({ kind: 'individual', ssn: '123' }))).toEqual({
-      kind: 'individual',
-      ssn: '123',
+  it('merges every arm’s pool and state into the flow', () => {
+    expect(Object.keys(wizard.forms)).toEqual(['start', 'person', 'company']);
+    expect(wizard.shared.get('ssn')).toBe('');
+    expect(wizard.shared.get('vat')).toBe('');
+  });
+
+  it('resolves the chosen arm’s committed steps under its key, and nothing from before the fork', () => {
+    expect(wizard.resolveResult!(ctx({ kind: 'individual' }), committed)).toEqual({
+      individual: { person: { person: { v: 'Ada' } } },
     });
-    expect(wizard.resolveResult!(ctx({ kind: 'business', vat: 'PL9' }))).toEqual({
-      kind: 'business',
-      vat: 'PL9',
+  });
+
+  it('nests a forking arm’s union under that arm’s key', () => {
+    expect(wizard.resolveResult!(ctx({ kind: 'business', seats: 'few' }), committed)).toEqual({
+      business: { few: { seats: { company: { v: '3' } } } },
     });
   });
 
   it('has no result before an arm is chosen', () => {
-    expect(wizard.resolveResult!(ctx({ kind: '' }))).toBeUndefined();
+    expect(wizard.resolveResult!(ctx({ kind: '' }), committed)).toBeUndefined();
+  });
+
+  it('leaves out an arm step that has not committed yet', () => {
+    expect(wizard.resolveResult!(ctx({ kind: 'individual' }), { start: committed.start })).toEqual({ individual: {} });
   });
 });
 
@@ -91,7 +111,7 @@ describe('fork - authoring errors', () => {
   it('refuses an arm step named like a step before the fork', () => {
     expect(() =>
       base().fork((c) => c.shared.kind(), {
-        a: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('start')), { name: 'start' }).result(() => 'a'),
+        a: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('start')), { name: 'start' }),
       }),
     ).toThrow(/already taken/);
   });
@@ -99,8 +119,8 @@ describe('fork - authoring errors', () => {
   it('refuses the same step name in two arms', () => {
     expect(() =>
       base().fork((c) => c.shared.kind(), {
-        a: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('start')), { name: 'details' }).result(() => 'a'),
-        b: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('start')), { name: 'details' }).result(() => 'b'),
+        a: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('start')), { name: 'details' }),
+        b: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('start')), { name: 'details' }),
       }),
     ).toThrow(/already taken/);
   });
@@ -108,14 +128,14 @@ describe('fork - authoring errors', () => {
   it('refuses an arm form named like one in the pool, or in another arm', () => {
     expect(() =>
       base().fork((c) => c.shared.kind(), {
-        a: (arm) => arm.createForm('start', form('Again')).result(() => 'a'),
+        a: (arm) => arm.createForm('start', form('Again')),
       }),
     ).toThrow(/already taken/);
 
     expect(() =>
       base().fork((c) => c.shared.kind(), {
-        a: (arm) => arm.createForm('extra', form('A')).result(() => 'a'),
-        b: (arm) => arm.createForm('extra', form('B')).result(() => 'b'),
+        a: (arm) => arm.createForm('extra', form('A')),
+        b: (arm) => arm.createForm('extra', form('B')),
       }),
     ).toThrow(/already taken/);
   });

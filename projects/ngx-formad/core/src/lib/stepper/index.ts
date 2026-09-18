@@ -12,9 +12,13 @@ export * from './builder/flow';
 export { PageBuilder } from './builder/page-builder';
 export type { PageBuild } from './builder/page-builder';
 export { StepBuilder } from './builder/step-builder';
-export type { DynamicStepBuild, StaticStepBuild, StepBuild } from './builder/step-builder';
-export { BranchBuilder, ForkArmBuilder } from './builder/branch-builder';
+export type { DynamicStepBuild, FlowSlot, StaticStepBuild, StepBuild } from './builder/step-builder';
+export * from './types/chain';
+export * from './builder/stepper';
+export * from './builder/recurrent-stepper';
+export * from './builder/flow-builder';
 export * from './builder/stepper-builder';
+export * from './builder/recurrent-stepper-builder';
 
 export * from './runtime/instance-registry';
 export * from './runtime/materialize-step';

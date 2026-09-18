@@ -1,7 +1,7 @@
 import { isSignal, signal } from '@angular/core';
 import { Rejected } from '../../types';
-import { NOT_DYNAMIC, PageCfg, StepCfg } from '../types/builder';
-import { SequenceNode } from '../types/flow';
+import { FlowSlotCfg, NOT_DYNAMIC, PageCfg, StepCfg } from '../types/builder';
+import { FlowStepNode, RuntimeFlow, SequenceNode } from '../types/flow';
 import {
   DynamicPages,
   LayoutNode,
@@ -153,7 +153,23 @@ export function stepNode<TCtx extends RuntimeStepperContext>(spec: StepSpec<TCtx
   return gate ? guardedBy(gate, node) : node;
 }
 
-/** Refuses a name a form or a step already took at this level. */
-export function claimName(name: string, taken: object): void {
-  if (name in taken) throw new Error(`The name '${name}' is already taken.`);
+/** A nested flow as its parent's sequence holds it: the slot's name, options and the built flow. */
+export interface FlowSlot<TCtx extends RuntimeStepperContext> {
+  readonly name: string;
+
+  readonly flow: RuntimeFlow;
+
+  readonly opts: FlowSlotCfg<TCtx>;
+}
+
+/** A nested flow's node, its label made a signal. */
+export function flowStepNode<TCtx extends RuntimeStepperContext>(slot: FlowSlot<TCtx>): FlowStepNode {
+  return {
+    kind: SequenceNodeKind.Flow,
+    name: slot.name,
+    flow: slot.flow,
+    ...(slot.opts.label === undefined ? {} : { label: isSignal(slot.opts.label) ? slot.opts.label : signal(slot.opts.label) }),
+    activeWhen: slot.opts.activeWhen,
+    defer: slot.opts.defer,
+  };
 }

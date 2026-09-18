@@ -71,18 +71,15 @@ export type WithShared<TCtx extends RuntimeStepperContext, S extends Record<stri
   readonly shared: SharedSignals<S>;
 };
 
-/** The context with a step entry added. */
+/** The context with a step entry added, as an intersection; what a step's own options read while it is authored. */
 export type WithSteps<TCtx extends RuntimeStepperContext, E> = TCtx & {
   readonly steps: E;
 };
 
-/**
- * The context a fork's selector and arm results read: every predecessor optional, since the flow's `result` may be
- * resolved before they exist. A step gate reads the typed context itself — it is asked only once its predecessors are.
- */
-export type GateContext<TCtx extends RuntimeStepperContext> = StepperContext<
+/** The context the chain continues with once entries are added: the same level, its steps flattened for readable hovers. */
+export type AfterSteps<TCtx extends RuntimeStepperContext, E> = StepperContext<
   TCtx['shared'],
-  { readonly [K in keyof TCtx['steps']]?: TCtx['steps'][K] },
+  { readonly [K in keyof (TCtx['steps'] & E)]: (TCtx['steps'] & E)[K] },
   TCtx['parent'],
   TCtx['flow']
 >;

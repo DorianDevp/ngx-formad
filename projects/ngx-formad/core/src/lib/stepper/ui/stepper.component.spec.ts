@@ -5,7 +5,8 @@ import { UiFormConfigBuilder, email, text } from 'formodel';
 import { FormConfig } from '../../form';
 import { provideFormadSuite } from '../../provide';
 import { link } from '../builder/shared-link';
-import { RuntimeStepper, StepperBuilder } from '../builder/stepper-builder';
+import { StepperBuilder } from '../builder/stepper-builder';
+import { RuntimeStepper } from '../types/flow';
 import { StepperController } from '../types/controller';
 import { StepperComponent } from './stepper.component';
 
@@ -296,13 +297,11 @@ class ForkHost {
         business: (arm) =>
           arm
             .createForm('company', labelForm('Company'))
-            .createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Company' }))
-            .result(({ shared }) => ({ kind: 'business', via: shared.kind() })),
+            .createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Company' }), { name: 'company' }),
         individual: (arm) =>
           arm
             .createForm('person', labelForm('Person'))
-            .createStep((s) => s.createPage((p) => p.addForm('person'), { heading: 'Person' }))
-            .result(() => ({ kind: 'individual' })),
+            .createStep((s) => s.createPage((p) => p.addForm('person'), { heading: 'Person' }), { name: 'person' }),
       })
       .build();
 }
@@ -332,6 +331,6 @@ describe('StepperComponent — fork', () => {
     forward().click(); // last step of the arm → completes
     await settle(fixture);
 
-    expect(fixture.componentInstance.done).toEqual({ kind: 'business', via: 'business' });
+    expect(fixture.componentInstance.done).toEqual({ business: { company: { company: { v: '' } } } });
   });
 });

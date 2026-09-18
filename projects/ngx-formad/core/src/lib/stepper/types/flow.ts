@@ -16,7 +16,12 @@ export interface FlowDefinition<TResult = unknown> {
 
   readonly providers: readonly Provider[];
 
-  resolveResult?(ctx: RuntimeStepperContext): TResult;
+  /**
+   * What the flow hands out instead of its committed steps: a fork resolves the chosen arm's egress here, or nothing
+   * while no arm is chosen. Asked over the live context (`ctx`, what gates and selectors read) and the committed
+   * values so far, once the flow stands on its last step.
+   */
+  resolveResult?(ctx: RuntimeStepperContext, committed: RuntimeStepperContext['steps']): TResult | undefined;
 }
 
 /** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state, which is also its result. */
@@ -34,6 +39,28 @@ export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> 
 
 /** Any flow the runtime drives. */
 export type RuntimeFlow<TResult = unknown> = FlowDefinition<TResult> | RecurrentFlowDefinition<TResult>;
+
+/**
+ * A built flow with the authoring types it was built with. `TResult` is its egress - what it hands out when it
+ * completes and what a parent reads under its slot's name: the committed steps of a linear flow, the chosen arm's
+ * egress of a fork, the accumulator of a ring. The phantoms are carried by the type system, never read at runtime.
+ */
+export interface BuiltFlow<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, TResult = unknown>
+  extends FlowDefinition<TResult> {
+  readonly __forms?: TForms;
+
+  readonly __context?: TCtx;
+
+  readonly __result?: TResult;
+}
+
+/** A built ring: a flow whose egress is its accumulator. */
+export interface BuiltRing<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, C = unknown>
+  extends BuiltFlow<TForms, TCtx, C>,
+    RecurrentFlowDefinition<C> {}
+
+/** A flow with its authoring types erased, as `<ngx-formad-stepper>` takes it. */
+export type RuntimeStepper = BuiltFlow<{}, RuntimeStepperContext, unknown>;
 
 /** A nested flow occupying one slot of a sequence; its egress reaches successors under `name`. */
 export interface FlowStepNode {

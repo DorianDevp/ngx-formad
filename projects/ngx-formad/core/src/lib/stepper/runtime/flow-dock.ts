@@ -1,16 +1,18 @@
 import { Directive, inject, Injectable } from '@angular/core';
 import { StepperController } from '../types/controller';
 
-/** The dock's two abilities: reopen the ring, or move the flow on. */
-export abstract class FlowDock {
+/** The dock's three abilities: reopen the ring, amend what it has collected, or move the flow on. */
+export abstract class FlowDock<C = unknown> {
   abstract restart(): void;
+
+  abstract amend(update: (state: C) => C): void;
 
   abstract next(): void;
 }
 
 /** The shell's dock, addressing the innermost ring standing on its dock. */
 @Injectable()
-export class StepperFlowDock extends FlowDock {
+export class StepperFlowDock<C = unknown> extends FlowDock<C> {
   private controller: StepperController | null = null;
 
   _init(controller: StepperController): void {
@@ -19,6 +21,10 @@ export class StepperFlowDock extends FlowDock {
 
   override restart(): void {
     this.controller?.dockRestart();
+  }
+
+  override amend(update: (state: C) => C): void {
+    this.controller?.dockAmend(update as (state: unknown) => unknown);
   }
 
   override next(): void {

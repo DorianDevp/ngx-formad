@@ -1,13 +1,11 @@
 import { Signal } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { FormBindings, FormContext, FormEffect, FormState } from '../../form';
-import { SharedState } from '../../shared';
 import { Rejected } from '../../types';
-import { SequenceNode } from './flow';
+import { BuiltFlow, BuiltRing } from './flow';
 import { FormRevisit, StepRevisit } from './nodes';
 import { FieldRefs, LinkPair, SharedSlots } from './shared-link';
 import {
-  AnyFormProvider,
   DeferTrigger,
   FormModel,
   FormPlaced,
@@ -36,9 +34,7 @@ export enum ControlKind {
   File = 'file',
 }
 
-type UnionToIntersection<U> = (U extends U ? (k: U) => void : never) extends (k: infer I) => void
-  ? I
-  : never;
+type UnionToIntersection<U> = (U extends U ? (k: U) => void : never) extends (k: infer I) => void ? I : never;
 
 /** `string` when `K` is a new kind; a refusal naming the clash when `TKinds` already has it. */
 export type UnregisteredKind<TKinds extends string, K extends string> = K extends TKinds
@@ -61,12 +57,13 @@ export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Reco
 /** An arm's entries as the steps after the branch see them: each possibly absent, since the arm may not run. */
 export type Gated<T> = { readonly [K in keyof T]: T[K] | undefined };
 
-/** The values behind one step's instances: each form's model. */
-export type StepValues<Inst> = {
-  readonly [F in keyof NonNullable<Inst>]: NonNullable<Inst>[F] extends FormState<infer M>
-    ? M
-    : NonNullable<Inst>[F];
-};
+/**
+ * The values behind one entry: a step's instances become each form's model; anything else - a nested flow's egress,
+ * a ring's accumulator - is already a value and passes through as it is.
+ */
+export type StepValues<Inst> = NonNullable<Inst> extends Record<string, FormState>
+  ? { readonly [F in keyof NonNullable<Inst>]: NonNullable<Inst>[F] extends FormState<infer M> ? M : NonNullable<Inst>[F] }
+  : NonNullable<Inst>;
 
 /** A linear flow's egress: the named steps' values, each possibly absent. */
 export type StepsCommitted<TSteps> = { readonly [K in keyof TSteps]?: StepValues<TSteps[K]> };
@@ -163,29 +160,65 @@ export type DynamicStepCfg<TCtx extends RuntimeStepperContext, N extends string 
   readonly pages: StepPages.OnEntry;
 };
 
-/** A branch selector: the branch key, or null/undefined to select no arm. Asked once the steps before the branch are entered. */
+/** An arm selector: the arm's key, or null/undefined to select none. Asked once the steps before the arms are entered. */
 export type BranchSelect<TCtx extends RuntimeStepperContext, K extends string> = (ctx: TCtx) => K | null | undefined;
 
-/** The entries every arm of a `branch` adds, merged. */
-export type BranchAdded<B> = UnionToIntersection<
-  { [K in keyof B]: B[K] extends (b: never) => { __added?: infer A } ? A : never }[keyof B]
->;
-
-/** What a fork arm accumulates while it is authored: its pool, its state slice and its steps. */
-export interface ArmState {
-  readonly forms: Readonly<Record<string, AnyFormProvider>>;
-
-  readonly shared: SharedState;
-
-  readonly steps: readonly SequenceNode[];
+/**
+ * The contract every arm and every nested flow is authored to: something that builds into a flow. A linear chain
+ * satisfies it through `build()`, a fork returns it, so an arm may end in either.
+ */
+export interface Branch<TForms, TCtx extends RuntimeStepperContext, TResult> {
+  build(): BuiltFlow<TForms, TCtx, TResult>;
 }
 
-/** One finished fork arm: its pool, state slice, steps and typed result resolver. */
-export interface ForkArm<R = unknown> extends ArmState {
-  readonly __result?: R;
+/** Any branch, for a callback whose exact types are inferred at the call. */
+export type AnyBranch = Branch<unknown, RuntimeStepperContext, unknown>;
 
-  resolve(ctx: RuntimeStepperContext): R;
+/** A ring after `dock()`: only `build()` remains. */
+export interface RecurrentTerminal<TForms, TCtx extends RuntimeStepperContext, C> {
+  build(): BuiltRing<TForms, TCtx, C>;
 }
+
+/** What a branch hands out when it completes. */
+export type Egress<B> = B extends Branch<infer _F, infer _C, infer R> ? R : never;
+
+/** The context an arm callback ends with. */
+export type ArmContext<Fn> = Fn extends (arm: never) => Branch<infer _F, infer C, infer _R> ? C : never;
+
+/** The egress an arm callback ends with. */
+export type ArmResult<Fn> = Fn extends (arm: never) => Branch<infer _F, infer _C, infer R> ? R : never;
+
+/** A fork's egress: the chosen arm's egress under its key, `{ a: Ea } | { b: Eb }`; a nested fork nests its union. */
+export type ForkResult<A> = { [K in keyof A]: { readonly [P in K]: ArmResult<A[K]> } }[keyof A];
+
+/** The entries an arm adds beyond the level it was authored on, each possibly absent, since the arm may not run. */
+type ArmAdded<Fn, TCtx extends RuntimeStepperContext> = {
+  readonly [N in Exclude<keyof ArmContext<Fn>['steps'], keyof TCtx['steps']>]: ArmContext<Fn>['steps'][N] | undefined;
+};
+
+/** What the arms of a `branch` add once they rejoin: every arm's new entries, merged. */
+export type BranchAdded<A, TCtx extends RuntimeStepperContext> = UnionToIntersection<{ [K in keyof A]: ArmAdded<A[K], TCtx> }[keyof A]>;
+
+/** The committed record of a built flow, for narrowing `stepCommitted` once at the boundary. */
+export type CommittedOf<S> = S extends BuiltFlow<infer _F, infer TCtx, infer _R> ? StepsCommitted<TCtx['steps']> : never;
+
+/** The authoring types every builder carries as phantoms. */
+export interface BuilderShape<TForms, TKinds extends string, TCtx extends RuntimeStepperContext> {
+  readonly __forms?: TForms;
+
+  readonly __kinds?: TKinds;
+
+  readonly __context?: TCtx;
+}
+
+/** The pool a builder has declared. */
+export type FormsOf<B> = B extends BuilderShape<infer F, infer _K, infer _C> ? F : never;
+
+/** The control kinds a builder knows. */
+export type KindsOf<B> = B extends BuilderShape<infer _F, infer K, infer _C> ? K : never;
+
+/** The context a builder's next step reads. */
+export type ContextOf<B> = B extends BuilderShape<infer _F, infer _K, infer C> ? C : never;
 
 /** The parent-side options of a nested flow slot. */
 export interface FlowSlotCfg<TCtx extends RuntimeStepperContext> {

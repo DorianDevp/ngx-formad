@@ -4,7 +4,8 @@ import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../../form';
 import { provideFormadSuite } from '../../provide';
 import { SharedState } from '../../shared';
-import { RuntimeStepper, StepperBuilder } from '../builder/stepper-builder';
+import { StepperBuilder } from '../builder/stepper-builder';
+import { RuntimeStepper } from '../types/flow';
 import { StepperController } from '../types/controller';
 import { StepFormsView } from '../ui/step-forms-view';
 import { StepperComponent } from '../ui/stepper.component';
@@ -38,10 +39,11 @@ const oneForm: FormConfig<One> = {
 
 @Component({
   imports: [StepperComponent],
-  template: `<ngx-formad-stepper [stepper]="stepper" (stepCommitted)="last = $event" />`,
+  template: `<ngx-formad-stepper [stepper]="stepper" (stepCommitted)="last = $event" (completed)="done = $event" />`,
 })
 class EgressHost {
   last: Record<string, unknown> | null = null;
+  done: unknown = undefined;
   readonly stepper: RuntimeStepper =     new StepperBuilder()
       .withState({})
       .createForm('a', oneForm)
@@ -73,6 +75,30 @@ describe('StepperComponent — stepCommitted egress', () => {
     await settle(fixture);
 
     expect(fixture.componentInstance.last).toEqual({ first: { a: { v: 'typed' } } });
+  });
+
+  it('hands the committed steps out as the flow’s egress on Finish', async () => {
+    const fixture = TestBed.createComponent(EgressHost);
+    await settle(fixture);
+
+    const forward = () => {
+      const buttons = fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>;
+
+      return buttons[buttons.length - 1];
+    };
+
+    const input = fixture.nativeElement.querySelector('input') as HTMLInputElement;
+    input.value = 'typed';
+    input.dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+    forward().click(); // Next
+    await settle(fixture);
+    expect(fixture.componentInstance.done).toBeUndefined();
+
+    forward().click(); // Finish
+    await settle(fixture);
+
+    expect(fixture.componentInstance.done).toEqual({ first: { a: { v: 'typed' } }, '1': { b: { v: '' } } });
   });
 });
 

@@ -152,4 +152,6 @@ export interface StepperController<TResult = unknown> {
   reset(): void;
 
   dockRestart(): void;
+
+  dockAmend(update: (state: unknown) => unknown): void;
 }

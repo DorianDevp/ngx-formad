@@ -42,6 +42,11 @@ export class FlowRing<C = unknown> {
     this.ring.update((ring) => ({ ...ring, passOpen: false }));
   }
 
+  /** The state as the dock amends it; no pass opens or folds, `dockReachable` reads the new state. */
+  amend(update: (state: C) => C): void {
+    this.ring.update((ring) => ({ ...ring, state: update(ring.state) }));
+  }
+
   reset(): void {
     this.ring.set(freshRing(this.flow));
   }

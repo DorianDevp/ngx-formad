@@ -288,12 +288,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return child ? child.isLast() : true;
   });
 
-  readonly result = computed<TResult | null>(() => {
-    if (this.ring) return this.ring.state();
-
-    const resolve = this.flow.resolveResult;
-    return resolve ? (this.inContext(() => resolve(this.context())) ?? null) : null;
-  });
+  readonly result = computed<TResult | null>(() => (this.egress() as TResult | undefined) ?? null);
 
   readonly progress: Signal<StepperProgress> = computed(() => {
     const own = this.ownLevel();
@@ -360,8 +355,25 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       return;
     }
 
+    if (this.onDock()) this.restartPass();
+  }
+
+  dockAmend(update: (state: unknown) => unknown): void {
+    const child = this.child();
+    if (child) {
+      child.dockAmend(update);
+
+      return;
+    }
+
+    if (this.onDock()) this.ring?.amend(update as (state: TResult) => TResult);
+  }
+
+  /** Whether this ring stands on its dock: the only place `restart` and `amend` are meant. */
+  private onDock(): boolean {
     const flow = this.recurrentFlow;
-    if (flow && this.current() === this.flow.steps[flow.dockAt]) this.restartPass();
+
+    return flow !== null && this.current() === this.flow.steps[flow.dockAt];
   }
 
   destroy(): void {
@@ -618,8 +630,18 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     this.notifyCommitted();
   }
 
-  private egress(): TResult | RuntimeStepperContext['steps'] {
-    return this.ring ? this.ring.state() : this.committed();
+  /**
+   * What this flow hands out: a ring its accumulator, a fork the chosen arm's egress once the flow stands on its last
+   * step (its selector reads predecessors that exist by then), a linear flow its committed steps.
+   */
+  private egress(): TResult | RuntimeStepperContext['steps'] | undefined {
+    if (this.ring) return this.ring.state();
+
+    const resolve = this.flow.resolveResult;
+    if (!resolve) return this.committed();
+    if (!this.ownIsLast()) return undefined;
+
+    return this.inContext(() => resolve(this.context(), this.committed()));
   }
 
   private notifyCommitted(): void {

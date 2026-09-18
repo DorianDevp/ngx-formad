@@ -3,7 +3,8 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, checkbox, text } from 'formodel';
 import { FormConfig } from '../../form';
 import { link } from '../builder/shared-link';
-import { RuntimeStepper, StepperBuilder } from '../builder/stepper-builder';
+import { StepperBuilder } from '../builder/stepper-builder';
+import { RuntimeStepper } from '../types/flow';
 import { StepperComponent } from '../ui/stepper.component';
 
 // Two things the controller has to get right when a step's own commit changes the

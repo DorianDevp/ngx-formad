@@ -4,7 +4,8 @@ import { FormValueControl, hidden, required } from '@angular/forms/signals';
 import { array, checkbox, customField, email, number, password, phone, radio, select, text, UiFormConfigBuilder } from 'formodel';
 import { defineForm, FormConfig, formLayout } from '../../form';
 import { link } from '../builder/shared-link';
-import { RuntimeStepper, StepperBuilder } from '../builder/stepper-builder';
+import { StepperBuilder } from '../builder/stepper-builder';
+import { RuntimeStepper } from '../types/flow';
 import { StepPages } from '../types/builder';
 import { StepperComponent } from '../ui/stepper.component';
 
@@ -12,7 +13,7 @@ import { StepperComponent } from '../ui/stepper.component';
 // a cart with a repeating group, a fork on how to buy, an arm with its own steps,
 // a shipping form with a nested group, a schema-hidden field, a component of the
 // author's own placed with control(), a content gate on shared state, a dynamic
-// summary step, and the egress of every commit and of the arm's typed result.
+// summary step, and the egress of every commit and of the chosen arm, under its key.
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -152,8 +153,7 @@ class CheckoutHost {
               p.addContent((c) => c.p(computed(() => `Confirmation goes to ${ctx.shared.email()}`), { className: 'summary' })), { heading: 'Summary' },
             ),
             { pages: StepPages.OnEntry },
-          )
-          .result(({ shared }) => ({ mode: 'account' as const, email: shared.email() })),
+          ),
       guest: (arm) =>
         arm
           .createForm('contact', contactForm)
@@ -162,8 +162,7 @@ class CheckoutHost {
           )
           .createStep((s) => s.createPage((p) => p.addForm('shipping', { componentBindings: { window: { inputs: { windows: WINDOWS } } } }), { heading: 'Shipping' }), {
             name: 'guestShipping',
-          })
-          .result(({ shared }) => ({ mode: 'guest' as const, email: shared.email() })),
+          }),
     })
     .build();
 }
@@ -214,7 +213,7 @@ describe('Checkout journey', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('walks the account arm: cart, fork, account, shipping with a hidden field and a placed component, summary, result', async () => {
+  it('walks the account arm: cart, fork, account, shipping with a hidden field and a placed component, summary, egress', async () => {
     // Cart: one item to start; add two, name them, drop the middle one; the last keeps its view.
     expect(heading()).toBe('Your cart');
     expect(inputByLabel('SKU').value).toBe('A');
@@ -283,9 +282,9 @@ describe('Checkout journey', () => {
     expect(forward()!.textContent?.trim()).toBe('Finish');
     await go();
 
-    // Egress: the arm's typed result, and every named step's models as committed.
-    expect(fixture.componentInstance.done).toEqual({ mode: 'account', email: 'ada@example.com' });
+    // Egress: every named step's models as committed, and the chosen arm's share of them under its key.
     const last = fixture.componentInstance.commits.at(-1) as Commit;
+    expect(fixture.componentInstance.done).toEqual({ account: { accountShipping: last['accountShipping'] } });
     // Signal forms keys array items with a symbol of its own; compare the fields.
     const items = last['cart']['cart']['items'] as readonly CartItem[];
     expect(items.map(({ sku, qty }) => ({ sku, qty }))).toEqual([
@@ -301,7 +300,7 @@ describe('Checkout journey', () => {
     });
   });
 
-  it('walks the guest arm: contact details instead of an account, then shipping, then the guest result', async () => {
+  it('walks the guest arm: contact details instead of an account, then shipping, then the guest egress', async () => {
     await go(); // the cart as it stands
     await choose(root().querySelector('select')!, 1); // Buy as a guest
     await go();
@@ -316,8 +315,8 @@ describe('Checkout journey', () => {
     expect(forward()!.textContent?.trim()).toBe('Finish');
     await go();
 
-    expect(fixture.componentInstance.done).toEqual({ mode: 'guest', email: 'guest@example.com' });
     const last = fixture.componentInstance.commits.at(-1) as Commit;
+    expect(fixture.componentInstance.done).toEqual({ guest: { guestShipping: last['guestShipping'] } });
     expect(last['guestShipping']['shipping']['method']).toBe('courier');
     expect(last['guestShipping']['shipping']['locker']).toBe('');
   });

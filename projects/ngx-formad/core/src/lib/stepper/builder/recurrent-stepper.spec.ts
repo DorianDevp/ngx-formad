@@ -5,7 +5,8 @@ import { effectiveSteps } from '../runtime/effective-sequence';
 import { SequenceNodeKind } from '../types/nodes';
 import { RuntimeStepperContext, SharedSignals } from '../types/step-context';
 import { isFlowStep, isRecurrent, isStepNode } from './flow';
-import { RecurrentStepperBuilder, StepperBuilder } from './stepper-builder';
+import { RecurrentStepperBuilder } from './recurrent-stepper-builder';
+import { StepperBuilder } from './stepper-builder';
 
 type One = { v: string };
 

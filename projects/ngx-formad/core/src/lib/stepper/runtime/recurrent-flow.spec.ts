@@ -1,15 +1,16 @@
-import { Component, input, inputBinding } from '@angular/core';
+import { Component, inject, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../../form';
 import { provideFormadSuite } from '../../provide';
 import { link } from '../builder/shared-link';
-import { RuntimeStepper, StepperBuilder } from '../builder/stepper-builder';
+import { StepperBuilder } from '../builder/stepper-builder';
+import { RuntimeStepper } from '../types/flow';
 import { StepPages } from '../types/builder';
 import { StepperController } from '../types/controller';
 import { StepPageView } from '../ui/step-page-view';
 import { StepperComponent } from '../ui/stepper.component';
-import { FormadDockRestart } from './flow-dock';
+import { FlowDock, FormadDockRestart } from './flow-dock';
 
 async function settle(fixture: ComponentFixture<object>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -33,10 +34,14 @@ type Item = { name: string };
   template: `
     <span class="count">{{ items().length }}</span>
     <button type="button" class="add" ngxFormadDockRestart>Add another</button>
+    <button type="button" class="drop" (click)="dock.amend((items) => items.slice(0, -1))">Drop last</button>
   `,
 })
 class DockPanel {
   readonly items = input.required<Item[]>();
+
+  /** The dock's abstraction, typed over the ring's accumulator; the shell provides it. */
+  readonly dock = inject<FlowDock<Item[]>>(FlowDock);
 }
 
 @Component({
@@ -325,6 +330,31 @@ describe('Recurrent flow - the ring around the dock', () => {
 
     expect(heading()).toBe('Collected');
     expect(read('.count')).toBe('1');
+  });
+
+  it('amends the state from the dock: no pass opens, and the dock’s gate reads the new state', async () => {
+    await throughIntro();
+    await addManual('alpha');
+    await click('.add');
+    await addManual('beta');
+    expect(read('.count')).toBe('2');
+
+    await click('.drop');
+    expect(heading()).toBe('Collected');
+    expect(read('.count')).toBe('1');
+
+    await click('.drop');
+    expect(read('.count')).toBe('0');
+    await click('.next');
+    expect(heading()).toBe('Collected');
+    expect(read('.blockers')).toContain('Add at least one device');
+
+    await click('.add');
+    await addManual('gamma');
+    expect(read('.count')).toBe('1');
+    await click('.next');
+    expect(heading()).toBe('Final');
+    expect(fixture.componentInstance.last?.['devices']).toEqual([{ name: 'gamma' }]);
   });
 
   it('a many-item pass folds many; an empty fold leaves the dock gated with its message', async () => {
