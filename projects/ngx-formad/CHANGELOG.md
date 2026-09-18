@@ -19,6 +19,20 @@ versions may carry breaking changes.
   still a `customField()` placed with `control()`. The render tree gains
   `FormComponentNode` (keyed `@component:<index>`, like content and rows), the view a
   `ComponentRow`.
+- **`FlowBuilder` and `use(fragment)`.** Every builder - the root, an arm, a nested flow,
+  a ring's pass - is one chain, `FlowBuilder`; `StepperBuilder` adds the terminals
+  `build`/`fork`, `RecurrentStepperBuilder` adds `fold`/`dock`. Every chain method hands
+  back the kind it was called on (`Rebound<this, …>`), so a fragment written once against
+  `FlowBuilder<TForms, TKinds, TCtx extends Requirement>` reads on any of them, and
+  `use(fragment)` applies it keeping the caller's kind. A chain that does not meet the
+  requirement is refused where the fragment is applied.
+- **`FlowDock.amend(update)`.** A dock rewrites the ring's state without opening a pass
+  (drop an entry, mark one for editing before `restart()`); `completeWhen` and
+  `dockReachable` read the new state. `StepperController.dockAmend` behind it.
+- **A branch's arm is a full chain.** It may `createForm`, `withState`, `provide`, nest a
+  flow or a fragment; its pool, state, providers and control kinds merge into the level's.
+- **A nested flow may fork.** `createStepper`'s callback returns a `Branch`; the slot's
+  entry is the flow's egress, a fork's union included.
 
 ### Changed
 
@@ -72,11 +86,28 @@ versions may carry breaking changes.
   an intersection there reduces the context to `never`. The materialization has a price:
   a chain of bare `createStep` calls meets `TS2589` between 40 and 80 steps, where the
   nested form met it between 80 and 120.
+- **A fork's egress is the chosen arm's committed steps under its key**, `{ a: Ea } | { b: Eb }`,
+  a nested fork's union nested under its arm's key. `result(...)` is gone: the arm's name
+  is the discriminant, and mapping the record into a payload is the host's, on `completed`.
+- **A flow's egress is one thing.** `completed` on a linear root carries the committed record
+  (it was `null`); a fork's `resolveResult(ctx, committed)` is asked over the live context
+  and the committed values, once the flow stands on its last step. A fork's selector reads
+  the same typed context a gate does - a predecessor before the fork is present, not optional.
+- **`StepValues` passes a non-record entry through.** A ring's accumulator or a nested flow's
+  egress in the committed record is typed as it is, not mapped member by member.
+- **Types moved out of the classes.** `Branch`, `ForkResult`, `BranchAdded`, `Egress`,
+  `CommittedOf`, `BuiltFlow`/`BuiltRing`, `RuntimeStepper`, `ChainState` and the
+  `FormsOf`/`KindsOf`/`ContextOf` readers live in the stepper's `types/`; the classes each
+  in a file of their own. `RuntimeStepper` is the `BuiltFlow` interface now; a built
+  `Stepper` is assignable as before.
 
 ### Removed
 
 - `defaultControls`, `DefaultStepperChrome` and `tailwindLayout` are no longer exported
   from `ngx-formad`; see the entry points above.
+- `BranchBuilder`, `ForkArmBuilder`, `ForkArm`, `ArmState`, `TerminalForkBuilder`,
+  `GateContext` and `StepperBuilder.result(...)`. An arm is a `StepperBuilder`; what it
+  returns is a `Branch`.
 
 ## 0.10.2
 

@@ -550,17 +550,15 @@ and none of it is imperative — it's all data the engine reads from the live co
 - **A step can be conditional or optional** — `createStep(build, { activeWhen })` drops
   a step that doesn't apply; `{ optional: true }` lets the user skip it.
 - **The end can fork.** Publishing splits — *publish now* vs *schedule* — into two
-  short arms with **different results**:
+  short arms with **different egress**, each under its own key:
 
 ```ts
   .fork((ctx) => ctx.shared.mode(), {
-    now:      (arm) => arm.createStep(/* confirm */)
-                          .result(() => ({ kind: 'published' as const })),
+    now:      (arm) => arm.createStep(/* confirm */, { name: 'confirm' }),
     schedule: (arm) => arm.createForm('when', whenForm)
-                          .createStep(/* pick date */, { name: 'when' })
-                          .result(({ steps }) => ({ kind: 'scheduled' as const, at: steps.when?.when.model().at })),
+                          .createStep(/* pick date */, { name: 'when' }),
   })
-  .build(); // → Stepper<…, { kind:'published' } | { kind:'scheduled'; at:string }>
+  .build(); // → Stepper<…, { now: { confirm?: … } } | { schedule: { when?: { when: When } } }>
 ```
 
 So the arc scales: a **form** renders one content type (nested or flat), a **page**
@@ -806,8 +804,12 @@ new StepperBuilder()
 
 The selector is typed against the wizard (`ctx.shared.plan` autocompletes); returning
 `null` selects no branch — nothing is guessed. It is asked once per walk of the
-sequence, however many arms the branch has. Branches **nest** (`b.branch(...)`),
-and a step's own `activeWhen` is ANDed with the branch guard. Because branching reduces to
+sequence, however many arms the branch has. An arm is an ordinary linear chain over
+the level's context — a `StepperBuilder`, so it may `createForm`, `withState`,
+`provide`, nest a `branch(...)` or a flow, and take a [fragment](#fragments--one-chain-many-wizards)
+through `use(...)`; its pool and state merge into the level's, and a step's own
+`activeWhen` is ANDed with the branch guard. What an arm may not do is `fork`: a fork
+does not rejoin, and `branch` refuses one at authoring time. Because branching reduces to
 conditions, the `steps` source works too: branch on a named predecessor's live answer,
 not just on shared — the selector is asked once the steps before the branch are entered,
 so that predecessor is there. A branch step is gated by nature, so successors see it as
@@ -821,14 +823,15 @@ Branch and fork are different intents:
 | --- | --- | --- |
 | Idea | Same destination, different road | Different destinations |
 | Rejoin | Yes — common steps follow | No — each arm is terminal |
-| Result | Unchanged | A **discriminated union**, one variant per arm |
-| State | One shape | Parent **+ each arm's own local slice** |
-| Returns | `this` (keep chaining) | A terminal — only `build()` |
+| Egress | The committed steps, arms included | The chosen arm's committed steps **under its key**: `{ a: Ea } \| { b: Eb }` |
+| Arm | A linear chain over the level's context | The same |
+| Returns | The chain (keep going) | A `Branch` — only `build()` |
 
-Use **fork** when the input picks *what the wizard becomes* and each path produces a
-**different result**. Each arm declares its own state, forms, steps, and a typed
-`result`; `fork` unions the arms' results into the wizard's result type and returns a
-terminal, so nothing can follow it.
+Use **fork** when the input picks *what the wizard becomes* and each path ends
+somewhere else. The arms are authored exactly like a branch's; `fork` keys each arm's
+egress by its name and unions them into the wizard's result type, then returns a
+terminal, so nothing can follow it. An arm may fork again — its union then sits under
+its key.
 
 ```ts
 const wizard = new StepperBuilder()
@@ -838,35 +841,62 @@ const wizard = new StepperBuilder()
   .fork((ctx) => ctx.shared.kind(), {
     individual: (arm) =>
       arm
-        .withState({ ssn: '' })                     // arm-local state
+        .withState({ ssn: '' })                     // arm-local state, merged into the wizard's
         .createForm('person', personForm)
-        .createStep((s) => s.createPage(/* personal */), { name: 'person' })
-        .result(({ steps }) => ({ kind: 'individual' as const, ssn: steps.person?.person.model().ssn })),
+        .createStep((s) => s.createPage(/* personal */), { name: 'person' }),
     business: (arm) =>
       arm
         .withState({ vat: '' })
         .createForm('company', companyForm)
         .createStep((s) => s.createPage(/* company */), { name: 'company' })
-        .createStep((s) => s.createPage(/* seats */))
-        .result(({ steps }) => ({ kind: 'business' as const, vat: steps.company?.company.model().vat })),
+        .createStep((s) => s.createPage(/* seats */), { name: 'seats' }),
   })
   .build();
-// build() → Stepper<…, { kind:'individual'; ssn:string } | { kind:'business'; vat:string }>
+// build() → Stepper<…, { individual: { person?: { person: Person } } }
+//                     | { business: { company?: { company: Company }; seats?: … } }>
 ```
 
-Each arm's `result(...)` type is inferred independently and unioned into the
-stepper's `TResult`. The shell surfaces it on finish:
+Each arm's egress is what a linear flow of its own would hand out — its named steps'
+committed models — and the key it sits under is the arm's name, so the union needs no
+hand-written discriminant. The shell surfaces it on finish:
 
 ```ts
 <ngx-formad-stepper [stepper]="stepper" (completed)="onResult($event)" />
-// onResult(r) → narrow by r.kind. (Erased to `unknown` at the output; a custom
-// chrome reads the typed controller.result() directly.)
+// onResult(r) → narrow with `'individual' in r`. (Erased to `unknown` at the output; a
+// custom chrome reads the typed controller.result() directly.)
 ```
 
-A selector value with no matching arm (e.g. the initial `''`) simply means "no arm
-chosen yet" — no arm steps, `result()` is `null`. Because the decision is committed
-before navigation advances, choosing an arm on a step and pressing Continue moves
-straight into it.
+The selector reads the same typed context a gate does — a predecessor before the fork
+is there, not optional — because the result is asked only once the flow stands on its
+last step. A selector value with no matching arm (e.g. the initial `''`) simply means
+"no arm chosen yet" — no arm steps, `result()` is `null`. Because the decision is
+committed before navigation advances, choosing an arm on a step and pressing Continue
+moves straight into it. A linear flow without a fork hands its committed record out
+the same way: `completed` carries what `stepCommitted` last emitted.
+
+### Fragments — one chain, many wizards
+
+Every builder — the root, an arm, a nested flow, a ring's pass — is the same chain,
+`FlowBuilder`. A piece of wizard you author once is a function over it, with the
+context it needs spelled as a requirement:
+
+```ts
+type NeedsAccount = RuntimeStepperContext & { readonly shared: SharedSignals<{ apiUrl: string; signedIn: boolean }> };
+
+export function withDevices<TForms, TKinds extends string, TCtx extends NeedsAccount>(builder: FlowBuilder<TForms, TKinds, TCtx>) {
+  return builder.createRecurrentStepper('devices', { state: (): Device[] => [], build: (loop) => loop /* … */ .dock(/* … */) });
+}
+
+new StepperBuilder().withState({ apiUrl, signedIn }).use(withDevices).createStep(/* … */).build();
+//                                                 ▲ a root, an arm or a ring alike: `use` keeps the caller's kind
+```
+
+A fragment returns the plain chain, so apply it through `use(...)`: the result is a
+`StepperBuilder` on a root or an arm (`build`, `fork` still there), a
+`RecurrentStepperBuilder` inside a ring (`fold`, `dock` still there), and its pool and
+entries are the fragment's. A chain that does not meet the requirement is refused where
+the fragment is applied. The type behind this is `Rebound<this, …>`: every chain method
+hands back the kind it was called on.
 
 ## Theming with adapters
 
@@ -1135,7 +1165,8 @@ name — the data-egress for persisting as you go) and `progress` (the nesting-a
 rail model, one level per flow along the active chain) — and the actions `next()`,
 `back()`, `skip()`, `goTo(target, options?)` (jump to a step by position or by label),
 `reset()` (restart: clears committed values, resets shared state, re-enters the first
-step), `dockRestart()` (reopen the innermost ring standing on its dock) and
+step), `dockRestart()` (reopen the innermost ring standing on its dock),
+`dockAmend(update)` (rewrite that ring's state from its dock) and
 `destroy()` (tear down the flow's injection environment; the shell calls it). Calling
 `next()` while the gate is closed does not navigate: it marks everything touched and
 raises `nextBlocked`, so keep the button clickable (`aria-disabled`, not `disabled`)
@@ -1187,8 +1218,11 @@ nested flow has its own namespace of step names (the same name may recur on anot
 level) and reaches the level above explicitly through `ctx.parent`; its `ctx.shared`
 layers its own `withState` over the parent's; inside a ring `ctx.flow` exposes the
 `state` and `passOpen` signals.
-A dock component stays dumb: it injects the two-method `FlowDock`, or marks its
-buttons with `ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller. The
+A dock component stays dumb: it injects `FlowDock<C>` — `restart()` reopens the ring,
+`amend((state) => state)` rewrites what it has collected without a pass (drop an
+entry, mark one for editing before `restart()`; the dock's `completeWhen` and
+`dockReachable` read the new state), `next()` moves on — or marks its buttons with
+`ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller. The
 nesting also runs the other way (`createStepper` puts a linear sub-flow inside a
 pass), and a ring built at the root (`new RecurrentStepperBuilder({ state })`, ending
 in `dock(...).build()`) goes straight into `<ngx-formad-stepper>`; its `completed`
@@ -1499,26 +1533,26 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `StepperBuilder` | The fluent chain: `withState`, `createForm`, `provide`, `addControlType`/`overrideControlType` (typed: add rejects an existing kind, override requires one), `createStep`, `branch`, `createStepper`, `createRecurrentStepper`, `fork` (terminal) and `build()`. Each method narrows the type (see below). |
-| `RecurrentStepperBuilder` | The ring's chain: the same members bar `fork`, plus `fold` and the terminal `dock`, whose config carries the flow's `completeWhen` and hands back the `build()`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ state })` starts a ring at the root. |
+| `FlowBuilder` | The chain every builder shares: `withState`, `createForm`, `provide`, `addControlType`/`overrideControlType` (typed: add rejects an existing kind, override requires one), `createStep`, `branch`, `createStepper`, `createRecurrentStepper` and `use(fragment)`. Each method narrows the type and hands back the kind it was called on (`Rebound<this, …>`); a fragment is typed on it. |
+| `StepperBuilder` | The linear kind: the root, an arm, a nested flow. `FlowBuilder` plus the terminals `fork` and `build()`. |
+| `RecurrentStepperBuilder` | The ring kind: `FlowBuilder` plus `fold` and the terminal `dock`, whose config carries the flow's `completeWhen` and hands back the `build()`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ state })` starts a ring at the root. |
 | `FormadWizard` | Injectable per stepper — `committed()`, `controller()`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
-| `BranchBuilder` | Authors one branch's steps inside `branch(select, { … })`; `createStep()` and nested `branch()`. |
-| `ForkArmBuilder` / `ForkArm` | Authors one fork arm (`withState`/`createForm`/`createStep`/`branch`) ending in `result(...)`. |
-| `Stepper<TForms, TCtx, TResult>` | The built linear flow: `{ forms, steps, shared, controlTypes, providers, resolveResult? }`. `RecurrentStepper<TForms, TCtx, C>` is the ring counterpart. |
+| `Branch<TForms, TCtx, TResult>` | What an arm or a nested flow's callback returns: anything with `build()` into a flow — a chain, or what `fork` returns. `Egress<B>` reads its egress type. |
+| `Stepper<TForms, TCtx, TResult>` | The built linear flow or fork: `{ forms, steps, shared, controlTypes, providers, resolveResult? }`; `TResult` is its egress (the committed record, or a fork's keyed union). `RecurrentStepper<TForms, TCtx, C>` is the ring counterpart. Both implement `BuiltFlow`. |
 | `RuntimeStepper` / `RuntimeFlow` | The same with the authoring types erased — what the shell's `[stepper]` input and the controller take. A built `Stepper` is assignable as it is. |
-| `CommittedOf<typeof built>` | The typed shape of what a built stepper commits: `{ [step]?: { [poolName]: model } }`. |
+| `CommittedOf<typeof built>` | The typed shape of what a built stepper commits: `{ [step]?: { [poolName]: model } }`; a nested flow's or a ring's entry is its egress as it is. |
 | `StepPages` | When a step's pages are built: `Once` (default, at authoring time) or `OnEntry` (again on every entry, over the live context). |
 | `ControlKind` | The built-in control kinds as an enum (`ControlKind.Text`, …); `addControlType` refuses to redeclare one. |
 | `StepRevisit` / `FormRevisit` | The revisit policies: `StepRevisit.Keep \| Fresh` on a step, `FormRevisit.Keep \| Reseed` on a placement. |
 | `DeferTrigger` | `Idle \| Viewport \| Interaction` — the `@defer` trigger a step renders under. |
-| `FlowDock` / `FormadDockRestart` / `FormadDockNext` | What a dock component uses: the two-method service, or the `ngxFormadDockRestart` / `ngxFormadDockNext` attributes on its buttons. |
+| `FlowDock<C>` / `FormadDockRestart` / `FormadDockNext` | What a dock component uses: the service (`restart`, `amend`, `next`), or the `ngxFormadDockRestart` / `ngxFormadDockNext` attributes on its buttons. |
 | `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) (stepCommitted) />` shell — builds the controller, renders the chrome, emits the result on finish and the committed record on each move. |
 
 ### Run it yourself (bring-your-own-UI)
 
 | Symbol | What it is |
 | --- | --- |
-| `StepperController` / `FormadStepperController` | The headless engine and the class that implements it: state signals (`step`, `index`, `canNext`, `progress`, `result`, `committed`, …) + `next`/`back`/`skip`/`goTo`/`reset`/`dockRestart`/`destroy`. |
+| `StepperController` / `FormadStepperController` | The headless engine and the class that implements it: state signals (`step`, `index`, `canNext`, `progress`, `result`, `committed`, …) + `next`/`back`/`skip`/`goTo`/`reset`/`dockRestart`/`dockAmend`/`destroy`. |
 | `StepPageView` | `<ngx-formad-step-page [step] />` — renders one step's **whole page** (forms + components + rows + content); drop into your own `@defer`. |
 | `StepFormsView` | `<ngx-formad-step-forms [step] />` — the forms-only subset of `StepPageView`, for a chrome that never uses `addComponent`. |
 | `materializeStep(pages, options)` | Instantiates the forms and page components the pages place, registers the forms and seeds them from the entry context; `MaterializeOptions = { pool, shared, environment, injector?, entry, context? }` — `context` is re-read on every emission, so handlers see the live steps. Returns a `LiveStep`. |
@@ -1593,13 +1627,14 @@ createStep((step, ctx?) => …, {              // step: StepBuilder; `ctx` only 
   revisit?: StepRevisit,                      // Keep (default) | Fresh
 })
 branch((ctx) => key, {                        // key narrows `branches`; null/undefined selects none
-  [key]: (b) => b.createStep((step) => …, opts?)  // b: BranchBuilder — guarded steps; nests via b.branch()
-})
+  [key]: (arm) => arm.createStep((step) => …, opts?)  // arm: StepperBuilder over this context — its steps are
+})                                            //   guarded; its pool/state merge in; it may nest branch() or use()
 fork((ctx) => key, {                          // TERMINAL — only build() after; arms don't rejoin
-  [key]: (arm) => arm                         // arm: ForkArmBuilder — its own state/forms/steps
-    .createStep((step) => …)
-    .result((ctx) => ({ kind: key, … })),     // each arm's result → union into TResult
+  [key]: (arm) => arm                         // arm: the same linear chain; may fork again
+    .createStep((step) => …, { name }),       // egress: { [key]: the arm's committed steps } → union into TResult
 })
+use(fragment)                                 // fragment: (builder: FlowBuilder<F, K, TCtx extends Requirement>) => …;
+                                              //   keeps the caller's kind (root/arm → StepperBuilder, ring → RecurrentStepperBuilder)
 createStepper('name', { build: (sub) => sub…, label?, activeWhen?, defer? })   // a linear flow as ONE step
 createRecurrentStepper('name', {              // a ring as ONE step; `loop` ends in dock()
   state: () => C, dockReachable?: (state) => boolean, build: (loop) => loop…, label?, activeWhen?, defer?,
