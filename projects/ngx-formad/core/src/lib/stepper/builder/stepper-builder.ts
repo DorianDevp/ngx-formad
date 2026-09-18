@@ -40,7 +40,7 @@ import {
   WithShared,
   WithSteps,
 } from '../types/step-context';
-import { BranchBuilder, ForkArmBuilder } from './branch-builder';
+import { BranchBuilder } from './branch-builder';
 import {
   claimName,
   decidedOnce,
@@ -50,6 +50,7 @@ import {
   StaticStepBuild,
   stepNode,
 } from './step-builder';
+import { ForkArmBuilder } from './fork-builder';
 
 /** The egress shape of a built stepper, for narrowing `stepCommitted` once at the boundary. */
 export type CommittedOf<S> =
@@ -60,9 +61,9 @@ export interface TerminalForkBuilder<TForms, TCtx extends RuntimeStepperContext,
   build(): Stepper<TForms, TCtx, TResult>;
 }
 
-type ForkArms<TForms, TCtx extends RuntimeStepperContext> = Record<
+type ForkArms<TForms, TKinds extends string,TCtx extends RuntimeStepperContext> = Record<
   string,
-  (arm: ForkArmBuilder<TForms, TCtx>) => ForkArm
+  (arm: StepperBuilder<TForms, TKinds, TCtx>) => ForkArm
 >;
 
 type ArmResult<A> = {
@@ -74,22 +75,17 @@ export class Stepper<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeSt
   implements FlowDefinition
 {
   readonly __forms?: TForms;
-
   readonly __context?: TCtx;
-
   readonly __result?: TResult;
 
   readonly forms: Readonly<Record<string, AnyFormProvider>>;
-
   readonly steps: readonly SequenceNode[];
-
   readonly shared: SharedState;
-
-  readonly resolveResult?: FlowDefinition['resolveResult'];
-
   readonly controlTypes: ControlTypeMap;
 
   readonly providers: readonly Provider[];
+
+  readonly resolveResult?: FlowDefinition['resolveResult'];
 
   constructor(definition: FlowDefinition) {
     this.forms = definition.forms;
@@ -117,9 +113,7 @@ export type RecurrentFlowStep<C, TKinds extends string, TCtx extends RuntimeStep
 
 interface FlowSlot<TCtx extends RuntimeStepperContext> {
   readonly name: string;
-
   readonly flow: RuntimeFlow;
-
   readonly opts: FlowSlotCfg<TCtx>;
 }
 
@@ -184,16 +178,6 @@ export class StepperBuilder<
   readonly __context?: TCtx;
 
   constructor(private readonly chain: ChainState = EMPTY_CHAIN) {}
-
-  addControlType<K extends string, Cmp extends object>(
-    kind: K & UnregisteredKind<TKinds, K>,
-    component: Type<Cmp> & ControlComponent<Cmp>,
-  ): StepperBuilder<TForms, TKinds | K, TCtx> {
-    return new StepperBuilder<TForms, TKinds | K, TCtx>({
-      ...this.chain,
-      controlTypes: { ...this.chain.controlTypes, [kind]: component },
-    });
-  }
 
   overrideControlType<K extends TKinds, Cmp extends object>(
     kind: K,
@@ -269,9 +253,20 @@ export class StepperBuilder<
   >(
     select: BranchSelect<TCtx, K>,
     branches: B,
-  ): StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & BranchAdded<B>)]: (TCtx['steps'] & BranchAdded<B>)[K] }, TCtx['parent'], TCtx['flow']>> {
+  ): StepperBuilder<
+    TForms,
+    TKinds,
+    StepperContext<
+      TCtx['shared'],
+      { readonly [K in keyof (TCtx['steps'] & BranchAdded<B>)]: (TCtx['steps'] & BranchAdded<B>)[K] },
+      TCtx['parent'],
+      TCtx['flow']
+    >
+  > {
     const steps: SequenceNode[] = [];
+
     const decide = decidedOnce(select);
+
     for (const key in branches) {
       const gate: StepGate = {
         activeWhen: (ctx: TCtx) => {
@@ -280,17 +275,24 @@ export class StepperBuilder<
           return selected === key;
         },
       };
+
       branches[key](new BranchBuilder<TForms, TCtx, {}>((node) => steps.push(node), gate));
     }
 
     return new StepperBuilder<TForms, TKinds, StepperContext<TCtx['shared'], { readonly [K in keyof (TCtx['steps'] & BranchAdded<B>)]: (TCtx['steps'] & BranchAdded<B>)[K] }, TCtx['parent'], TCtx['flow']>>(this.appended(steps));
   }
 
-  fork<A extends ForkArms<TForms, TCtx>>(
+  fork<A extends ForkArms<TForms, TKinds, TCtx>>(
     select: (ctx: GateContext<TCtx>) => string,
     arms: A,
   ): TerminalForkBuilder<TForms, TCtx, ArmResult<A>> {
-    const built = Object.entries(arms).map(([key, arm]) => [key, arm(new ForkArmBuilder<TForms, TCtx>())] as const);
+    const built = Object
+      .entries(arms)
+      .map(([key, arm]) => [
+        key,
+        arm(new StepperBuilder<TForms, TKinds, TCtx>())
+      ] as const);
+
     const merged = built.reduce<ChainState>((chain, [key, arm]) => {
       const gate: StepGate = { activeWhen: (ctx: GateContext<TCtx>) => select(ctx) === key };
       const steps = arm.steps.map((node) => guardedBy(gate, node));
@@ -303,7 +305,9 @@ export class StepperBuilder<
         stepNames: steps.reduce(claimedStep, chain.stepNames),
       };
     }, this.chain);
+
     const resolvers: Readonly<Record<string, ForkArm>> = Object.fromEntries(built);
+
     const definition: FlowDefinition = {
       forms: merged.forms,
       steps: merged.steps,
@@ -346,6 +350,10 @@ export class StepperBuilder<
       controlTypes: this.chain.controlTypes,
       providers: this.chain.providers,
     });
+  }
+
+  result<R>(resolve: (ctx: TCtx) => R): ForkArm<R> {
+    return { ...this.__context, resolve };
   }
 
   private appended(nodes: readonly SequenceNode[]): ChainState {
