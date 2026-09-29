@@ -1,4 +1,4 @@
-import { Signal } from '@angular/core';
+import { Signal, WritableSignal } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { FormBindings, FormContext, FormEffect, FormState } from '../../form';
 import { Rejected } from '../../types';
@@ -105,8 +105,13 @@ export type PlacedFormBindings<F, TCtx extends RuntimeStepperContext> = FormBind
   StepFormContext<F, TCtx>
 >;
 
-/** Placement options for a pooled form: its field bindings, shared links, effects, the local `initial` seed and what a revisit does with it. */
+/**
+ * Placement options for a pooled form: its model signal, field bindings, shared links, effects, the local `initial` seed
+ * and what a revisit does with it.
+ */
 export interface FormCfg<F, TCtx extends RuntimeStepperContext, TForms = {}> {
+  /** Makes the model signal of each new instance (a `linkedSignal` over an input, say); runs in an injection context. */
+  readonly model?: (ctx: TCtx) => WritableSignal<FormModel<F>>;
   readonly componentBindings?: PlacedFormBindings<F, TCtx>;
   readonly visibleWhen?: (ctx: StepContext<TCtx, TForms>) => boolean;
   readonly fieldValueBindings?: (

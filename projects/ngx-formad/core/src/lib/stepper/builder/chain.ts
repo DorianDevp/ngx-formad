@@ -54,7 +54,7 @@ export function merged(chain: ChainState, arms: readonly Arm[], gateFor: (key: s
 
     return {
       forms: Object.entries(flow.forms).reduce(claimedForm, into.forms),
-      shared: new SharedState({ ...into.shared.snapshot(), ...flow.shared.snapshot() }),
+      shared: new SharedState({ ...into.shared.seeds(), ...flow.shared.seeds() }),
       steps: [...into.steps, ...steps],
       controlTypes: { ...into.controlTypes, ...flow.controlTypes },
       providers: [...into.providers, ...flow.providers],

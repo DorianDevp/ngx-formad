@@ -541,6 +541,11 @@ Nothing is named by string, and the pair is checked both ways: the key must exis
 `withState` and carry the field's value type. A nested field is reached by walking the
 references (`fieldValueBindings: (f, s) => [link(f.address.city, s.city)]`).
 
+A key's value may be a `WritableSignal` of your own: `withState({ slug: this.slug })`
+keeps that signal as the key's cell, typed by what it holds, so a commit lands in it and
+a write to it is what the next seed reads. The store never resets it (`reset()` and a
+ring's new pass leave it alone); it is yours.
+
 At runtime the shell shows **Basics** with its heading and a Next that refuses to
 advance until the step is valid — that is the completion gate. Type a slug and
 advance, and **SEO opens with its slug already filled in**, because both fields bind
@@ -759,6 +764,12 @@ new StepperBuilder()
   { revisit: StepRevisit.Fresh })` drops the step on entry and builds it again, pages
   and forms alike, so nothing typed there survives. Shared links are reapplied to
   pristine fields on every entry regardless.
+- **A model of your own** — `addForm('lead', { model: (ctx) => linkedSignal(() => ({
+  ...this.lead() })) })` makes the model signal of each instance, in an injection
+  context, so an input reaches the form without an effect. It is a factory, not a
+  signal: every instance the placement brings (a `StepRevisit.Fresh` entry, a ring's
+  pass) gets its own. `initial` and shared links still write into it; a new input value
+  replaces the whole model, seeds and edits included, as a `linkedSignal` does.
 - **A page node bound and gated on the context** — `addComponent`'s `bindings` takes a
   callback over the same typed context beside the plain array, so a component on an
   ordinary step binds to what earlier steps hold: `bindings: (ctx) =>
@@ -1578,7 +1589,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `isStepNode` / `isFlowStep` | Narrow a `SequenceNode` to a leaf step or a nested flow slot. |
 | `LiveStep` / `LiveForm` | `LiveStep = { registry, forms, components, instances, pages, context }`; `LiveForm = { name, state, visible, issues, seed(ctx), reseed(ctx), commit(), touch(), destroy() }`. |
 | `InstanceRegistry` | Collects a step's live forms; `completed()` folds `valid()` over the visible ones. |
-| `SharedState<S>` | The plain-signal cross-step store: `get(key)`, `select(key)`, `signals()`, `snapshot()`, `patch(partial)`, `reset()`. |
+| `SharedState<S>` | The plain-signal cross-step store: `get(key)`, `select(key)`, `signals()`, `snapshot()`, `seeds()`, `patch(partial)`, `reset()`. Seeded with `StateSeeds<S>`: per key a value, or a `WritableSignal` kept as the cell and never reset. |
 | `StepperProgress` | What `progress()` returns: `levels`, each a `LinearProgressLevel` (rail) or a `RecurrentProgressLevel` (pass bar, dock, folds). |
 
 ### Configure the look (call once)

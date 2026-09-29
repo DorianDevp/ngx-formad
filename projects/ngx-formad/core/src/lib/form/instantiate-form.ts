@@ -48,12 +48,12 @@ function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'field
   };
 }
 
-/** Builds the state over the erased template and the model signal; the typed `model` and `ui` ride along under `M` and `U`. */
+/** Builds the state over the erased template; the typed `model` and `ui` ride along under `M` and `U`. */
 function createState<M extends Record<string, unknown>, U extends ErasedUi>(
-  model: WritableSignal<M>,
-  config: { readonly ui: U } & RuntimeFormConfig,
-  options: InstantiateOptions,
+  config: { model(): M; readonly ui: U } & RuntimeFormConfig,
+  options: InstantiateOptions & { readonly model?: WritableSignal<M> },
 ): FormState<M, U> {
+  const model = options.model ?? signal(config.model());
   const erased: WritableSignal<Record<string, unknown>> = model;
   const schema = config.schema;
   const rootForm: FieldLevel = schema ? form(erased, schema) : form(erased);
@@ -111,14 +111,14 @@ export function instantiateForm<M extends Record<string, unknown>, U extends Sig
 ): FormState<M, U>;
 export function instantiateForm(...args: OwnModelArgs | FormArgs): FormState {
   // `isSignal` narrows `args[0]`, not the tuple around it.
-  const [model, config, bindings, effects = []]: OwnModelArgs = isSignal(args[0])
+  const [model, config, bindings, effects = []]: [WritableSignal<Erased> | undefined, ...FormArgs] = isSignal(args[0])
     ? (args as OwnModelArgs)
-    : [signal(args[0].model()), ...(args as FormArgs)];
+    : [undefined, ...(args as FormArgs)];
 
-  return createState(model, config, { bindings: bindings ?? {}, effects: effects.map((run) => ({ run })) });
+  return createState(config, { model, bindings: bindings ?? {}, effects: effects.map((run) => ({ run })) });
 }
 
-/** Builds a live form from a runtime template; runs in an injection context. */
+/** Builds a live form from a runtime template, over `options.model` when one is given; runs in an injection context. */
 export function instantiateRuntimeForm(config: RuntimeFormConfig, options: InstantiateOptions = {}): FormState {
-  return createState<Erased, ErasedUi>(signal(config.model()), config, options);
+  return createState<Erased, ErasedUi>(config, options);
 }

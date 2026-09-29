@@ -1,6 +1,6 @@
 import { Provider, Type } from '@angular/core';
 import { PlacesCustomFields } from '../../form';
-import { SharedState } from '../../shared';
+import { SharedState, StateOf } from '../../shared';
 import {
   AnyBranch,
   BranchAdded,
@@ -131,10 +131,10 @@ export abstract class FlowBuilder<
     return this.rebound({ ...this.chain, providers: [...this.chain.providers, ...providers] });
   }
 
-  withState<S extends Record<string, unknown>>(initial: S): Rebound<this, TForms, TKinds, WithShared<TCtx, S>> {
+  withState<S extends Record<string, unknown>>(seeds: S): Rebound<this, TForms, TKinds, WithShared<TCtx, StateOf<S>>> {
     return this.rebound({
       ...this.chain,
-      shared: new SharedState({ ...this.chain.shared.snapshot(), ...initial }),
+      shared: new SharedState({ ...this.chain.shared.seeds(), ...seeds }),
     });
   }
 

@@ -1,4 +1,5 @@
-import { InjectionToken, signal, Signal, WritableSignal } from '@angular/core';
+import { InjectionToken, isSignal, signal, Signal, WritableSignal } from '@angular/core';
+import { StateSeeds } from './types/shared-state';
 
 const STRUCTURED_CLONE = typeof structuredClone === 'function';
 
@@ -46,20 +47,43 @@ function clone<V>(value: V, seen: WeakMap<object, unknown> = new WeakMap()): V {
   return copy as V;
 }
 
-/** The cross-step shared store: one writable signal per key, read through `select`, `get` and `signals`. */
+/**
+ * The cross-step shared store: one writable signal per key, read through `select`, `get` and `signals`. A key seeded
+ * with a signal of yours keeps that signal as its cell; the store never resets it, the author owns it.
+ */
 export class SharedState<T extends Record<string, unknown> = Record<string, unknown>> {
   private readonly cells = new Map<string, WritableSignal<T[string]>>();
 
-  private readonly initial: T;
+  private readonly owned = new Set<string>();
 
-  constructor(initial: T) {
-    this.initial = clone(initial);
-    for (const key in initial) this.cells.set(key, signal(clone(initial[key])));
+  private readonly initial: Record<string, T[string]> = {};
+
+  constructor(seeds: StateSeeds<T>) {
+    for (const key in seeds) {
+      const seed: T[string] | WritableSignal<T[string]> = seeds[key];
+      if (isSignal(seed)) {
+        this.owned.add(key);
+        // `isSignal` knows a signal, not a writable one; `StateSeeds` let only a writable one in.
+        this.cells.set(key, seed as WritableSignal<T[string]>);
+      } else {
+        this.initial[key] = clone(seed);
+        this.cells.set(key, signal(clone(seed)));
+      }
+    }
   }
 
+  /** Resets the keys the store made a signal for; a signal of yours stays as it is. */
   reset(): void {
     const fresh = clone(this.initial);
     for (const key in fresh) this.cell(key).set(fresh[key]);
+  }
+
+  /** What a store rebuilt from this one is seeded with: a signal of yours as itself, any other key by its current value. */
+  seeds(): StateSeeds<T> {
+    const seeds: Record<string, unknown> = {};
+    for (const [key, cell] of this.cells) seeds[key] = this.owned.has(key) ? cell : cell();
+
+    return seeds as StateSeeds<T>;
   }
 
   select(key: string): Signal<T[string]> {

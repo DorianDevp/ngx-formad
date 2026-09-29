@@ -83,6 +83,7 @@ export class PageBuilder<TForms, TCtx extends RuntimeStepperContext, P = {}> {
         kind: LayoutNodeKind.Form,
         name,
         ...(inline ? { template: second } : {}),
+        model: cfg.model,
         visibleWhen: cfg.visibleWhen,
         links: cfg.fieldValueBindings?.(fieldRefs<FormModel<AnyFormProvider>>(), sharedSlots<TCtx['shared']>()) ?? [],
         bindings: cfg.componentBindings ?? {},

@@ -15,6 +15,15 @@ versions may carry breaking changes.
   without an effect: a new input value is a programmatic write, so the fields stay
   pristine. The signal must hold a value when the form is instantiated, since the field
   tree reads it then - not an `input.required`, which has none in the constructor.
+- **A model of your own in a stepper - `addForm(name, { model: (ctx) => signal })`.** A
+  factory, called for every instance the placement brings (a fresh step, a ring's pass),
+  in an injection context; `initial` and shared links write into what it returns.
+  `InstantiateOptions.model` carries it to `instantiateRuntimeForm`.
+- **A shared key held in a signal of your own - `withState({ key: signal })`.** A
+  `WritableSignal` among the seeds becomes that key's cell as it is, typed by its value
+  (`StateOf<S>`); `reset()` and a ring's new pass leave it alone. `SharedState` takes
+  `StateSeeds<T>`, and `seeds()` is what a rebuilt store is made from, so a later
+  `withState`, a branch merge and `build()` keep the signal instead of copying its value.
 
 ## 0.11.0
 

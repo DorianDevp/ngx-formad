@@ -1,6 +1,6 @@
 {
   "name": "ngx-formad",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Config-driven rendering and multi-step orchestration for Angular signal forms. You describe a form or wizard as data; one renderer walks it.",
   "keywords": [
     "angular",

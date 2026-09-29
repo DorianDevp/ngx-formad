@@ -27,7 +27,7 @@ export class Stepper<
   constructor(definition: FlowDefinition<TResult>) {
     this.forms = definition.forms;
     this.steps = definition.steps;
-    this.shared = new SharedState(definition.shared.snapshot());
+    this.shared = new SharedState(definition.shared.seeds());
     this.controlTypes = definition.controlTypes;
     this.providers = definition.providers;
     this.resolveResult = definition.resolveResult;

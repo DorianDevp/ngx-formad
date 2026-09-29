@@ -110,6 +110,7 @@ function liveForm(
 
   const state = runInInjectionContext(options.environment, () =>
     instantiateRuntimeForm(template, {
+      model: node.model?.(options.entry),
       injector: options.injector,
       shared: options.shared,
       bindings: node.bindings,
