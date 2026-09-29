@@ -210,6 +210,23 @@ putting two fields side by side is the layout overlay's job, below:
 └─────────────────────────────────────────────────────┘
 ```
 
+The model is a fresh `signal(config.model())` per instance. To own it, say to follow an
+input, hand your own `WritableSignal` in front of the config; the state holds that very
+signal, so a write to it is a programmatic write (the fields stay pristine) and a user
+edit lands in it:
+
+```ts
+export class ArticleEditor {
+  readonly article = input<Article>({ title: '', slug: '', body: '' });
+  readonly model = linkedSignal(() => ({ ...this.article() }));
+  readonly state = instantiateForm(this.model, articleForm);
+}
+```
+
+The field tree reads the model while the form is instantiated, in the constructor, so
+the signal must have a value by then: an `input.required` read there throws NG0950;
+give the input a default instead.
+
 `state.rootForm` is the live native `FieldTree`, so `rootForm.title().value()` and
 the field's validation are entirely native — a fact the page and the stepper lean on.
 `state.view` is the form's view: the container's layout classes and one row per node —
@@ -1513,7 +1530,7 @@ Everything is exported from the package root (`ngx-formad`).
 | --- | --- |
 | `FormConfig<M, U, P>` | A form as data: `{ model(): M; ui: U; schema?(p: SchemaPathTree<M>): void; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `SignalUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
 | `defineForm(config)` | Identity that keeps `U` and `P`, so `state.ui.<field>.<prop>` hands a signal back writable and the bindings are typed. |
-| `instantiateForm(config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. Needs an injection context. |
+| `instantiateForm([model,] config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. A `WritableSignal<M>` in front of the config becomes `state.model` (a `linkedSignal` over an input, say); without one the model is `signal(config.model())`. Needs an injection context. |
 | `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, shared?, bindings?, effects?, context? }`. |
 | `FormBindings<M, U, P, Ctx>` | What `instantiateForm`'s second argument and `addForm`'s `componentBindings` take: field name → `{ inputs?, outputs?, bindings? }` — static inputs typed by the component, output handlers (`(payload, ctx) => void`), and Angular `Binding[]` for reactive ones, typed by the placed component or by `ControlComponents[kind]`. |
 | `ControlComponents` | The typed side of the control registry, kind → component class; augment it in the application. |

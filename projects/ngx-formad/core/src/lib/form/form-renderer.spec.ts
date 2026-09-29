@@ -1,4 +1,4 @@
-import { Component, input, inputBinding, model, output, outputBinding, signal } from '@angular/core';
+import { Component, input, inputBinding, linkedSignal, model, output, outputBinding, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { FormValueControl, hidden } from '@angular/forms/signals';
 import { array, customField, UiFormConfigBuilder, email, number, text, select } from 'formodel';
@@ -512,6 +512,52 @@ describe('FormRenderer - a swapped form', () => {
     expect(fixture.nativeElement.textContent).toContain('Second form');
     expect(fixture.nativeElement.textContent).not.toContain('First form');
     expect(fixture.nativeElement.querySelectorAll('input')).toHaveLength(1);
+  });
+});
+
+// ── A model signal of your own: the form follows an input through a linkedSignal ──
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class OwnModelHost {
+  // Not `input.required`: the field tree reads the model while the form is instantiated, in the constructor, before any input is set.
+  readonly account = input<Account>({ email: '', name: '', type: '' });
+  readonly model = linkedSignal(() => ({ ...this.account() }));
+  readonly state = instantiateForm(this.model, accountConfig);
+}
+
+describe('FormRenderer - a model signal of your own', () => {
+  let fixture: ComponentFixture<OwnModelHost>;
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(OwnModelHost);
+    fixture.componentRef.setInput('account', { email: 'first@example.com', name: '', type: '' });
+    await pump(fixture);
+  });
+
+  function emailInput(): HTMLInputElement {
+    return fixture.nativeElement.querySelector('input');
+  }
+
+  it('holds the signal it was given, not a copy', () => {
+    expect(fixture.componentInstance.state.model).toBe(fixture.componentInstance.model);
+    expect(emailInput().value).toBe('first@example.com');
+  });
+
+  it('shows the new value when the input changes', async () => {
+    fixture.componentRef.setInput('account', { email: 'second@example.com', name: '', type: '' });
+    await pump(fixture);
+
+    expect(emailInput().value).toBe('second@example.com');
+  });
+
+  it('writes a user edit into the given signal', async () => {
+    emailInput().value = 'typed@example.com';
+    emailInput().dispatchEvent(new Event('input'));
+    await fixture.whenStable();
+
+    expect(fixture.componentInstance.model().email).toBe('typed@example.com');
   });
 });
 

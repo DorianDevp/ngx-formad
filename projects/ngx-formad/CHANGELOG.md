@@ -4,6 +4,18 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.12.0
+
+### Added
+
+- **A model signal of your own - `instantiateForm(model, config, bindings?, effects?)`.**
+  When the first argument is a `WritableSignal<M>`, the form is built over it and
+  `state.model` is that signal; a plain config keeps the old path, a fresh
+  `signal(config.model())`. A `linkedSignal` over an input puts the input into the form
+  without an effect: a new input value is a programmatic write, so the fields stay
+  pristine. The signal must hold a value when the form is instantiated, since the field
+  tree reads it then - not an `input.required`, which has none in the constructor.
+
 ## 0.11.0
 
 ### Added

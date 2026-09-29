@@ -1,4 +1,4 @@
-import { effect, EnvironmentInjector, inject, Injector, isDevMode, signal, untracked, WritableSignal } from '@angular/core';
+import { effect, EnvironmentInjector, inject, Injector, isDevMode, isSignal, signal, untracked, WritableSignal } from '@angular/core';
 import { form } from '@angular/forms/signals';
 import { CONTROL_ADAPTER } from '../controls';
 import { LAYOUT_ADAPTER } from '../layout';
@@ -6,7 +6,7 @@ import { SHARED_STATE } from '../shared';
 import { buildLevel } from './form-view';
 import { buildLayoutNodes, buildNodes, flattenFields } from './render-tree';
 import { FieldLevel } from './types/field-tree';
-import { FormBindings, FormEffect } from './types/form-bindings';
+import { BindingRecord, FormBindings, FormEffect } from './types/form-bindings';
 import { FormConfig, PlacesCustomFields, RuntimeFormConfig } from './types/form-config';
 import { FormContext } from './types/form-context';
 import { FormLayout, FormLayoutItem, FormLayoutItemKind } from './types/form-layout';
@@ -48,12 +48,12 @@ function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'field
   };
 }
 
-/** Builds the state over the erased template; the typed `model` and `ui` ride along under `M` and `U`. */
+/** Builds the state over the erased template and the model signal; the typed `model` and `ui` ride along under `M` and `U`. */
 function createState<M extends Record<string, unknown>, U extends ErasedUi>(
-  config: { model(): M; readonly ui: U } & RuntimeFormConfig,
+  model: WritableSignal<M>,
+  config: { readonly ui: U } & RuntimeFormConfig,
   options: InstantiateOptions,
 ): FormState<M, U> {
-  const model = signal(config.model());
   const erased: WritableSignal<Record<string, unknown>> = model;
   const schema = config.schema;
   const rootForm: FieldLevel = schema ? form(erased, schema) : form(erased);
@@ -90,16 +90,35 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
   };
 }
 
-/** Builds a live form from a typed config, with its bindings and effects; runs in an injection context. */
+type Erased = Record<string, unknown>;
+
+type FormArgs = [config: RuntimeFormConfig, bindings?: BindingRecord | null, effects?: readonly FormEffect<FormContext>[]];
+
+type OwnModelArgs = [model: WritableSignal<Erased>, ...FormArgs];
+
+/** Builds a live form over a model signal of your own (a `linkedSignal` over an input, say), with its bindings and effects; runs in an injection context. */
+export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
+  model: WritableSignal<M>,
+  config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
+  bindings?: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null,
+  effects?: readonly FormEffect<FormContext<M>>[],
+): FormState<M, U>;
+/** Builds a live form from a typed config, its model a fresh signal over `config.model()`, with its bindings and effects; runs in an injection context. */
 export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
   config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
-  bindings: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null = null,
-  effects: readonly FormEffect<FormContext<M>>[] = [],
-): FormState<M, U> {
-  return createState<M, U>(config, { bindings: bindings ?? {}, effects: effects.map((run) => ({ run })) });
+  bindings?: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null,
+  effects?: readonly FormEffect<FormContext<M>>[],
+): FormState<M, U>;
+export function instantiateForm(...args: OwnModelArgs | FormArgs): FormState {
+  // `isSignal` narrows `args[0]`, not the tuple around it.
+  const [model, config, bindings, effects = []]: OwnModelArgs = isSignal(args[0])
+    ? (args as OwnModelArgs)
+    : [signal(args[0].model()), ...(args as FormArgs)];
+
+  return createState(model, config, { bindings: bindings ?? {}, effects: effects.map((run) => ({ run })) });
 }
 
 /** Builds a live form from a runtime template; runs in an injection context. */
 export function instantiateRuntimeForm(config: RuntimeFormConfig, options: InstantiateOptions = {}): FormState {
-  return createState<Record<string, unknown>, ErasedUi>(config, options);
+  return createState<Erased, ErasedUi>(signal(config.model()), config, options);
 }
