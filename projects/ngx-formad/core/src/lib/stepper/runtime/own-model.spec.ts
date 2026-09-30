@@ -51,7 +51,7 @@ function driver(fixture: () => ComponentFixture<unknown>) {
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class ModelFactoryHost {
-  readonly lead = input<Lead>({ company: '' });
+  readonly lead = input.required<Lead>();
   readonly stepper = new StepperBuilder()
     .createForm('other', leadForm)
     .createStep(
@@ -103,7 +103,7 @@ describe('A placed form whose model factory returns a signal of its own', () => 
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class FormModelHost {
-  readonly lead = input<Lead>({ company: '' });
+  readonly lead = input.required<Lead>();
   readonly model = linkedSignal(() => ({ ...this.lead() }));
   readonly stepper = new StepperBuilder()
     .createForm('lead', { ...leadForm, model: this.model })

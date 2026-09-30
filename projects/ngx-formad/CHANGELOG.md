@@ -4,6 +4,20 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.13.1
+
+### Fixed
+
+- **A form over a signal model no longer reads it while its component is constructed.**
+  `instantiateForm` in a field initializer over an `input.required` threw NG0950: the
+  field tree reads the model's value to know its fields, and the input had none yet. A
+  config whose `model` is a signal, or a factory returning one, now makes the whole
+  instantiation lazy: the model and the injector are taken at once, and the field tree,
+  the view, the mounts and the effects are built together on the first read of
+  `rootForm`, `view`, `nodes`, `fields` or `grid` (`LazyFormState`), outside the reader's
+  reactive context. `form()` gets the injector explicitly for it. A factory returning a
+  plain value stays eager.
+
 ## 0.13.0
 
 ### Changed

@@ -521,8 +521,8 @@ describe('FormRenderer - a swapped form', () => {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class OwnModelHost {
-  // Not `input.required`: the field tree reads the model while the form is instantiated, in the constructor, before any input is set.
-  readonly account = input<Account>({ email: '', name: '', type: '' });
+  // A required input has no value in the constructor; a signal model makes the form lazy, so nothing reads it there.
+  readonly account = input.required<Account>();
   readonly model = linkedSignal(() => ({ ...this.account() }));
   readonly state = instantiateForm({ ...accountConfig, model: this.model });
 }
@@ -532,11 +532,18 @@ class OwnModelHost {
   template: `<ngx-formad-form [state]="state" />`,
 })
 class ModelFactoryHost {
-  readonly account = input<Account>({ email: '', name: '', type: '' });
+  readonly account = input.required<Account>();
   readonly state = instantiateForm({ ...accountConfig, model: () => linkedSignal(() => ({ ...this.account() })) });
 }
 
 describe('FormRenderer - a model factory returning a signal of your own', () => {
+  it('reads nothing while the host is constructed: the state is built on its first read', () => {
+    const fixture = TestBed.createComponent(ModelFactoryHost);
+
+    expect(() => fixture.componentInstance.state.model).not.toThrow();
+    expect(() => fixture.componentInstance.state.view).toThrow(/NG0950/);
+  });
+
   it('builds the form over the returned signal, so it follows the input', async () => {
     const fixture = TestBed.createComponent(ModelFactoryHost);
     fixture.componentRef.setInput('account', { email: 'first@example.com', name: '', type: '' });

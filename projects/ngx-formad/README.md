@@ -217,7 +217,7 @@ pristine) and a user edit lands in it:
 
 ```ts
 export class ArticleEditor {
-  readonly article = input<Article>({ title: '', slug: '', body: '' });
+  readonly article = input.required<Article>();
   readonly state = instantiateForm({
     ...articleForm,
     model: () => linkedSignal(() => ({ ...this.article() })),
@@ -228,9 +228,16 @@ export class ArticleEditor {
 `model` may also be the signal itself rather than a factory; then every instance of that
 config shares it - in a stepper's pool too, where a `StepRevisit.Fresh` step comes back
 with what was typed.
-The field tree reads the model while the form is instantiated, in the constructor, so
-the signal must have a value by then: an `input.required` read there throws NG0950;
-give the input a default instead.
+
+A signal model makes the whole instantiation **lazy**. The field tree reads the model's
+value to know its fields, and a required input has none while the component is being
+constructed, so `instantiateForm` takes only the model and the injector there. The field
+tree, the view, the formFields' mounts and the effects are built together, once, on the
+first read of `rootForm`, `view`, `nodes`, `fields` or `grid` - as a rule the renderer's
+template, after the inputs are set. `state.model` and `state.ui` are there from the start.
+Read nothing else in the constructor; a config error (a field the model lacks) shows at
+that first read, and the effects start there. A factory returning a plain value keeps the
+form eager, as before.
 
 `state.rootForm` is the live native `FieldTree`, so `rootForm.title().value()` and
 the field's validation are entirely native — a fact the page and the stepper lean on.

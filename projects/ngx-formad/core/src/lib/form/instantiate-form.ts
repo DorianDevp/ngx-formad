@@ -4,6 +4,7 @@ import { CONTROL_ADAPTER } from '../controls';
 import { LAYOUT_ADAPTER } from '../layout';
 import { SHARED_STATE } from '../shared';
 import { buildLevel } from './form-view';
+import { LazyFormState } from './lazy-form-state';
 import { buildLayoutNodes, buildNodes, flattenFields } from './render-tree';
 import { FieldLevel } from './types/field-tree';
 import { FormBindings, FormEffect } from './types/form-bindings';
@@ -48,21 +49,35 @@ function renderTree(config: RuntimeFormConfig): Pick<FormState, 'nodes' | 'field
   };
 }
 
-/** Builds the state over the erased template; the typed `model` and `ui` ride along under `M` and `U`. */
+/**
+ * Takes the model and the injector at once and builds the rest now, or - over a signal of the author's own, which may
+ * read an input not set yet - on the state's first read. The typed `model` and `ui` ride along under `M` and `U`.
+ */
 function createState<M extends Record<string, unknown>, U extends ErasedUi>(
   config: { readonly model: FormModelSource<M>; readonly ui: U } & RuntimeFormConfig,
   options: InstantiateOptions,
 ): FormState<M, U> {
   const source: FormModelSource<M> = config.model;
   const made = isSignal(source) ? source : source();
-  const model = isSignal(made) ? made : signal(made);
+  const scoped = { ...options, injector: options.injector ?? inject(Injector) };
+  if (!isSignal(made)) return buildState(signal(made), config, scoped);
+
+  return new LazyFormState(made, config.ui, () => buildState(made, config, scoped));
+}
+
+/** Builds the state over the erased template and the model; no injection context needed, the injector is in hand. */
+function buildState<M extends Record<string, unknown>, U extends ErasedUi>(
+  model: WritableSignal<M>,
+  config: { readonly ui: U } & RuntimeFormConfig,
+  options: InstantiateOptions & { readonly injector: Injector },
+): FormState<M, U> {
   const erased: WritableSignal<Record<string, unknown>> = model;
   const schema = config.schema;
-  const rootForm: FieldLevel = schema ? form(erased, schema) : form(erased);
+  const injector = options.injector;
+  const rootForm: FieldLevel = schema ? form(erased, schema, { injector }) : form(erased, { injector });
   warnUnplaced(config);
   const tree = renderTree(config);
 
-  const injector = options.injector ?? inject(Injector);
   const shared = options.shared ?? injector.get(SHARED_STATE, null) ?? null;
   const formContext: FormContext = { model: erased, ui: config.ui, fields: tree.fields };
   const handlerContext = (): FormContext => ({ ...(options.context?.() ?? {}), ...formContext });
@@ -92,7 +107,28 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
   };
 }
 
-/** Builds a live form from a typed config, with its bindings and effects; runs in an injection context. */
+/**
+ * Builds a live form over a model signal of your own - `model` a signal, or a factory returning one, a `linkedSignal`
+ * over an input, say - with its bindings and effects; called in an injection context.
+ *
+ * **Lazy.** Only `model` and `ui` are there at once; the field tree, the view, the formFields' mounts and the effects are
+ * built on the first read of anything else, `view` in the renderer's template as a rule. So a component may
+ * instantiate it in a field initializer over an `input.required`, which has no value until the inputs are set - as
+ * long as nothing reads `rootForm`, `view`, `nodes`, `fields` or `grid` before then. A config error (a field the model
+ * lacks) surfaces at that first read, and the effects start there.
+ */
+export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
+  config: FormConfig<M, U, P> &
+    RuntimeFormConfig & { readonly model: WritableSignal<M> | (() => WritableSignal<M>) } & PlacesCustomFields<U, P>,
+  bindings?: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null,
+  effects?: readonly FormEffect<FormContext<M>>[],
+): FormState<M, U>;
+/** Builds a live form from a typed config, with its bindings and effects, all at once; runs in an injection context. */
+export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
+  config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
+  bindings?: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null,
+  effects?: readonly FormEffect<FormContext<M>>[],
+): FormState<M, U>;
 export function instantiateForm<M extends Record<string, unknown>, U extends SignalUiConfig<M> & ErasedUi, P extends {} = {}>(
   config: FormConfig<M, U, P> & RuntimeFormConfig & PlacesCustomFields<U, P>,
   bindings: NoInfer<FormBindings<M, U, P, FormContext<M>>> | null = null,
