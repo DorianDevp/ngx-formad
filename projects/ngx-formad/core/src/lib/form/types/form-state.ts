@@ -1,6 +1,5 @@
-import { Injector, WritableSignal } from '@angular/core';
+import { EnvironmentInjector, Injector, WritableSignal } from '@angular/core';
 import { GridLayout } from '../../layout';
-import { SharedState } from '../../shared';
 import { FieldLevel } from './field-tree';
 import { BindingRecord, FormEffectHook } from './form-bindings';
 import { FieldConfig } from './form-context';
@@ -31,12 +30,11 @@ export interface FormState<
   destroy(): void;
 }
 
-/** What a form is instantiated with beyond its config: the injector its formFields see, the shared store, its bindings and effects, and the context they read. */
+/** What a form is instantiated with beyond its config: the injectors its formFields see, its bindings and effects, and the context they read. */
 export interface InstantiateOptions {
   readonly injector?: Injector;
-
-  readonly shared?: SharedState | null;
-
+  /** The environment the formFields are created in; absent, the one `injector` resolves. A stepper hands its flow's. */
+  readonly environment?: EnvironmentInjector;
   readonly bindings?: BindingRecord;
 
   readonly effects?: readonly FormEffectHook[];

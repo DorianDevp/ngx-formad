@@ -8,15 +8,21 @@ versions may carry breaking changes.
 
 ### Fixed
 
-- **A form over a signal model no longer reads it while its component is constructed.**
-  `instantiateForm` in a field initializer over an `input.required` threw NG0950: the
-  field tree reads the model's value to know its fields, and the input had none yet. A
-  config whose `model` is a signal, or a factory returning one, now makes the whole
-  instantiation lazy: the model and the injector are taken at once, and the field tree,
-  the view, the mounts and the effects are built together on the first read of
-  `rootForm`, `view`, `nodes`, `fields` or `grid` (`LazyFormState`), outside the reader's
-  reactive context. `form()` gets the injector explicitly for it. A factory returning a
-  plain value stays eager.
+- **A form over a `linkedSignal` model no longer reads it while its component is
+  constructed.** `instantiateForm` in a field initializer over an `input.required` threw
+  NG0950: building the view looked every field up in the field tree, and the lookup reads
+  the model's value. The lookup is now a `computed` run when the row is first drawn, so
+  nothing in `instantiateForm` reads the value; the rest - field tree, view, mounts,
+  effects - is built at once, as before, whatever the model. A config error (a field the
+  model lacks) now shows at that first draw.
+- **What a step form's layout places is created in the flow's environment.** formFields and
+  `formLayout().component()`s inside a step form resolved the stepper's parent
+  environment, so they could not inject what `.provide(...)` declared, while a page
+  component could. `InstantiateOptions.environment` carries the flow's.
+
+### Removed
+
+- `InstantiateOptions.shared`: nothing read it.
 
 ## 0.13.0
 

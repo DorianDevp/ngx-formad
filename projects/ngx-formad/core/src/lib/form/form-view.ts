@@ -98,7 +98,7 @@ function checkNames(component: Type<object>, key: string, inputs: BindingRecord,
 }
 
 /** A field's formField as its mount point will create it: `FormField` bound to the field, `LayoutItem` placing it, the node's props and the declared inputs and outputs. */
-function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): ComponentMount {
+function fieldMount(node: ControlNode, field: () => FieldLeaf, scope: ViewScope): ComponentMount {
   const placement = itemOf(scope, node.layout);
   const inputs = bindingsAt(scope.bindings, [...node.path, 'inputs']);
   const outputs = bindingsAt(scope.bindings, [...node.path, 'outputs']);
@@ -115,7 +115,7 @@ function fieldMount(node: ControlNode, field: FieldLeaf, scope: ViewScope): Comp
   return {
     component,
     directives: [
-      { type: FormField, bindings: [inputBinding('formField', () => field)] },
+      { type: FormField, bindings: [inputBinding('formField', field)] },
       { type: LayoutItem, bindings: [inputBinding('ngxFormadItem', () => placement)] },
     ],
     bindings: [...props, ...declaredInputs(inputs), ...declaredOutputs(outputs, scope.handlerContext), ...own],
@@ -180,17 +180,16 @@ function blankItem(nodes: readonly RenderNode[]): BlankItem {
 }
 
 /** A repeating group's row: one item per element of the value, kept across writes while its field tree stays. */
-function arrayRow(node: ArrayNode, field: FieldItems, scope: ViewScope): ArrayRow {
-  const state = field();
+function arrayRow(node: ArrayNode, field: () => FieldItems, scope: ViewScope): ArrayRow {
   const itemAt = (tree: FieldLeaf | undefined, index: number): ArrayItem => {
     if (tree === undefined || !isLevel(tree)) {
       throw new Error(`ngx-formad: item ${index} of "${node.key}" needs an object value.`);
     }
 
-    return { tree, level: buildLevel(node.item, tree, {}, scope) };
+    return { tree, level: buildLevel(node.item, () => tree, {}, scope) };
   };
   const items = linkedSignal<readonly (FieldLeaf | undefined)[], readonly ArrayItem[]>({
-    source: () => Array.from(field),
+    source: () => Array.from(field()),
     computation: (trees, previous) =>
       trees.map((tree, index) => previous?.value.find((item) => item.tree === tree) ?? itemAt(tree, index)),
   });
@@ -200,12 +199,12 @@ function arrayRow(node: ArrayNode, field: FieldItems, scope: ViewScope): ArrayRo
     node,
     items,
     item: blockItem('ngx-formad-array', itemOf(scope, node.layout)),
-    add: () => state.value.update((current) => [...current, blankItem(node.item)]),
-    remove: (index) => state.value.update((current) => current.filter((_, at) => at !== index)),
+    add: () => field()().value.update((current) => [...current, blankItem(node.item)]),
+    remove: (index) => field()().value.update((current) => current.filter((_, at) => at !== index)),
   };
 }
 
-function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | null {
+function entryOf(node: RenderNode, tree: () => FieldLevel, scope: ViewScope): Entry | null {
   if (node.kind === RenderNodeKind.Content) {
     if (node.children.length === 0) return null;
 
@@ -227,16 +226,18 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
     };
   }
 
-  if (!Object.hasOwn(tree, node.key)) {
-    throw new Error(`ngx-formad: the form model has no field "${node.key}" in tree`);
-  }
+  // The field tree knows its children by the model's value, so the lookup waits for the first draw, when a model
+  // computed over an input has the input to read. A computed runs it once and keeps a config error for every read.
+  const field = computed(() => {
+    const level = tree();
+    if (!Object.hasOwn(level, node.key)) throw new Error(`ngx-formad: the form model has no field "${node.key}" in tree`);
 
-  const field = tree[node.key];
-  if (field === undefined) throw new Error(`
-    ngx-formad: the form model field "${node.key}" is empty in tree.
-  `);
+    const child = level[node.key];
+    if (child === undefined) throw new Error(`ngx-formad: the form model field "${node.key}" is empty in tree.`);
 
-  const shown = (): boolean => !field().hidden();
+    return child;
+  });
+  const shown = (): boolean => !field()().hidden();
 
   switch (node.kind) {
     case RenderNodeKind.Control:
@@ -245,28 +246,39 @@ function entryOf(node: RenderNode, tree: FieldLevel, scope: ViewScope): Entry | 
         visible: computed(shown),
       };
     case RenderNodeKind.Group: {
-      if (!isLevel(field)) throw new Error(`ngx-formad: group "${node.key}" needs an object value.`);
+      const group = computed(() => {
+        const child = field();
+        if (!isLevel(child)) throw new Error(`ngx-formad: group "${node.key}" needs an object value.`);
 
-      const level = buildLevel(node.children, field, { cols: node.maxCols }, scope);
+        return child;
+      });
+      const level = buildLevel(node.children, group, { cols: node.maxCols }, scope);
 
       return {
         row: { kind: node.kind, node, level, item: blockItem('ngx-formad-group', itemOf(scope, node.layout)) },
         visible: computed(() => shown() && level.rows().length > 0),
       };
     }
-    case RenderNodeKind.Array:
-      if (!isItems(field)) throw new Error(`ngx-formad: array "${node.key}" needs an array value.`);
+    case RenderNodeKind.Array: {
+      const items = computed(() => {
+        const child = field();
+        if (!isItems(child)) throw new Error(`ngx-formad: array "${node.key}" needs an array value.`);
 
-      return { row: arrayRow(node, field, scope), visible: computed(shown) };
+        return child;
+      });
+
+      return { row: arrayRow(node, items, scope), visible: computed(shown) };
+    }
   }
 }
 
 /**
  * Builds one level of a form's view over its nodes and field tree, and hands back the grid and a computed of the rows
  * currently worth drawing: hidden fields, gated content and levels with nothing to show drop out. A formField is
- * described here and created by its row's mount point, so a hidden field has none.
+ * described here and created by its row's mount point, so a hidden field has none. The tree is a getter: its fields
+ * are looked up when the rows are first read.
  */
-export function buildLevel(nodes: readonly RenderNode[], tree: FieldLevel, grid: GridLayout, scope: ViewScope): FormLevel {
+export function buildLevel(nodes: readonly RenderNode[], tree: () => FieldLevel, grid: GridLayout, scope: ViewScope): FormLevel {
   const entries = nodes.flatMap((node) => {
     const entry = entryOf(node, tree, scope);
 

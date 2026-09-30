@@ -1,7 +1,7 @@
 import { Component, inject, Injectable, InjectionToken, input, inputBinding } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
-import { FormConfig } from '../../form';
+import { FormConfig, formLayout } from '../../form';
 import { provideFormadSuite } from '../../provide';
 import { StepperBuilder } from '../builder/stepper-builder';
 import { StepPages } from '../types/builder';
@@ -47,6 +47,15 @@ class GreetingPanel {
   readonly greeting = inject(GREETING);
 }
 
+// Placed by the form's own layout, so it is created in the environment the form's formFields get.
+@Component({
+  selector: 'form-greeting',
+  template: `<span class="form-greeting">{{ greeting }}</span>`,
+})
+class FormGreeting {
+  readonly greeting = inject(GREETING);
+}
+
 @Component({
   selector: 'prov-dock',
   imports: [FormadDockRestart],
@@ -82,11 +91,18 @@ class ProvChrome {
 })
 class ProvHost {
   whenSaw = '';
+  schemaSaw = '';
 
   readonly stepper =     new StepperBuilder()
       .provide({ provide: GREETING, useValue: 'from the root flow' }, FlowScoped)
       .withState({})
-      .createForm('start', oneForm('Start'))
+      .createForm('start', {
+        ...oneForm('Start'),
+        layout: formLayout<One>().field('v').component({ component: FormGreeting }).build(),
+        schema: () => {
+          this.schemaSaw = inject(GREETING);
+        },
+      })
       .createStep(
         (s) =>
           s.createPage((p) =>
@@ -148,6 +164,14 @@ describe('Flow providers - the wizard as its own injection environment', () => {
 
   it('runs author callbacks in the flow context, so inject() works in them', () => {
     expect(fixture.componentInstance.whenSaw).toBe('from the root flow');
+  });
+
+  it("compiles a step form's schema in the flow context, so inject() works in it", () => {
+    expect(fixture.componentInstance.schemaSaw).toBe('from the root flow');
+  });
+
+  it("creates what a step form's layout places in the flow environment, as a page component is", () => {
+    expect(read('.form-greeting')).toBe('from the root flow');
   });
 
   it('scopes a nested flow: its providers shadow the parent for its own steps', async () => {

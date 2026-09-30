@@ -536,12 +536,27 @@ class ModelFactoryHost {
   readonly state = instantiateForm({ ...accountConfig, model: () => linkedSignal(() => ({ ...this.account() })) });
 }
 
-describe('FormRenderer - a model factory returning a signal of your own', () => {
-  it('reads nothing while the host is constructed: the state is built on its first read', () => {
-    const fixture = TestBed.createComponent(ModelFactoryHost);
+// No renderer: the form's effects must run without anything drawing it.
+@Component({ template: '' })
+class HeadlessHost {
+  readonly account = input.required<Account>();
+  readonly seen = signal('');
+  readonly state = instantiateForm({ ...accountConfig, model: () => linkedSignal(() => ({ ...this.account() })) }, null, [
+    ({ model }) => this.seen.set(model().email),
+  ]);
+}
 
-    expect(() => fixture.componentInstance.state.model).not.toThrow();
-    expect(() => fixture.componentInstance.state.view).toThrow(/NG0950/);
+describe('FormRenderer - a model factory returning a signal of your own', () => {
+  it('constructs its host over an input.required: nothing reads the model before the inputs are set', () => {
+    expect(() => TestBed.createComponent(ModelFactoryHost)).not.toThrow();
+  });
+
+  it('runs the form effects whether or not the form is drawn', async () => {
+    const fixture = TestBed.createComponent(HeadlessHost);
+    fixture.componentRef.setInput('account', { email: 'headless@example.com', name: '', type: '' });
+    await pump(fixture);
+
+    expect(fixture.componentInstance.seen()).toBe('headless@example.com');
   });
 
   it('builds the form over the returned signal, so it follows the input', async () => {
