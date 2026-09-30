@@ -4,6 +4,27 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.13.0
+
+### Changed
+
+- **A form's own model signal lives in its config - `{ model: () => linkedSignal(...), ui }`.**
+  `model` is a `FormModelSource<M>`: a factory called for each instance, returning the
+  start value (the form makes the signal, as before) or a `WritableSignal<M>` that is the
+  instance's model; or a `WritableSignal<M>` given as it is, the model of every instance.
+  `state.model` is that very signal, in `instantiateForm`, a pool and an `addForm` alike.
+  A `linkedSignal` over an input puts the input into the form without an effect: a new
+  input value is a programmatic write, so the fields stay pristine. From a factory, a
+  `StepRevisit.Fresh` step or a ring's pass gets a new one. The signal must hold a value
+  when the form is instantiated, since the field tree reads it then - not an
+  `input.required`, which has none in the constructor.
+
+### Removed
+
+- `instantiateForm(model, config, …)`: put the signal in `config.model` instead.
+- `FormCfg.model` on `addForm` and `InstantiateOptions.model`: the template's `model` factory
+  returns the signal.
+
 ## 0.12.0
 
 ### Added

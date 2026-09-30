@@ -210,19 +210,24 @@ putting two fields side by side is the layout overlay's job, below:
 └─────────────────────────────────────────────────────┘
 ```
 
-The model is a fresh `signal(config.model())` per instance. To own it, say to follow an
-input, hand your own `WritableSignal` in front of the config; the state holds that very
-signal, so a write to it is a programmatic write (the fields stay pristine) and a user
-edit lands in it:
+A `model` factory that returns a value gives every instance a fresh signal over it. To
+own the model, say to follow an input, return a `WritableSignal` of yours from it; the
+state holds that very signal, so a write to it is a programmatic write (the fields stay
+pristine) and a user edit lands in it:
 
 ```ts
 export class ArticleEditor {
   readonly article = input<Article>({ title: '', slug: '', body: '' });
-  readonly model = linkedSignal(() => ({ ...this.article() }));
-  readonly state = instantiateForm(this.model, articleForm);
+  readonly state = instantiateForm({
+    ...articleForm,
+    model: () => linkedSignal(() => ({ ...this.article() })),
+  });
 }
 ```
 
+`model` may also be the signal itself rather than a factory; then every instance of that
+config shares it - in a stepper's pool too, where a `StepRevisit.Fresh` step comes back
+with what was typed.
 The field tree reads the model while the form is instantiated, in the constructor, so
 the signal must have a value by then: an `input.required` read there throws NG0950;
 give the input a default instead.
@@ -764,12 +769,13 @@ new StepperBuilder()
   { revisit: StepRevisit.Fresh })` drops the step on entry and builds it again, pages
   and forms alike, so nothing typed there survives. Shared links are reapplied to
   pristine fields on every entry regardless.
-- **A model of your own** — `addForm('lead', { model: (ctx) => linkedSignal(() => ({
-  ...this.lead() })) })` makes the model signal of each instance, in an injection
-  context, so an input reaches the form without an effect. It is a factory, not a
-  signal: every instance the placement brings (a `StepRevisit.Fresh` entry, a ring's
-  pass) gets its own. `initial` and shared links still write into it; a new input value
-  replaces the whole model, seeds and edits included, as a `linkedSignal` does.
+- **A model of your own** — `addForm('lead', { ...leadForm, model: () => linkedSignal(() =>
+  ({ ...this.lead() })) })` lets an input reach the form without an effect. The factory
+  runs for every instance, so a `StepRevisit.Fresh` step or a ring's pass gets a new
+  `linkedSignal`, back at the input's value. A `model` that is a signal itself (not a
+  factory) is the model of every instance instead, and they come back with what it holds.
+  `initial` and shared links still write into it; a new input value replaces the whole
+  model, seeds and edits included, as a `linkedSignal` does.
 - **A page node bound and gated on the context** — `addComponent`'s `bindings` takes a
   callback over the same typed context beside the plain array, so a component on an
   ordinary step binds to what earlier steps hold: `bindings: (ctx) =>
@@ -1539,9 +1545,9 @@ Everything is exported from the package root (`ngx-formad`).
 
 | Symbol | What it is |
 | --- | --- |
-| `FormConfig<M, U, P>` | A form as data: `{ model(): M; ui: U; schema?(p: SchemaPathTree<M>): void; layout?: FormLayout<M, P> }`. `U` is the authored formodel ui, widened by `SignalUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
+| `FormConfig<M, U, P>` | A form as data: `{ model: FormModelSource<M>; ui: U; schema?(p: SchemaPathTree<M>): void; layout?: FormLayout<M, P> }`. `FormModelSource<M>` is `WritableSignal<M> \| (() => M \| WritableSignal<M>)`: a factory called per instance, returning a start value (the form makes the signal) or a signal of yours (a `linkedSignal`), or a signal that is the model of every instance. `U` is the authored formodel ui, widened by `SignalUiConfig<M>` so any presentational prop may be a signal; `P` names the components the layout placed, by field. |
 | `defineForm(config)` | Identity that keeps `U` and `P`, so `state.ui.<field>.<prop>` hands a signal back writable and the bindings are typed. |
-| `instantiateForm([model,] config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. A `WritableSignal<M>` in front of the config becomes `state.model` (a `linkedSignal` over an input, say); without one the model is `signal(config.model())`. Needs an injection context. |
+| `instantiateForm(config, bindings?, effects?)` | Turns a `FormConfig` into a live `FormState<M, U>`: calls native `form()`, builds the view and the mount of every formField, wires the bindings, starts the effects. `state.model` is the config's signal when `model` is one, else `signal(config.model())`. Needs an injection context. |
 | `instantiateRuntimeForm(config, options?)` | The erased variant the stepper uses; `InstantiateOptions = { injector?, shared?, bindings?, effects?, context? }`. |
 | `FormBindings<M, U, P, Ctx>` | What `instantiateForm`'s second argument and `addForm`'s `componentBindings` take: field name → `{ inputs?, outputs?, bindings? }` — static inputs typed by the component, output handlers (`(payload, ctx) => void`), and Angular `Binding[]` for reactive ones, typed by the placed component or by `ControlComponents[kind]`. |
 | `ControlComponents` | The typed side of the control registry, kind → component class; augment it in the application. |

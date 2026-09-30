@@ -1,4 +1,4 @@
-import { Component, input, linkedSignal, signal, WritableSignal } from '@angular/core';
+import { Component, input, linkedSignal, signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { text, UiFormConfigBuilder } from 'formodel';
 import { FormConfig } from '../../form';
@@ -7,9 +7,9 @@ import { StepperBuilder } from '../builder/stepper-builder';
 import { StepRevisit } from '../types/nodes';
 import { StepperComponent } from '../ui/stepper.component';
 
-// A model of the author's own, where the stepper would make one: a placed form takes a factory
-// (one call per instance, since a ring pass or a fresh step brings a new one), the shared store
-// takes a signal as a key's cell. Both are how an input reaches a wizard without an effect.
+// A model of the author's own, where the stepper would make one: a config whose `model` factory returns
+// a signal (one per instance) or whose `model` is a signal (one for all), and a shared key seeded with
+// one. Each is how an input reaches a wizard without an effect.
 
 async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   for (let i = 0; i < 4; i++) {
@@ -45,32 +45,71 @@ function driver(fixture: () => ComponentFixture<unknown>) {
   };
 }
 
-// ── addForm(name, { model }) ──
+// ── addForm with a config whose model factory returns a linkedSignal ──
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" />`,
+})
+class ModelFactoryHost {
+  readonly lead = input<Lead>({ company: '' });
+  readonly stepper = new StepperBuilder()
+    .createForm('other', leadForm)
+    .createStep(
+      (s) =>
+        s.createPage(
+          (p) => p.addForm('lead', { ...leadForm, model: () => linkedSignal(() => ({ ...this.lead() })) }),
+          { heading: 'Lead' },
+        ),
+      { revisit: StepRevisit.Fresh },
+    )
+    .createStep((s) => s.createPage((p) => p.addForm('other'), { heading: 'Other' }))
+    .build();
+}
+
+describe('A placed form whose model factory returns a signal of its own', () => {
+  let fixture: ComponentFixture<ModelFactoryHost>;
+  const ui = driver(() => fixture);
+
+  beforeEach(async () => {
+    fixture = TestBed.createComponent(ModelFactoryHost);
+    fixture.componentRef.setInput('lead', { company: 'Acme' });
+    await settle(fixture);
+  });
+
+  it('draws the value the input put into the signal', () => {
+    expect(ui.field().value).toBe('Acme');
+  });
+
+  it('follows the input the linked model is made over', async () => {
+    fixture.componentRef.setInput('lead', { company: 'Beta' });
+    await settle(fixture);
+
+    expect(ui.field().value).toBe('Beta');
+  });
+
+  it('gives a fresh step a new linkedSignal: the edit is gone, the input is back', async () => {
+    await ui.type('Typed');
+    await ui.press('Next');
+    expect(ui.heading()).toBe('Other');
+    await ui.press('Back');
+
+    expect(ui.field().value).toBe('Acme');
+  });
+});
+
+// ── a pooled config whose model is a linkedSignal given as it is ──
 @Component({
   imports: [StepperComponent],
   template: `<ngx-formad-stepper [stepper]="stepper" />`,
 })
 class FormModelHost {
   readonly lead = input<Lead>({ company: '' });
-  readonly made: WritableSignal<Lead>[] = [];
+  readonly model = linkedSignal(() => ({ ...this.lead() }));
   readonly stepper = new StepperBuilder()
-    .createForm('lead', leadForm)
-    .createStep((s) =>
-      s.createPage(
-        (p) =>
-          p.addForm('lead', {
-            model: () => {
-              const model = linkedSignal(() => ({ ...this.lead() }));
-              this.made.push(model);
-
-              return model;
-            },
-          }),
-        { heading: 'Lead' },
-      ),
-      { revisit: StepRevisit.Fresh },
-    )
-    .createStep((s) => s.createPage((p) => p.addForm('lead'), { heading: 'Other' }))
+    .createForm('lead', { ...leadForm, model: this.model })
+    .createForm('other', leadForm)
+    .createStep((s) => s.createPage((p) => p.addForm('lead'), { heading: 'Lead' }), { revisit: StepRevisit.Fresh })
+    .createStep((s) => s.createPage((p) => p.addForm('other'), { heading: 'Other' }))
     .build();
 }
 
@@ -84,7 +123,7 @@ describe('A placed form with a model of its own', () => {
     await settle(fixture);
   });
 
-  it('draws the value the factory made', () => {
+  it('draws the value the input put into the model', () => {
     expect(ui.field().value).toBe('Acme');
   });
 
@@ -95,20 +134,20 @@ describe('A placed form with a model of its own', () => {
     expect(ui.field().value).toBe('Beta');
   });
 
-  it('writes a user edit into the signal the factory made', async () => {
+  it('writes a user edit into the config’s signal', async () => {
     await ui.type('Typed');
 
-    expect(fixture.componentInstance.made.at(-1)!().company).toBe('Typed');
+    expect(fixture.componentInstance.model().company).toBe('Typed');
   });
 
-  it('calls the factory once per instance: a fresh step gets a new signal', async () => {
-    expect(fixture.componentInstance.made).toHaveLength(1);
-
+  it('builds a fresh step over the same signal: the model is the config’s, not the instance’s', async () => {
+    await ui.type('Typed');
     await ui.press('Next');
     expect(ui.heading()).toBe('Other');
     await ui.press('Back');
 
-    expect(fixture.componentInstance.made).toHaveLength(2);
+    expect(ui.heading()).toBe('Lead');
+    expect(ui.field().value).toBe('Typed');
   });
 });
 

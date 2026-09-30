@@ -1,14 +1,22 @@
+import { WritableSignal } from '@angular/core';
 import { SchemaPathTree } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
 import { Rejected } from '../../types';
 import { FormLayout } from './form-layout';
 import { ErasedUi, SignalUiConfig } from './ui-nodes';
 
-/** A form template as the runtime holds it: a fresh-model factory, the ui by structure, an optional schema and layout overlay. */
+/**
+ * Where a form's model comes from: a factory called for each instance, returning the value it starts from or a
+ * writable signal of yours (a `linkedSignal` over an input, say) that is its model; or such a signal given as it is,
+ * the model of every instance of the config.
+ */
+export type FormModelSource<M> = WritableSignal<M> | (() => M | WritableSignal<M>);
+
+/** A form template as the runtime holds it: its model source, the ui by structure, an optional schema and layout overlay. */
 export interface RuntimeFormConfig<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly ui: ErasedUi;
   readonly layout?: FormLayout<M>;
-  model(): M;
+  readonly model: FormModelSource<M>;
   schema?(p: SchemaPathTree<M>): void;
 }
 

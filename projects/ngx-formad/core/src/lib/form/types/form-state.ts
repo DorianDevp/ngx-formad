@@ -31,11 +31,8 @@ export interface FormState<
   destroy(): void;
 }
 
-/** What a form is instantiated with beyond its config: its model signal, the injector its formFields see, the shared store, its bindings and effects, and the context they read. */
+/** What a form is instantiated with beyond its config: the injector its formFields see, the shared store, its bindings and effects, and the context they read. */
 export interface InstantiateOptions {
-  /** The model signal of your own; absent, the form makes one over `config.model()`. */
-  readonly model?: WritableSignal<Record<string, unknown>>;
-
   readonly injector?: Injector;
 
   readonly shared?: SharedState | null;

@@ -1,11 +1,13 @@
 import { Signal } from '@angular/core';
-import { FormConfig, FormState, RuntimeFormConfig } from '../../form';
+import { FormConfig, FormModelSource, FormState, RuntimeFormConfig } from '../../form';
 
 /** The config a pool entry resolves to: itself, or what its loader yields. */
 export type ConfigOf<F> = F extends () => Promise<infer C> ? C : F;
 
 /** The model type of a pooled form template. */
-export type FormModel<F> = ConfigOf<F> extends { model(): infer M extends Record<string, unknown> } ? M : never;
+export type FormModel<F> = ConfigOf<F> extends { readonly model: FormModelSource<infer M extends Record<string, unknown>> }
+  ? M
+  : never;
 
 /** The authored ui of a pooled form template. */
 export type FormUi<F> = ConfigOf<F> extends { readonly ui: infer U } ? U : never;

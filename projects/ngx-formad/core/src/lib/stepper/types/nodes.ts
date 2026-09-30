@@ -1,4 +1,4 @@
-import { Binding, Signal, Type, WritableSignal } from '@angular/core';
+import { Binding, Signal, Type } from '@angular/core';
 import { ContentChild } from '../../content';
 import { BindingRecord, FormEffectHook } from '../../form';
 import { LinkPair } from './shared-link';
@@ -39,15 +39,14 @@ export enum FormRevisit {
 }
 
 /**
- * A form placed by name — a pool entry, or a template given at the page — with its model factory, shared links,
- * bindings, effects, local `initial` seed and revisit policy.
+ * A form placed by name — a pool entry, or a template given at the page — with its shared links, bindings, effects,
+ * local `initial` seed and revisit policy.
  */
 export interface FormNode<M extends Record<string, unknown> = Record<string, unknown>> {
   readonly kind: LayoutNodeKind.Form;
   readonly name: string;
   /** The template given at the page; absent, the pool entry `name` points at is the template. */
   readonly template?: AnyFormProvider;
-  model?(ctx: RuntimeStepperContext): WritableSignal<M>;
   visibleWhen?(ctx: RuntimeStepperContext): boolean;
   readonly links: readonly LinkPair[];
   readonly bindings: BindingRecord;

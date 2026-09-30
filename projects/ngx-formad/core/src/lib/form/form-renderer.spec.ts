@@ -524,8 +524,32 @@ class OwnModelHost {
   // Not `input.required`: the field tree reads the model while the form is instantiated, in the constructor, before any input is set.
   readonly account = input<Account>({ email: '', name: '', type: '' });
   readonly model = linkedSignal(() => ({ ...this.account() }));
-  readonly state = instantiateForm(this.model, accountConfig);
+  readonly state = instantiateForm({ ...accountConfig, model: this.model });
 }
+
+@Component({
+  imports: [FormRenderer],
+  template: `<ngx-formad-form [state]="state" />`,
+})
+class ModelFactoryHost {
+  readonly account = input<Account>({ email: '', name: '', type: '' });
+  readonly state = instantiateForm({ ...accountConfig, model: () => linkedSignal(() => ({ ...this.account() })) });
+}
+
+describe('FormRenderer - a model factory returning a signal of your own', () => {
+  it('builds the form over the returned signal, so it follows the input', async () => {
+    const fixture = TestBed.createComponent(ModelFactoryHost);
+    fixture.componentRef.setInput('account', { email: 'first@example.com', name: '', type: '' });
+    await pump(fixture);
+    const email = () => (fixture.nativeElement.querySelector('input') as HTMLInputElement).value;
+    expect(email()).toBe('first@example.com');
+
+    fixture.componentRef.setInput('account', { email: 'second@example.com', name: '', type: '' });
+    await pump(fixture);
+
+    expect(email()).toBe('second@example.com');
+  });
+});
 
 describe('FormRenderer - a model signal of your own', () => {
   let fixture: ComponentFixture<OwnModelHost>;
