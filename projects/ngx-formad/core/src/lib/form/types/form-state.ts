@@ -26,6 +26,12 @@ export interface FormState<
 
   readonly view: FormLevel;
 
+  /**
+   * Starts the instance over: the model takes the value its factory starts from again, every field untouched and
+   * pristine. A model signal given as it is belongs to its author; only the fields start over.
+   */
+  reset(): void;
+
   /** Ends the form's effects; a host whose injector outlives the instance calls it when the instance goes. */
   destroy(): void;
 }

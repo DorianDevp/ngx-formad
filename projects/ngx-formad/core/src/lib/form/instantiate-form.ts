@@ -1,4 +1,15 @@
-import { effect, EnvironmentInjector, inject, Injector, isDevMode, isSignal, signal, untracked, WritableSignal } from '@angular/core';
+import {
+  effect,
+  EnvironmentInjector,
+  inject,
+  Injector,
+  isDevMode,
+  isSignal,
+  runInInjectionContext,
+  signal,
+  untracked,
+  WritableSignal,
+} from '@angular/core';
 import { form } from '@angular/forms/signals';
 import { CONTROL_ADAPTER } from '../controls';
 import { LAYOUT_ADAPTER } from '../layout';
@@ -88,6 +99,16 @@ function createState<M extends Record<string, unknown>, U extends ErasedUi>(
     ui: config.ui,
     ...tree,
     view: buildLevel(tree.nodes, () => rootForm, tree.grid ?? {}, scope),
+    reset: () => {
+      if (isSignal(source)) {
+        rootForm().reset();
+
+        return;
+      }
+      // A factory that hands out a signal (a `linkedSignal` over an input) is read for the value it starts at now.
+      const again = runInInjectionContext(injector, source);
+      rootForm().reset(isSignal(again) ? untracked(again) : again);
+    },
     destroy: () => {
       for (const ref of effects) ref.destroy();
     },

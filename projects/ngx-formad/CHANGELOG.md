@@ -4,6 +4,13 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.15.0
+
+### Added
+
+- **`FormState.reset()`**: the instance starts over - the model back to what its factory
+  starts from, every field untouched and pristine.
+
 ## 0.14.0
 
 ### Fixed
