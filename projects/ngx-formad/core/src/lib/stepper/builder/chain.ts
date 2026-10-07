@@ -1,4 +1,3 @@
-import { SharedState } from '../../shared';
 import { Arm, ChainState } from '../types/chain';
 import { FlowDefinition, SequenceNode } from '../types/flow';
 import { AnyFormProvider, StepGate } from '../types/step-context';
@@ -6,7 +5,7 @@ import { guardedBy } from './step-builder';
 
 export const EMPTY_CHAIN: ChainState = {
   forms: {},
-  shared: new SharedState({}),
+  sharedSeeds: {},
   steps: [],
   controlTypes: {},
   providers: [],
@@ -50,11 +49,11 @@ export function appended(chain: ChainState, nodes: readonly SequenceNode[]): Cha
 export function merged(chain: ChainState, arms: readonly Arm[], gateFor: (key: string) => StepGate): ChainState {
   return arms.reduce<ChainState>((into, { key, flow }) => {
     const gate = gateFor(key);
-    const steps = flow.steps.map((node) => guardedBy(gate, node));
+    const steps = flow.stepSequenceNodes.map((node) => guardedBy(gate, node));
 
     return {
       forms: Object.entries(flow.forms).reduce(claimedForm, into.forms),
-      shared: new SharedState({ ...into.shared.seeds(), ...flow.shared.seeds() }),
+      sharedSeeds: { ...into.sharedSeeds, ...flow.sharedSeeds },
       steps: [...into.steps, ...steps],
       controlTypes: { ...into.controlTypes, ...flow.controlTypes },
       providers: [...into.providers, ...flow.providers],
@@ -67,8 +66,8 @@ export function merged(chain: ChainState, arms: readonly Arm[], gateFor: (key: s
 export function definitionOf(chain: ChainState): FlowDefinition<never> {
   return {
     forms: chain.forms,
-    steps: chain.steps,
-    shared: chain.shared,
+    stepSequenceNodes: chain.steps,
+    sharedSeeds: chain.sharedSeeds,
     controlTypes: chain.controlTypes,
     providers: chain.providers,
   };
@@ -84,7 +83,7 @@ export function egressOf(arm: FlowDefinition): Resolve {
   const resolve = arm.resolveResult;
   if (resolve) return (ctx, committed) => resolve(ctx, committed);
 
-  const names = arm.steps.flatMap((node) => (node.name === undefined ? [] : [node.name]));
+  const names = arm.stepSequenceNodes.flatMap((node) => (node.name === undefined ? [] : [node.name]));
 
   return (_ctx, committed) =>
     Object.fromEntries(names.filter((name) => Object.hasOwn(committed, name)).map((name) => [name, committed[name]]));

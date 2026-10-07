@@ -1,6 +1,5 @@
 import {
   computed,
-  createEnvironmentInjector,
   EnvironmentInjector,
   Injector,
   runInInjectionContext,
@@ -8,6 +7,7 @@ import {
   Signal,
 } from '@angular/core';
 import { FormState, RuntimeFormConfig } from '../../form';
+import { resetSharedState, SharedSignals } from '../../shared';
 import { isFlowStep, isRecurrent } from '../builder/flow';
 import {
   ControllerHost,
@@ -21,9 +21,10 @@ import {
   StepperProgress,
 } from '../types/controller';
 import { FlowStepNode, RecurrentFlowDefinition, RuntimeFlow, SequenceNode } from '../types/flow';
+import { FlowInstance } from '../types/flow-instance';
 import { LiveStep, StepIssue } from '../types/live-step';
 import { PageNode, SequenceNodeKind, StepNode, StepRevisit } from '../types/nodes';
-import { DeferTrigger, RecurrentSignals, RuntimeStepperContext, SharedSignals } from '../types/step-context';
+import { DeferTrigger, RecurrentSignals, RuntimeStepperContext } from '../types/step-context';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
 import { formNodes, materializeStep, resolveStepForms, templateOf } from './materialize-step';
@@ -60,22 +61,27 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   private readonly onStep: ((values: RuntimeStepperContext['steps']) => void) | undefined;
 
+  private readonly flow: RuntimeFlow<TResult>;
+
   constructor(
-    private readonly flow: RuntimeFlow<TResult>,
+    private readonly instance: FlowInstance<TResult>,
     host: ControllerHost<TResult>,
   ) {
+    const flow = instance.flow;
+    this.flow = flow;
     this.outlet = host.outlet;
     this.onComplete = host.onComplete;
     this.onStep = host.onStep;
-    this.environment = createEnvironmentInjector([...flow.providers], host.environment, 'formad-flow');
+    this.environment = instance.environment;
     this.injector = host.injector ?? this.environment;
     this.recurrentFlow = isRecurrent(flow) ? flow : null;
     this.ring = this.recurrentFlow ? new FlowRing(this.recurrentFlow) : null;
-    this.contextShared = { ...(host.outlet?.shared() ?? {}), ...flow.shared.signals() };
+    this.contextShared = { ...(host.outlet?.shared() ?? {}), ...instance.sharedState };
     this.contextFlow = this.ring
       ? { state: this.ring.state, passOpen: this.ring.passOpen }
       : host.outlet?.flow();
     this.children = this.spawnChildren();
+    instance.attach(() => this.inContext(() => this.contextOf(this.nav().memo)));
     if (!host.outlet) this.nav.set(this.landed(Navigation.start));
   }
 
@@ -87,7 +93,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   private contextOf(memo: StepMemo): RuntimeStepperContext {
     return {
       steps: Object.fromEntries(
-        this.flow.steps.map((node, index) => [
+        this.flow.stepSequenceNodes.map((node, index) => [
           stepKey(node, index),
           isFlowStep(node) ? this.children.get(node)?.egress() : memo.get(node)?.instances,
         ]),
@@ -107,7 +113,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const entered = (node: SequenceNode): boolean =>
       isFlowStep(node) ? (this.children.get(node)?.started() ?? false) : memo.has(node);
 
-    return this.inContext(() => effectiveSteps(this.flow.steps, this.contextOf(memo), entered));
+    return this.inContext(() => effectiveSteps(this.flow.stepSequenceNodes, this.contextOf(memo), entered));
   }
 
   private started(): boolean {
@@ -118,7 +124,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   private currentOf(nav: Navigation): SequenceNode | null {
     const effective = nav.memo === this.memo() ? this.effective() : this.effectiveOf(nav.memo);
 
-    return nav.landing(effective, this.flow.steps);
+    return nav.landing(effective, this.flow.stepSequenceNodes);
   }
 
   /** The live steps alone: a cursor move keeps the same map, so the sequence is not decided again for it. */
@@ -126,7 +132,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   private readonly effective = computed(() => this.effectiveOf(this.memo()));
 
-  private readonly current = computed(() => this.nav().landing(this.effective(), this.flow.steps));
+  private readonly current = computed(() => this.nav().landing(this.effective(), this.flow.stepSequenceNodes));
 
   private readonly position = computed(() => {
     const node = this.current();
@@ -165,7 +171,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const memo = this.nav().memo;
 
     return Object.fromEntries(
-      this.flow.steps.flatMap((node, index) => {
+      this.flow.stepSequenceNodes.flatMap((node, index) => {
         if (isFlowStep(node)) return [[stepKey(node, index), this.children.get(node)?.egress()]];
 
         const live = memo.get(node);
@@ -335,15 +341,15 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
         : eff.find((candidate) => resolveText(candidate.label) === target);
     if (!node) return;
 
-    if (options?.fresh) this.discard(this.flow.steps.slice(this.flow.steps.indexOf(node)));
+    if (options?.fresh) this.discard(this.flow.stepSequenceNodes.slice(this.flow.stepSequenceNodes.indexOf(node)));
     this.enter(node);
   }
 
   reset(): void {
-    this.flow.shared.reset();
+    resetSharedState(this.instance.sharedState, this.flow.sharedSeeds);
     for (const child of this.children.values()) child.reset();
     this.ring?.reset();
-    this.endForms(this.nav().memo.values());
+    this.instance.reset();
     this.nav.set(this.outlet ? Navigation.start : this.landed(Navigation.start));
   }
 
@@ -373,13 +379,12 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   private onDock(): boolean {
     const flow = this.recurrentFlow;
 
-    return flow !== null && this.current() === this.flow.steps[flow.dockAt];
+    return flow !== null && this.current() === this.flow.stepSequenceNodes[flow.dockAt];
   }
 
+  /** Lets go of the step components; the forms and the environment are the built stepper's, and stay. */
   destroy(): void {
     for (const child of this.children.values()) child.destroy();
-    this.endForms(this.nav().memo.values());
-    this.environment.destroy();
   }
 
   private nextSelf(): void {
@@ -444,7 +449,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
     if (this.dockIsBehind()) {
       this.ring?.abandonPass();
-      this.enter(this.flow.steps[this.recurrentFlow!.dockAt]);
+      this.enter(this.flow.stepSequenceNodes[this.recurrentFlow!.dockAt]);
       return;
     }
 
@@ -464,7 +469,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const flow = this.recurrentFlow;
     if (!flow || !this.ring?.passOpen()) return false;
 
-    const steps = this.flow.steps;
+    const steps = this.flow.stepSequenceNodes;
     const at = steps.indexOf(node);
     if (at < 0 || at >= flow.dockAt) return false;
 
@@ -478,7 +483,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const flow = this.recurrentFlow;
     if (!flow || !this.ring?.passOpen()) return false;
 
-    const at = this.flow.steps.indexOf(node);
+    const at = this.flow.stepSequenceNodes.indexOf(node);
     return at >= 0 && at < flow.dockAt;
   }
 
@@ -490,21 +495,12 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     this.nav.set(this.forgetting(this.nav(), nodes));
   }
 
-  /** Ends the effects of every form the given steps brought to life. */
-  private endForms(steps: Iterable<LiveStep>): void {
-    for (const live of steps) {
-      for (const form of live.forms) form.destroy();
-    }
-  }
-
-  /** `nav` without the given steps, their live forms ended first. */
+  /** `nav` without the given steps, the forms they drew started over in their instances first. */
   private forgetting(nav: Navigation, nodes: readonly SequenceNode[]): Navigation {
-    const dropped = nodes.flatMap((node) => {
+    for (const node of nodes) {
       const live = isFlowStep(node) ? undefined : nav.stepOf(node);
-
-      return live ? [live] : [];
-    });
-    this.endForms(dropped);
+      for (const form of live?.forms ?? []) form.state.reset();
+    }
 
     return nav.forgetting(nodes);
   }
@@ -515,7 +511,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     if (!flow || !ring || !ring.passOpen()) return false;
 
     const node = this.current();
-    if (!node || this.flow.steps.indexOf(node) >= flow.dockAt) return false;
+    if (!node || this.flow.stepSequenceNodes.indexOf(node) >= flow.dockAt) return false;
     return ring.dockReachable();
   }
 
@@ -524,9 +520,9 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const ring = this.ring;
     if (!flow || !ring) return;
 
-    const steps = this.flow.steps;
+    const steps = this.flow.stepSequenceNodes;
     this.discard(steps.slice(0, flow.dockAt));
-    this.flow.shared.reset();
+    resetSharedState(this.instance.sharedState, this.flow.sharedSeeds);
     ring.openPass();
 
     const first = this.effective().find((node) => steps.indexOf(node) < flow.dockAt);
@@ -565,12 +561,14 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
     const ready = this.withPredecessors(cached ? this.forgetting(nav, [current]) : nav, current);
     const pages = this.pagesOf(current, ready);
-    if (!this.hasLazyForms(pages)) return ready.withStep(current, this.materialize(pages, this.eagerConfigs(pages), ready));
+    if (!this.hasLazyForms(pages)) {
+      return ready.withStep(current, this.materialize(current, pages, this.eagerConfigs(pages), ready));
+    }
 
     void resolveStepForms(pages, this.flow.forms).then((configs) => {
       this.nav.update((now) =>
         this.currentOf(now) === current && !now.stepOf(current)
-          ? now.withStep(current, this.materialize(pages, configs, now))
+          ? now.withStep(current, this.materialize(current, pages, configs, now))
           : now,
       );
     });
@@ -585,7 +583,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   /** `nav` with every eager, ungated step before `upTo` alive, so a context built over it sees them all. */
   private withPredecessors(nav: Navigation, upTo: SequenceNode | null): Navigation {
-    const steps = this.flow.steps;
+    const steps = this.flow.stepSequenceNodes;
     const limit = upTo ? steps.indexOf(upTo) : steps.length;
 
     return steps.slice(0, limit).reduce((settled, node) => {
@@ -594,12 +592,12 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       const pages = this.pagesOf(node, settled);
       if (this.hasLazyForms(pages)) return settled;
 
-      return settled.withStep(node, this.materialize(pages, this.eagerConfigs(pages), settled));
+      return settled.withStep(node, this.materialize(node, pages, this.eagerConfigs(pages), settled));
     }, nav);
   }
 
   private neighbour(node: SequenceNode, direction: 1 | -1): SequenceNode | undefined {
-    const steps = this.flow.steps;
+    const steps = this.flow.stepSequenceNodes;
     const origin = steps.indexOf(node);
     const eff = this.effective();
     if (direction === 1) return eff.find((candidate) => steps.indexOf(candidate) > origin);
@@ -655,7 +653,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
   private spawnChildren(): ReadonlyMap<FlowStepNode, FormadStepperController> {
     const children = new Map<FlowStepNode, FormadStepperController>();
-    for (const node of this.flow.steps) {
+    for (const node of this.flow.stepSequenceNodes) {
       if (isFlowStep(node)) children.set(node, this.spawn(node));
     }
 
@@ -673,7 +671,11 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       committedBelow: () => this.notifyCommitted(),
     };
 
-    return new FormadStepperController(node.flow, { environment: this.environment, injector: this.injector, outlet });
+    return new FormadStepperController(this.instance.child(node), {
+      environment: this.environment,
+      injector: this.injector,
+      outlet,
+    });
   }
 
   /** A step's pages: as authored, or built now over the context the given navigation provides. */
@@ -701,10 +703,11 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
   }
 
   /** A step brought to life over the context the given navigation provides; the caller decides where it goes. */
-  private materialize(pages: readonly PageNode[], configs: ResolvedForms, nav: Navigation): LiveStep {
+  private materialize(node: StepNode, pages: readonly PageNode[], configs: ResolvedForms, nav: Navigation): LiveStep {
     return materializeStep(pages, {
       pool: configs,
-      shared: this.flow.shared,
+      formFor: (form, config) => this.instance.formFor(node, form, config),
+      shared: this.instance.sharedState,
       environment: this.environment,
       injector: this.injector,
       entry: this.inContext(() => this.contextOf(nav.memo)),
@@ -720,7 +723,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     const ring = this.ring;
     if (!flow || !ring) return linearLevel(eff, at);
 
-    const dock = this.flow.steps[flow.dockAt];
+    const dock = this.flow.stepSequenceNodes[flow.dockAt];
     const passSteps = eff.filter((candidate) => candidate !== dock);
     const passAt = node && node !== dock ? passSteps.indexOf(node) : -1;
 

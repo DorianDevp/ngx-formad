@@ -229,8 +229,8 @@ describe('StepperComponent — stepper adapter', () => {
   });
 });
 
-// Counts every model-factory call, which happens exactly once per materialization
-// — so a non-zero count means a step's forms were actually built.
+// Counts every model-factory call, which happens exactly once per instance - so the count is how many instances of
+// a form were built.
 const built = { a: 0, c: 0 };
 const countingForm = (label: string, tick: () => void): FormConfig<Labelled> => ({
   model: () => {
@@ -254,21 +254,19 @@ class LazyHost {
       .build();
 }
 
-describe('StepperComponent — laziness', () => {
-  it('materializes only the current step; later steps are untouched until reached', async () => {
+describe('StepperComponent — eager forms', () => {
+  it('builds every eager form once, with the stepper; reaching a step builds nothing new', async () => {
     built.a = 0;
     built.c = 0;
     const fixture = TestBed.createComponent(LazyHost);
     await settle(fixture);
 
-    // Step 1 built; step 2 never instantiated yet.
     expect(built.a).toBe(1);
-    expect(built.c).toBe(0);
+    expect(built.c).toBe(1);
 
     buttonByText(fixture, 'Next')!.click();
     await settle(fixture);
 
-    // Now step 2 built — and exactly once.
     expect(built.c).toBe(1);
   });
 });

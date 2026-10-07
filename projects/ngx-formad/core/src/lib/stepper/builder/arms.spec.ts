@@ -47,16 +47,16 @@ const plans = new StepperBuilder()
         .createStep((s) => s.createPage((p) => p.addForm('perks')), { name: 'work' }),
   })
   .createStep((s) => s.createPage((p) => p.addForm('cart')), { name: 'review' })
-  .build();
+  .define();
 
 describe('branch - an arm is a linear chain flattened into its level', () => {
   it('walks the chosen arm’s steps between the steps around the branch', () => {
-    expect(names(effectiveSteps(plans.steps, ctx({ plan: 'basic' }), everyStepEntered))).toEqual(['cart', 'home', 'review']);
-    expect(names(effectiveSteps(plans.steps, ctx({ plan: 'plus' }), everyStepEntered))).toEqual(['cart', 'perks', 'work', 'review']);
+    expect(names(effectiveSteps(plans.stepSequenceNodes, ctx({ plan: 'basic' }), everyStepEntered))).toEqual(['cart', 'home', 'review']);
+    expect(names(effectiveSteps(plans.stepSequenceNodes, ctx({ plan: 'plus' }), everyStepEntered))).toEqual(['cart', 'perks', 'work', 'review']);
   });
 
   it('walks no arm while the selector names none, and rejoins after it', () => {
-    expect(names(effectiveSteps(plans.steps, ctx({ plan: '' }), everyStepEntered))).toEqual(['cart', 'review']);
+    expect(names(effectiveSteps(plans.stepSequenceNodes, ctx({ plan: '' }), everyStepEntered))).toEqual(['cart', 'review']);
   });
 
   it('merges every arm’s pool into the level’s', () => {
@@ -64,7 +64,7 @@ describe('branch - an arm is a linear chain flattened into its level', () => {
   });
 
   it('merges an arm’s state slice and providers into the level’s', () => {
-    expect(plans.shared.get('perks')).toBe(0);
+    expect(plans.sharedSeeds['perks']).toBe(0);
     expect(plans.providers).toEqual([ArmService]);
   });
 
@@ -78,11 +78,11 @@ describe('branch - an arm is a linear chain flattened into its level', () => {
             .createStep((s) => s.createPage((p) => p.addForm('a')), { name: 'always' })
             .createStep((s) => s.createPage((p) => p.addForm('a')), { name: 'vip', activeWhen: (c) => c.shared.vip() }),
       })
-      .build();
+      .define();
 
-    expect(names(effectiveSteps(gated.steps, ctx({ plan: 'basic', vip: false }), everyStepEntered))).toEqual(['always']);
-    expect(names(effectiveSteps(gated.steps, ctx({ plan: 'basic', vip: true }), everyStepEntered))).toEqual(['always', 'vip']);
-    expect(names(effectiveSteps(gated.steps, ctx({ plan: '', vip: true }), everyStepEntered))).toEqual([]);
+    expect(names(effectiveSteps(gated.stepSequenceNodes, ctx({ plan: 'basic', vip: false }), everyStepEntered))).toEqual(['always']);
+    expect(names(effectiveSteps(gated.stepSequenceNodes, ctx({ plan: 'basic', vip: true }), everyStepEntered))).toEqual(['always', 'vip']);
+    expect(names(effectiveSteps(gated.stepSequenceNodes, ctx({ plan: '', vip: true }), everyStepEntered))).toEqual([]);
   });
 
   it('asks the selector once per walk, however many arms', () => {
@@ -101,9 +101,9 @@ describe('branch - an arm is a linear chain flattened into its level', () => {
           b: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('f')), { name: 'b1' }),
         },
       )
-      .build();
+      .define();
 
-    effectiveSteps(counted.steps, ctx({ plan: 'a' }), everyStepEntered);
+    effectiveSteps(counted.stepSequenceNodes, ctx({ plan: 'a' }), everyStepEntered);
 
     expect(asked).toBe(1);
   });
@@ -118,14 +118,14 @@ describe('branch - an arm is a linear chain flattened into its level', () => {
             y: (inner) => inner.createStep((s) => s.createPage((p) => p.addForm('f')), { name: 'xy' }),
           }),
       })
-      .build();
+      .define();
 
-    expect(names(effectiveSteps(nested.steps, ctx({ outer: 'x', inner: 'y' }), everyStepEntered))).toEqual(['xy']);
-    expect(names(effectiveSteps(nested.steps, ctx({ outer: '', inner: 'y' }), everyStepEntered))).toEqual([]);
+    expect(names(effectiveSteps(nested.stepSequenceNodes, ctx({ outer: 'x', inner: 'y' }), everyStepEntered))).toEqual(['xy']);
+    expect(names(effectiveSteps(nested.stepSequenceNodes, ctx({ outer: '', inner: 'y' }), everyStepEntered))).toEqual([]);
   });
 
   it('emits plain step nodes: the arm leaves no trace but the gate', () => {
-    expect(plans.steps.every(isStepNode)).toBe(true);
+    expect(plans.stepSequenceNodes.every(isStepNode)).toBe(true);
   });
 });
 

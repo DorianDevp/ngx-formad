@@ -1,11 +1,17 @@
-import { Provider } from '@angular/core';
-import { ControlTypeMap } from '../../controls';
-import { SharedState } from '../../shared';
+import { DestroyRef, EnvironmentInjector, inject, Injector, Provider, Signal } from '@angular/core';
+import { SharedSignals, StateOf } from '../../shared';
+import { FormadFlowInstance } from '../runtime/flow-instance';
+import { FormadWizard } from '../runtime/wizard-context';
 import { StepsCommitted } from '../types/builder';
-import { BuiltFlow, FlowDefinition, SequenceNode } from '../types/flow';
-import { AnyFormProvider, RuntimeStepperContext } from '../types/step-context';
+import { BuiltFlow, RuntimeFlow } from '../types/flow';
+import { FlowInstance } from '../types/flow-instance';
+import { BuiltSteps, RuntimeStepperContext } from '../types/step-context';
 
-/** A built linear flow or fork: the runtime shape plus the authoring types it was built with. */
+/**
+ * A built linear flow or fork: its shared store as read-only signals, its named steps' forms, and the instances behind
+ * them. Built in an injection context, which owns it: every eager form is built here, and goes when that context is
+ * destroyed.
+ */
 export class Stepper<
   TForms = {},
   TCtx extends RuntimeStepperContext = RuntimeStepperContext,
@@ -16,20 +22,26 @@ export class Stepper<
   readonly __context?: TCtx;
   readonly __result?: TResult;
 
-  readonly forms: Readonly<Record<string, AnyFormProvider>>;
-  readonly steps: readonly SequenceNode[];
-  readonly shared: SharedState;
-  readonly controlTypes: ControlTypeMap;
-  readonly providers: readonly Provider[];
+  /** The shared store, one read-only signal per `withState` key; the stepper and what it draws write it. */
+  readonly shared: SharedSignals<StateOf<TCtx['shared']>>;
 
-  readonly resolveResult?: FlowDefinition<TResult>['resolveResult'];
+  /** The named steps' forms: an eager one is its instance, a lazy one (or one of a step built on entry) a signal of it. */
+  readonly steps: BuiltSteps<TCtx['steps']>;
 
-  constructor(definition: FlowDefinition<TResult>) {
-    this.forms = definition.forms;
-    this.steps = definition.steps;
-    this.shared = new SharedState(definition.shared.seeds());
-    this.controlTypes = definition.controlTypes;
-    this.providers = definition.providers;
-    this.resolveResult = definition.resolveResult;
+  readonly instance: FlowInstance<TResult>;
+
+  constructor(flow: RuntimeFlow<TResult>) {
+    const wizard: Provider = { provide: FormadWizard, useFactory: () => new FormadWizard(this) };
+    const instance = new FormadFlowInstance(flow, { injector: inject(Injector), environment: inject(EnvironmentInjector) }, [
+      wizard,
+    ]);
+    inject(DestroyRef).onDestroy(() => instance.destroy());
+    this.instance = instance;
+
+    const shared: Record<string, Signal<unknown>> = {};
+    for (const [key, cell] of Object.entries(instance.sharedState)) shared[key] = cell.asReadonly();
+    // The flow is erased; the context it was authored over says which keys the store and the steps hold.
+    this.shared = shared as SharedSignals<StateOf<TCtx['shared']>>;
+    this.steps = instance.steps as BuiltSteps<TCtx['steps']>;
   }
 }

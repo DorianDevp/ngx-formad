@@ -1,5 +1,6 @@
 import { Signal } from '@angular/core';
 import { FormConfig, FormModelSource, FormState, RuntimeFormConfig } from '../../form';
+import { SharedSignals } from '../../shared';
 
 /** The config a pool entry resolves to: itself, or what its loader yields. */
 export type ConfigOf<F> = F extends () => Promise<infer C> ? C : F;
@@ -30,16 +31,35 @@ export enum DeferTrigger {
 export type InstanceOf<F> = [FormModel<F>] extends [never] ? never : FormState<FormModel<F>>;
 
 /**
- * One step's live instances by name, for the forms `P` the step placed: each typed by the template placed there —
- * the pool entry it named, or the config given at the page. `TForms` stays for the signatures that carry it.
+ * An instance the built stepper does not build with itself - a loader's, or one of a step built on entry - but once its
+ * step brings it to life. The mark is the type system's alone; at runtime it is the plain instance.
  */
-export type StepInstance<P> = {
-  readonly [K in keyof P]: InstanceOf<P[K]>;
+export type BuiltOnEntry<T> = T & { readonly __builtOnEntry: true };
+
+/**
+ * One step's live instances by name, for the forms `P` the step placed: each typed by the template placed there —
+ * the pool entry it named, or the config given at the page. `OnEntry` says whether the step builds its pages on entry.
+ */
+export type StepInstance<P, OnEntry extends boolean = false> = {
+  readonly [K in keyof P]: [OnEntry] extends [true]
+    ? BuiltOnEntry<InstanceOf<P[K]>>
+    : P[K] extends (...args: never[]) => unknown
+      ? BuiltOnEntry<InstanceOf<P[K]>>
+      : InstanceOf<P[K]>;
 };
 
-/** A shared store as one read-only signal per key. */
-export type SharedSignals<TShared extends Record<string, unknown> = Record<string, unknown>> = {
-  readonly [K in keyof TShared]: Signal<TShared[K]>;
+/**
+ * The built stepper's named steps, each with its forms: an instance built with the stepper as it is, one built on entry
+ * as a signal holding it once it exists. A nested flow's or a ring's slot holds an egress, not instances, and is left out.
+ */
+export type BuiltSteps<TSteps> = {
+  readonly [K in keyof TSteps as NonNullable<TSteps[K]> extends Readonly<Record<string, FormState>> ? K : never]: {
+    readonly forms: {
+      readonly [F in keyof NonNullable<TSteps[K]>]: NonNullable<TSteps[K]>[F] extends BuiltOnEntry<FormState<infer M>>
+        ? Signal<FormState<M> | null>
+        : NonNullable<TSteps[K]>[F];
+    };
+  };
 };
 
 /** A ring's live state: the folded accumulator and whether a pass is open. */

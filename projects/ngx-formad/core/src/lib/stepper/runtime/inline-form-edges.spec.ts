@@ -116,7 +116,7 @@ describe('A template given at the page, wherever a pool form goes', () => {
     await type(inputs()[0], 'Long Street 1');
     await next();
 
-    expect(fixture.componentInstance.stepper.shared.snapshot()['street']).toBe('Long Street 1');
+    expect(fixture.componentInstance.stepper.shared['street']()).toBe('Long Street 1');
   });
 
   it('seeds from a predecessor’s template, and sits inside a row', async () => {
@@ -129,7 +129,8 @@ describe('A template given at the page, wherever a pool form goes', () => {
   });
 
   it('is chosen on entry from the live context', async () => {
-    fixture.componentInstance.stepper.shared.patch({ wrap: 'gift' });
+    // What a component inside the stepper would write; a host only reads.
+    fixture.componentInstance.stepper.instance.sharedState['wrap'].set('gift');
     await next();
     await next();
 

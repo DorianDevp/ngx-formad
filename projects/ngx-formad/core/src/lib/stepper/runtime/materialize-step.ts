@@ -1,15 +1,7 @@
-import { computed, Injector, isSignal, runInInjectionContext, Signal } from '@angular/core';
+import { computed, Injector, isSignal, Signal } from '@angular/core';
 import { ValidationError } from '@angular/forms/signals';
 import { CUSTOM_FIELD } from 'formodel';
-import {
-  FieldLeaf,
-  FieldLevel,
-  FormState,
-  instantiateRuntimeForm,
-  isLevel,
-  mountInjector,
-  RuntimeFormConfig,
-} from '../../form';
+import { FieldLeaf, FieldLevel, FormState, isLevel, mountInjector, RuntimeFormConfig } from '../../form';
 import { LiveForm, LiveStep, MaterializeOptions, StepIssue } from '../types/live-step';
 import { ComponentNode, FormNode, FormRevisit, LayoutNode, LayoutNodeKind, PageNode } from '../types/nodes';
 import { AnyFormProvider, RuntimeStepContext, RuntimeStepperContext } from '../types/step-context';
@@ -108,15 +100,7 @@ function liveForm(
   const template = options.pool[node.name];
   if (!template) return null;
 
-  const state = runInInjectionContext(options.environment, () =>
-    instantiateRuntimeForm(template, {
-      injector: options.injector,
-      environment: options.environment,
-      bindings: node.bindings,
-      effects: node.effects,
-      context: options.context ?? (() => options.entry),
-    }),
-  );
+  const state = options.formFor(node, template);
   const root = state.rootForm;
   const visible: Signal<boolean> = computed(() => placed.gates.every((gate) => gate(ctx)));
   const issues = computed<readonly StepIssue[]>(() =>
@@ -140,7 +124,7 @@ function liveForm(
     return definedEntries(node.initial?.(at) ?? {}).map(([key, value]) => [[key], value]);
   };
   const linked = (): [readonly string[], unknown][] =>
-    node.links.map((link) => [link.modelPath, options.shared.get(link.sharedKey)]);
+    node.links.map((link) => [link.modelPath, options.shared[link.sharedKey]()]);
 
   return {
     name: node.name,
@@ -150,15 +134,11 @@ function liveForm(
     seed: (ctx) => sow([...local(ctx), ...linked()]),
     reseed: (ctx) => sow([...(node.revisit === FormRevisit.Reseed ? local(ctx) : []), ...linked()]),
     commit: () => {
-      for (const link of node.links) {
-        const field = fieldAt(root, link.modelPath)();
-        options.shared.patch({ [link.sharedKey]: field.value() });
-      }
+      for (const link of node.links) options.shared[link.sharedKey].set(fieldAt(root, link.modelPath)().value());
     },
     touch: () => {
       for (const field of state.fields) fieldAt(root, field.path)().markAsTouched();
     },
-    destroy: () => state.destroy(),
   };
 }
 

@@ -1,70 +1,62 @@
 import { signal } from '@angular/core';
-import { SharedState } from './shared-state';
+import { createSharedState, resetSharedState } from './shared-state';
 
 describe('SharedState', () => {
   it('exposes initial values per key', () => {
-    const state = new SharedState({ email: '', count: 0 });
-    expect(state.get('email')).toBe('');
-    expect(state.get('count')).toBe(0);
+    const state = createSharedState({ email: '', count: 0 });
+    expect(state.email()).toBe('');
+    expect(state.count()).toBe(0);
   });
 
-  it('reflects patched values through select() signals', () => {
-    const state = new SharedState({ email: '' });
-    const email = state.select('email');
-
-    state.patch({ email: 'alice@example.com' });
-
-    expect(email()).toBe('alice@example.com');
+  it('writes one key and leaves the others untouched', () => {
+    const state = createSharedState({ email: 'a', name: 'b' });
+    state.email.set('c');
+    expect(state.email()).toBe('c');
+    expect(state.name()).toBe('b');
   });
 
-  it('leaves keys absent from a patch untouched', () => {
-    const state = new SharedState({ email: 'a', name: 'b' });
-    state.patch({ email: 'c' });
-    expect(state.get('name')).toBe('b');
+  it('copies a seed, so writing the store never touches the seed record', () => {
+    const seeds = { tags: ['a'] };
+    const state = createSharedState(seeds);
+    state.tags.update((tags) => [...tags, 'b']);
+
+    expect(seeds.tags).toEqual(['a']);
   });
 
-  it('hands out a read-only signal that tracks one key', () => {
-    const state = new SharedState({ email: '' });
-    const email = state.select('email');
+  it('puts every key back to its seed on reset', () => {
+    const seeds = { email: '', count: 0 };
+    const state = createSharedState(seeds);
+    state.email.set('x');
+    state.count.set(3);
 
-    state.patch({ email: 'via-patch@example.com' });
+    resetSharedState(state, seeds);
 
-    expect(email()).toBe('via-patch@example.com');
-    expect(state.get('email')).toBe('via-patch@example.com');
+    expect([state.email(), state.count()]).toEqual(['', 0]);
   });
 });
 
 describe('SharedState - a key held in a signal of your own', () => {
   it('reads and writes through the signal it was given', () => {
     const email = signal('a');
-    const state = new SharedState({ email, count: 0 });
+    const state = createSharedState({ email, count: 0 });
 
     email.set('outside');
-    expect(state.get('email')).toBe('outside');
+    expect(state.email()).toBe('outside');
 
-    state.patch({ email: 'patched' });
-    expect(email()).toBe('patched');
-  });
-
-  it('hands the signal on as a seed, so a store rebuilt from the seeds keeps it as the cell', () => {
-    const email = signal('a');
-    const state = new SharedState({ ...new SharedState({ email }).seeds(), count: 1 });
-
-    state.patch({ email: 'patched' });
-
-    expect(email()).toBe('patched');
-    expect(state.get('count')).toBe(1);
+    state.email.set('written');
+    expect(email()).toBe('written');
   });
 
   it('leaves the signal alone on reset: the author owns it', () => {
     const email = signal('a');
-    const state = new SharedState({ email, count: 0 });
+    const seeds = { email, count: 0 };
+    const state = createSharedState(seeds);
     email.set('b');
-    state.patch({ count: 5 });
+    state.count.set(5);
 
-    state.reset();
+    resetSharedState(state, seeds);
 
     expect(email()).toBe('b');
-    expect(state.get('count')).toBe(0);
+    expect(state.count()).toBe(0);
   });
 });

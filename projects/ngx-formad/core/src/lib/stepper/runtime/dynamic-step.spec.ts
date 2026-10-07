@@ -105,7 +105,7 @@ describe('Dynamic steps - the step callback with the live context', () => {
   });
 
   it('keeps a one-parameter callback plain data, and defers a two-parameter one', () => {
-    const steps = fixture.componentInstance.stepper.steps.filter(isStepNode);
+    const steps = fixture.componentInstance.stepper.instance.flow.stepSequenceNodes.filter(isStepNode);
 
     expect('build' in steps[0].pages).toBe(false);
     expect('build' in steps[1].pages).toBe(true);

@@ -1,31 +1,37 @@
-import { computed, Injectable, signal, Signal } from '@angular/core';
-import { SharedState } from '../../shared';
+import { computed, signal, Signal } from '@angular/core';
+import { SharedState, StateOf } from '../../shared';
+import { CommittedOf, Egress } from '../types/builder';
 import { StepperController } from '../types/controller';
-import { RuntimeStepperContext } from '../types/step-context';
+import { RuntimeStepper } from '../types/flow';
 
-/** The wizard's collected data, injectable from any step slot or control rendered inside `<ngx-formad-stepper>`. */
-@Injectable()
-export class FormadWizard {
-  private readonly _controller = signal<StepperController | null>(null);
+/**
+ * The wizard's collected data, injectable from anything a stepper draws - a page component, a formField of a step
+ * form, a dock: the stepper's environment holds it. Typed by the built stepper,
+ * `inject<FormadWizard<typeof checkout>>(FormadWizard)`; inside, `shared` is writable.
+ */
+export class FormadWizard<S extends RuntimeStepper = RuntimeStepper> {
+  private readonly _controller = signal<StepperController<Egress<S>> | null>(null);
 
-  private _shared: SharedState | null = null;
+  /** The controller of the `<ngx-formad-stepper>` drawing the stepper; `null` until one does. */
+  readonly controller: Signal<StepperController<Egress<S>> | null> = this._controller.asReadonly();
 
-  readonly controller: Signal<StepperController | null> = this._controller.asReadonly();
+  /** Every committed model, by step and form name. */
+  readonly committed: Signal<CommittedOf<S>>;
 
-  readonly committed = computed<RuntimeStepperContext['steps']>(() => this._controller()?.committed() ?? {});
+  /** The shared state, one writable signal per `withState` key: `wizard.shared.plan.set('pro')`. */
+  readonly shared: SharedState<StateOf<NonNullable<S['__context']>['shared']>>;
 
-  get shared(): SharedState {
-    if (!this._shared) throw new Error('FormadWizard is not initialized yet.');
+  /** The named steps' forms, as the built stepper hands them out. */
+  readonly steps: S['steps'];
 
-    return this._shared;
+  constructor(stepper: S) {
+    // The flow is erased; `S` is what it was built from, and says which keys the store holds.
+    this.shared = stepper.instance.sharedState as SharedState<StateOf<NonNullable<S['__context']>['shared']>>;
+    this.steps = stepper.steps;
+    this.committed = computed(() => (this._controller()?.committed() ?? {}) as CommittedOf<S>);
   }
 
-  sharedOrNull(): SharedState | null {
-    return this._shared;
-  }
-
-  _init(controller: StepperController, shared: SharedState): void {
-    this._shared = shared;
+  _init(controller: StepperController<Egress<S>>): void {
     this._controller.set(controller);
   }
 }

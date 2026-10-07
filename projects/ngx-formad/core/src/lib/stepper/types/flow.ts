@@ -1,16 +1,18 @@
 import { Provider, Signal } from '@angular/core';
 import { ControlTypeMap } from '../../controls';
-import { SharedState } from '../../shared';
+import { SharedSignals, StateOf, StateSeeds } from '../../shared';
+import type { FlowInstance } from './flow-instance';
 import { SequenceNodeKind, StepNode } from './nodes';
-import { AnyFormProvider, DeferTrigger, RuntimeStepperContext } from './step-context';
+import { AnyFormProvider, BuiltSteps, DeferTrigger, RuntimeStepperContext } from './step-context';
 
 /** The erased runtime shape of a flow: its sequence, form templates, shared store, control kinds and providers. */
 export interface FlowDefinition<TResult = unknown> {
-  readonly steps: readonly SequenceNode[];
+  readonly stepSequenceNodes: readonly SequenceNode[];
 
   readonly forms: Record<string, AnyFormProvider>;
 
-  readonly shared: SharedState;
+  /** What `withState` seeded, as data; a built stepper makes its own `SharedState` of it. */
+  readonly sharedSeeds: StateSeeds<Record<string, unknown>>;
 
   readonly controlTypes: ControlTypeMap;
 
@@ -41,26 +43,28 @@ export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> 
 export type RuntimeFlow<TResult = unknown> = FlowDefinition<TResult> | RecurrentFlowDefinition<TResult>;
 
 /**
- * A built flow with the authoring types it was built with. `TResult` is its egress - what it hands out when it
- * completes and what a parent reads under its slot's name: the committed steps of a linear flow, the chosen arm's
- * egress of a fork, the accumulator of a ring. The phantoms are carried by the type system, never read at runtime.
+ * A built flow: its shared store as read-only signals, its named steps' forms, and the instances behind them, which
+ * also hold the flow it was built from. `TResult` is its egress - what it hands out when it completes and what a
+ * parent reads under its slot's name: the committed steps of a linear flow, the chosen arm's egress of a fork, the
+ * accumulator of a ring. The phantoms are carried by the type system, never read at runtime.
  */
-export interface BuiltFlow<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, TResult = unknown>
-  extends FlowDefinition<TResult> {
+export interface BuiltFlow<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, TResult = unknown> {
   readonly __forms?: TForms;
-
   readonly __context?: TCtx;
-
   readonly __result?: TResult;
+  readonly shared: SharedSignals<StateOf<TCtx['shared']>>;
+  readonly steps: BuiltSteps<TCtx['steps']>;
+  readonly instance: FlowInstance<TResult>;
 }
 
 /** A built ring: a flow whose egress is its accumulator. */
 export interface BuiltRing<TForms = {}, TCtx extends RuntimeStepperContext = RuntimeStepperContext, C = unknown>
-  extends BuiltFlow<TForms, TCtx, C>,
-    RecurrentFlowDefinition<C> {}
+  extends BuiltFlow<TForms, TCtx, C> {
+  readonly __recurrent: true;
+}
 
-/** A flow with its authoring types erased, as `<ngx-formad-stepper>` takes it. */
-export type RuntimeStepper = BuiltFlow<{}, RuntimeStepperContext, unknown>;
+/** A built flow with its authoring types erased. */
+export type RuntimeStepper = BuiltFlow<unknown, RuntimeStepperContext, unknown>;
 
 /** A nested flow occupying one slot of a sequence; its egress reaches successors under `name`. */
 export interface FlowStepNode {

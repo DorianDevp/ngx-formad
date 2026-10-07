@@ -1,8 +1,10 @@
 import { ModelSignal } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
 import { text, UiFormConfigBuilder } from 'formodel';
 import { FormConfig } from '../../form';
 import { ContextOf, ControlKind, FormsOf, KindsOf, RecurrentTerminal } from '../types/builder';
-import { RingContext, RootContext, RuntimeStepperContext, SharedSignals } from '../types/step-context';
+import { SharedSignals } from '../../shared';
+import { RingContext, RootContext, RuntimeStepperContext } from '../types/step-context';
 import { FlowBuilder } from './flow-builder';
 import { RecurrentStepperBuilder } from './recurrent-stepper-builder';
 import { StepperBuilder } from './stepper-builder';
@@ -44,7 +46,7 @@ describe('FlowBuilder - one chain, kept per kind', () => {
   it('hands the linear kind back from every chain method on a linear root', () => {
     const next = root.createForm('a', form('A')).createStep((s) => s.createPage((p) => p.addForm('a')), { name: 'a' });
     const linear: Extends<typeof next, StepperBuilder<{ a: FormConfig<One> }, ControlKind, RuntimeStepperContext>> = true;
-    const built = next.build();
+    const built = TestBed.runInInjectionContext(() => next.build());
     const committed: Extends<NonNullable<NonNullable<(typeof built)['__result']>['a']>['a'], One> = true;
 
     expect([linear, committed]).toEqual([true, true]);
@@ -56,7 +58,7 @@ describe('FlowBuilder - one chain, kept per kind', () => {
     const terminal: Extends<ReturnType<typeof next.dock>, RecurrentTerminal<unknown, RuntimeStepperContext, Draft[]>> = true;
 
     expect([ring, terminal]).toEqual([true, true]);
-    expect(next.fold((state) => state).dock((s) => s.createPage((p) => p.addForm('a'))).build().recurrent).toBe(true);
+    expect(next.fold((state) => state).dock((s) => s.createPage((p) => p.addForm('a'))).define().recurrent).toBe(true);
   });
 
   it('is what a fragment is typed on: a ring and a linear chain both pass as the plain chain', () => {
@@ -80,7 +82,7 @@ describe('FlowBuilder - one chain, kept per kind', () => {
     expect([rootKept, loopKept, entry]).toEqual([true, true, true]);
     expect(onLoop).toBeInstanceOf(RecurrentStepperBuilder);
     expect(onRoot).toBeInstanceOf(StepperBuilder);
-    expect(Object.keys(onLoop.dock((s) => s.createPage((p) => p.addForm('source'))).build().forms)).toEqual(['source']);
+    expect(Object.keys(onLoop.dock((s) => s.createPage((p) => p.addForm('source'))).define().forms)).toEqual(['source']);
   });
 
   it('carries the control kinds through: addControlType widens them on a ring, and use() reads them back', () => {
@@ -90,7 +92,7 @@ describe('FlowBuilder - one chain, kept per kind', () => {
     const kept: Extends<typeof widened, RecurrentStepperBuilder<{}, Draft[], ControlKind | 'serial', RuntimeStepperContext>> = true;
 
     expect([kinds, forms, kept]).toEqual([true, true, true]);
-    expect(widened.dock((s) => s.createPage((p) => p.addContent((c) => c.p('x')))).build().controlTypes).toEqual({ serial: SerialControl });
+    expect(widened.dock((s) => s.createPage((p) => p.addContent((c) => c.p('x')))).define().controlTypes).toEqual({ serial: SerialControl });
   });
 
   it('keeps every terminal with its kind', () => {

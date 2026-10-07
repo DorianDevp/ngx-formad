@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../../form';
 import { provideFormadSuite } from '../../provide';
-import { SharedState } from '../../shared';
+import { createSharedState, resetSharedState } from '../../shared';
 import { StepperBuilder } from '../builder/stepper-builder';
 import { RuntimeStepper } from '../types/flow';
 import { StepperController } from '../types/controller';
@@ -18,16 +18,17 @@ async function settle(fixture: ComponentFixture<unknown>): Promise<void> {
   }
 }
 
-describe('SharedState.reset', () => {
+describe('resetSharedState', () => {
   it('restores initial values, including mutated nested objects', () => {
-    const shared = new SharedState({ name: '', addr: { city: '' } });
-    shared.patch({ name: 'Ada' });
-    shared.patch({ addr: { city: 'Kraków' } });
+    const seeds = { name: '', addr: { city: '' } };
+    const shared = createSharedState(seeds);
+    shared.name.set('Ada');
+    shared.addr.set({ city: 'Kraków' });
 
-    shared.reset();
+    resetSharedState(shared, seeds);
 
-    expect(shared.get('name')).toBe('');
-    expect(shared.get('addr')).toEqual({ city: '' });
+    expect(shared.name()).toBe('');
+    expect(shared.addr()).toEqual({ city: '' });
   });
 });
 

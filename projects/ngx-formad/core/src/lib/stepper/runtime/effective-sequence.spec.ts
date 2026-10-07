@@ -53,7 +53,7 @@ const wizard = new StepperBuilder()
     activeWhen: ({ steps }) => steps.basics.basics.model().accountType !== 'admin',
   })
   .createStep((s) => s.createPage((p) => p.addForm('review'), { heading: 'Review' }))
-  .build();
+  .define();
 
 // A hand-built runtime context, the shape a controller supplies: shared as signals,
 // predecessors' instances under `steps`.
@@ -75,29 +75,29 @@ const everyStepEntered = () => true;
 describe('effectiveSteps', () => {
   it('keeps an unconditional step always', () => {
     const plain = ctx({ shared: { accountType: 'user' }, steps: basics('user') });
-    expect(effectiveSteps(wizard.steps, plain, everyStepEntered).includes(wizard.steps[0])).toBe(true);
-    expect(effectiveSteps(wizard.steps, plain, everyStepEntered).includes(wizard.steps[3])).toBe(true);
+    expect(effectiveSteps(wizard.stepSequenceNodes, plain, everyStepEntered).includes(wizard.stepSequenceNodes[0])).toBe(true);
+    expect(effectiveSteps(wizard.stepSequenceNodes, plain, everyStepEntered).includes(wizard.stepSequenceNodes[3])).toBe(true);
   });
 
   it('drops a step whose `activeWhen` reads false from shared state', () => {
-    const seq = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'user' }, steps: basics('user') }), everyStepEntered);
-    expect(seq).not.toContain(wizard.steps[1]); // Advanced hidden for non-admins
+    const seq = effectiveSteps(wizard.stepSequenceNodes, ctx({ shared: { accountType: 'user' }, steps: basics('user') }), everyStepEntered);
+    expect(seq).not.toContain(wizard.stepSequenceNodes[1]); // Advanced hidden for non-admins
   });
 
   it('includes the step when its shared condition holds', () => {
-    const seq = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'admin' }, steps: basics('user') }), everyStepEntered);
-    expect(seq).toContain(wizard.steps[1]);
+    const seq = effectiveSteps(wizard.stepSequenceNodes, ctx({ shared: { accountType: 'admin' }, steps: basics('user') }), everyStepEntered);
+    expect(seq).toContain(wizard.stepSequenceNodes[1]);
   });
 
   it('evaluates a predecessor’s live instance through `steps`', () => {
     const asAdmin = ctx({ shared: { accountType: 'user' }, steps: basics('admin') });
     // Settings (gated on basics !== admin) is dropped once basics holds admin.
-    expect(effectiveSteps(wizard.steps, asAdmin, everyStepEntered)).not.toContain(wizard.steps[2]);
+    expect(effectiveSteps(wizard.stepSequenceNodes, asAdmin, everyStepEntered)).not.toContain(wizard.stepSequenceNodes[2]);
   });
 
   it('the two branches rejoin: admin and user paths differ then share Review', () => {
-    const admin = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'admin' }, steps: basics('user') }), everyStepEntered);
-    const user = effectiveSteps(wizard.steps, ctx({ shared: { accountType: 'user' }, steps: basics('user') }), everyStepEntered);
+    const admin = effectiveSteps(wizard.stepSequenceNodes, ctx({ shared: { accountType: 'admin' }, steps: basics('user') }), everyStepEntered);
+    const user = effectiveSteps(wizard.stepSequenceNodes, ctx({ shared: { accountType: 'user' }, steps: basics('user') }), everyStepEntered);
     expect(headings(admin)).toEqual(['Basics', 'Advanced', 'Settings', 'Review']);
     expect(headings(user)).toEqual(['Basics', 'Settings', 'Review']);
     // Advanced uses shared (admin only); Settings reads the predecessor's instance —
@@ -125,7 +125,7 @@ describe('the front', () => {
       .createStep((s) => s.createPage((p) => p.addForm('b'), { heading: 'B' }), { name: 'b', activeWhen: gateB })
       .createStep((s) => s.createPage((p) => p.addForm('c'), { heading: 'C' }), { name: 'c', activeWhen: gateC })
       .createStep((s) => s.createPage((p) => p.addForm('d'), { heading: 'D' }), { name: 'd' })
-      .build();
+      .define();
 
   const enteredOnly = (steps: readonly SequenceNode[], ...indices: number[]) => {
     const entered = new Set(indices.map((i) => steps[i]));
@@ -135,7 +135,7 @@ describe('the front', () => {
   it('does not ask a gate past the first listed step not yet entered', () => {
     const askedB: Asked = { count: 0 };
     const flow = build(asking(askedB, true), () => true);
-    const seq = effectiveSteps(flow.steps, ctx(), enteredOnly(flow.steps));
+    const seq = effectiveSteps(flow.stepSequenceNodes, ctx(), enteredOnly(flow.stepSequenceNodes));
 
     expect(askedB.count).toBe(0);
     expect(headings(seq)).toEqual(['A', 'D']); // ungated steps are listed throughout
@@ -145,7 +145,7 @@ describe('the front', () => {
     const askedB: Asked = { count: 0 };
     const askedC: Asked = { count: 0 };
     const flow = build(asking(askedB, true), asking(askedC, true));
-    const seq = effectiveSteps(flow.steps, ctx(), enteredOnly(flow.steps, 0));
+    const seq = effectiveSteps(flow.stepSequenceNodes, ctx(), enteredOnly(flow.stepSequenceNodes, 0));
 
     expect(askedB.count).toBe(1);
     expect(askedC.count).toBe(0); // B is listed but not entered: C waits
@@ -155,7 +155,7 @@ describe('the front', () => {
   it('a skipped gated step keeps the front open for the next gate', () => {
     const askedC: Asked = { count: 0 };
     const flow = build(() => false, asking(askedC, true));
-    const seq = effectiveSteps(flow.steps, ctx(), enteredOnly(flow.steps, 0));
+    const seq = effectiveSteps(flow.stepSequenceNodes, ctx(), enteredOnly(flow.stepSequenceNodes, 0));
 
     expect(askedC.count).toBe(1); // B skipped itself, so C's predecessors are settled
     expect(headings(seq)).toEqual(['A', 'C', 'D']);
@@ -163,7 +163,7 @@ describe('the front', () => {
 
   it('decides the whole sequence once every listed step is entered', () => {
     const flow = build(() => true, () => false);
-    const seq = effectiveSteps(flow.steps, ctx(), enteredOnly(flow.steps, 0, 1));
+    const seq = effectiveSteps(flow.stepSequenceNodes, ctx(), enteredOnly(flow.stepSequenceNodes, 0, 1));
 
     expect(headings(seq)).toEqual(['A', 'B', 'D']);
   });
@@ -200,16 +200,16 @@ const branched = new StepperBuilder()
     free: (b) => b.createStep((s) => s.createPage((p) => p.addForm('free'), { heading: 'Free' })),
   })
   .createStep((s) => s.createPage((p) => p.addForm('done'), { heading: 'Done' }))
-  .build();
+  .define();
 
 describe('branching (sugar over conditional steps)', () => {
   it('selects the chosen branch and rejoins after it', () => {
-    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'free', addons: false } }), everyStepEntered))).toEqual([
+    expect(headings(effectiveSteps(branched.stepSequenceNodes, ctx({ shared: { plan: 'free', addons: false } }), everyStepEntered))).toEqual([
       'Start',
       'Free',
       'Done',
     ]);
-    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'pro', addons: false } }), everyStepEntered))).toEqual([
+    expect(headings(effectiveSteps(branched.stepSequenceNodes, ctx({ shared: { plan: 'pro', addons: false } }), everyStepEntered))).toEqual([
       'Start',
       'Pro',
       'Done', // Addons dropped: its own `activeWhen` (addons === true) failed
@@ -217,14 +217,14 @@ describe('branching (sugar over conditional steps)', () => {
   });
 
   it('ANDs a branch step’s own condition with the branch guard', () => {
-    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'pro', addons: true } }), everyStepEntered))).toEqual([
+    expect(headings(effectiveSteps(branched.stepSequenceNodes, ctx({ shared: { plan: 'pro', addons: true } }), everyStepEntered))).toEqual([
       'Start',
       'Pro',
       'Addons', // now both the branch guard and the step's `activeWhen` hold
       'Done',
     ]);
     // The Addons step never appears for the free plan, regardless of the addons flag.
-    expect(headings(effectiveSteps(branched.steps, ctx({ shared: { plan: 'free', addons: true } }), everyStepEntered))).toEqual([
+    expect(headings(effectiveSteps(branched.stepSequenceNodes, ctx({ shared: { plan: 'free', addons: true } }), everyStepEntered))).toEqual([
       'Start',
       'Free',
       'Done',
@@ -251,20 +251,20 @@ describe('branching (sugar over conditional steps)', () => {
           pickup: (b) => b.createStep((s) => s.createPage((p) => p.addForm('store'), { heading: 'Store' })),
         },
       )
-      .build();
+      .define();
     const answering = (fulfilment: Fulfilment | null) =>
       ctx({ steps: { cart: { cart: { model: () => ({ fulfilment }) } } } });
 
     const nothingEntered = () => false;
-    expect(headings(effectiveSteps(flow.steps, answering('delivery'), nothingEntered))).toEqual(['Cart']);
+    expect(headings(effectiveSteps(flow.stepSequenceNodes, answering('delivery'), nothingEntered))).toEqual(['Cart']);
     expect(asked).toBe(0);
 
-    const cartEntered = (node: SequenceNode) => node === flow.steps[0];
-    expect(headings(effectiveSteps(flow.steps, answering(null), cartEntered))).toEqual(['Cart']);
+    const cartEntered = (node: SequenceNode) => node === flow.stepSequenceNodes[0];
+    expect(headings(effectiveSteps(flow.stepSequenceNodes, answering(null), cartEntered))).toEqual(['Cart']);
     expect(asked).toBe(1); // decided once for both arms, and the null answer names no arm
 
-    expect(headings(effectiveSteps(flow.steps, answering('delivery'), cartEntered))).toEqual(['Cart', 'Address']);
-    expect(headings(effectiveSteps(flow.steps, answering('pickup'), cartEntered))).toEqual(['Cart', 'Store']);
+    expect(headings(effectiveSteps(flow.stepSequenceNodes, answering('delivery'), cartEntered))).toEqual(['Cart', 'Address']);
+    expect(headings(effectiveSteps(flow.stepSequenceNodes, answering('pickup'), cartEntered))).toEqual(['Cart', 'Store']);
     expect(asked).toBe(3); // one walk, one decision
   });
 });

@@ -81,15 +81,14 @@ const wizard = new StepperBuilder()
     step.createPage((page) => page.addForm('billing', { fieldValueBindings: (f, s) => [link(f.company, s.company)] }), {
       heading: 'Billing',
     }),
-  )
-  .build();
+  );
 
 @Component({
   imports: [StepperComponent],
   template: `<ngx-formad-stepper [stepper]="wizard" />`,
 })
 class SignupWizard {
-  readonly wizard = wizard;
+  readonly wizard = wizard.build(); // in an injection context: the forms are built here, and live as long as this component
 }
 ```
 
@@ -421,15 +420,14 @@ const editorPage = new StepperBuilder()
           }),
       { heading: 'Edit article' },
     ),
-  )
-  .build();
+  );
 
 @Component({
   imports: [StepperComponent],
   template: `<ngx-formad-stepper [stepper]="page" />`,
 })
 export class EditorScreen {
-  readonly page = editorPage;
+  readonly page = editorPage.build();
 }
 ```
 
@@ -535,15 +533,15 @@ const wizard = new StepperBuilder()
       (page) => page.addForm('seo', { fieldValueBindings: (f, s) => [link(f.slug, s.slug)] }), // shared.slug → seo.slug (prefill)
       { heading: 'SEO' },
     ),
-  )
-  .build();
+  );
 
 @Component({
   imports: [StepperComponent],
   template: `<ngx-formad-stepper [stepper]="wizard" />`,
 })
 export class PublishWizard {
-  readonly wizard = wizard;
+  readonly wizard = wizard.build();
+  readonly slug = computed(() => this.wizard.shared.slug()); // the store, one read-only signal per key
 }
 ```
 
@@ -810,11 +808,43 @@ new StepperBuilder()
   hydrates.
 
 The built `Stepper` is the source of truth for these types: `CommittedOf<typeof built>`
-is the shape of everything it commits — `{ [step]?: { [poolName]: model } }` — so a
-host narrows the erased `stepCommitted` record once, at the boundary. Hosts compose
-the same primitives the shell uses — `effectiveSteps(steps, ctx)` (the conditional
-filter), `resolveStepForms(pages, pool)` (await lazy configs) and
+is the shape of everything it commits — `{ [step]?: { [poolName]: model } }` — and
+`<ngx-formad-stepper [stepper]="built">` types `(stepCommitted)` and `(completed)` from it,
+so a host reads them without a cast. Hosts compose the same primitives the shell uses —
+`effectiveSteps(flow.stepSequenceNodes, ctx)` (the conditional filter, over `define()`'s
+flow), `resolveStepForms(pages, pool)` (await lazy configs) and
 `materializeStep(pages, options)` — and drive their own `@defer` with any trigger.
+
+### The built stepper — `shared` and `steps`
+
+`build()` runs in an injection context (a field initializer, a constructor,
+`runInInjectionContext`) and owns what it builds: the flow's environment, the shared state
+and **every eager form** — gated steps and arms included — built there and then. They live as
+long as that context; `<ngx-formad-stepper>` only draws them, so drawing the same stepper
+again shows what was typed, and `reset()` starts it over. A chain that is nested or merged
+never builds anything of its own: `define()` hands out the flow as data.
+
+```ts
+class Checkout {
+  readonly checkout = checkoutFlow.build();
+
+  readonly plan = computed(() => this.checkout.shared.plan());                   // Signal<'free' | 'pro'>, read-only
+  readonly street = computed(() => this.checkout.steps.address.forms.shipping.model().street); // FormState<Address>
+  readonly extras = computed(() => this.checkout.steps.extras.forms.addons()?.model());         // a loader: Signal<FormState | null>
+}
+```
+
+- **`stepper.shared.<key>`** is the `withState` key as a read-only signal. A host reads the
+  store; the stepper and what it draws (links, page components, formFields through
+  `FormadWizard`) write it.
+- **`stepper.steps.<step>.forms.<form>`** — a named step's forms. A config, placed on a step
+  built once, is **the instance itself**, a `FormState` typed by its template. A loader, and
+  any form of a step built on entry (`StepPages.OnEntry`), is a **`Signal<FormState | null>`**
+  that holds the instance once its step brings it to life. A nested flow's or a ring's slot
+  is not a step here; its egress is in `committed`.
+- One instance for life: a `StepRevisit.Fresh` step, `goTo(…, { fresh: true })`, `reset()`
+  and a ring's next pass start **the same instance** over (`FormState.reset()`: the model
+  back to what its factory starts from, every field untouched and pristine).
 
 ### Branching
 
@@ -891,10 +921,9 @@ const wizard = new StepperBuilder()
         .createForm('company', companyForm)
         .createStep((s) => s.createPage(/* company */), { name: 'company' })
         .createStep((s) => s.createPage(/* seats */), { name: 'seats' }),
-  })
-  .build();
-// build() → Stepper<…, { individual: { person?: { person: Person } } }
-//                     | { business: { company?: { company: Company }; seats?: … } }>
+  });
+// wizard.build() → Stepper<…, { individual: { person?: { person: Person } } }
+//                            | { business: { company?: { company: Company }; seats?: … } }>
 ```
 
 Each arm's egress is what a linear flow of its own would hand out — its named steps'
@@ -1443,23 +1472,27 @@ user *types*.
 ## Reading collected data from a slot — `FormadWizard`
 
 A summary screen, or a widget that contributes to shared state, needs the wizard's
-data without the host wiring inputs. `<ngx-formad-stepper>` provides a `FormadWizard`
-for its subtree; inject it from any slot or custom control:
+data without the host wiring inputs. A built stepper's environment holds a `FormadWizard`,
+so anything the stepper draws injects it — a page component, a dock, a formField of a step
+form alike. Type it by the built stepper:
 
 ```ts
-@Component({ selector: 'app-summary', imports: [JsonPipe], template: `{{ data() | json }}` })
+@Component({ selector: 'app-summary', template: `{{ city() }}` })
 class Summary {
-  private readonly wiz = inject(FormadWizard, { optional: true }); // null outside a stepper
-  protected data = computed(() => this.wiz?.committed());           // { [step]: { [poolName]: model } }
+  private readonly wiz = inject<FormadWizard<Checkout['checkout']>>(FormadWizard);
+  protected readonly city = computed(() => this.wiz.committed().address?.shipping.city ?? ''); // typed, no cast
+
+  pickPro(): void {
+    this.wiz.shared.plan.set('pro'); // inside the stepper the store is writable
+  }
 }
 ```
 
-`FormadWizard` exposes `committed()` (the same record the shell emits as
-`stepCommitted`), `controller()` (the `StepperController` → `step()`, `result()`,
-`progress()`, …; `null` until the shell has built it) and `shared`
-(`get`/`patch`/`select`/`snapshot`; `sharedOrNull()` when the widget may also render
-outside a stepper). Summaries stay free-form — you read the data and render it however
-you like.
+`FormadWizard<S>` exposes `committed()` (the same record the shell emits as
+`stepCommitted`), `steps` (the built stepper's `steps`, instances and signals as above),
+`shared` (one **writable** signal per `withState` key) and `controller()` (the
+`StepperController` → `step()`, `result()`, `progress()`, …; `null` until a shell draws the
+stepper). Summaries stay free-form — you read the data and render it however you like.
 
 ## Bindings — one place per form instance
 
@@ -1577,17 +1610,19 @@ Everything is exported from the package root (`ngx-formad`).
 | `FlowBuilder` | The chain every builder shares: `withState`, `createForm`, `provide`, `addControlType`/`overrideControlType` (typed: add rejects an existing kind, override requires one), `createStep`, `branch`, `createStepper`, `createRecurrentStepper` and `use(fragment)`. Each method narrows the type and hands back the kind it was called on (`Rebound<this, …>`); a fragment is typed on it. |
 | `StepperBuilder` | The linear kind: the root, an arm, a nested flow. `FlowBuilder` plus the terminals `fork` and `build()`. |
 | `RecurrentStepperBuilder` | The ring kind: `FlowBuilder` plus `fold` and the terminal `dock`, whose config carries the flow's `completeWhen` and hands back the `build()`. `createRecurrentStepper` hands one over; `new RecurrentStepperBuilder({ state })` starts a ring at the root. |
-| `FormadWizard` | Injectable per stepper — `committed()`, `controller()`, `shared`. Inject it `{ optional: true }` from a slot or custom control to read the wizard's data. |
+| `FormadWizard<S>` | Held by a built stepper's environment — `committed()`, `steps`, `shared` (writable), `controller()`. Anything the stepper draws injects it, a formField of a step form included; `inject<FormadWizard<typeof built>>(FormadWizard)` types it. |
 | `Branch<TForms, TCtx, TResult>` | What an arm or a nested flow's callback returns: anything with `build()` into a flow — a chain, or what `fork` returns. `Egress<B>` reads its egress type. |
-| `Stepper<TForms, TCtx, TResult>` | The built linear flow or fork: `{ forms, steps, shared, controlTypes, providers, resolveResult? }`; `TResult` is its egress (the committed record, or a fork's keyed union). `RecurrentStepper<TForms, TCtx, C>` is the ring counterpart. Both implement `BuiltFlow`. |
-| `RuntimeStepper` / `RuntimeFlow` | The same with the authoring types erased — what the shell's `[stepper]` input and the controller take. A built `Stepper` is assignable as it is. |
+| `Stepper<TForms, TCtx, TResult>` | The built linear flow or fork, made by `build()` in an injection context: `{ shared, steps, instance }` — `shared.<key>` a read-only signal, `steps.<step>.forms.<form>` the instance (eager) or a `Signal<FormState \| null>` (a loader, a step built on entry), `instance` the `FlowInstance` the shell draws. `TResult` is its egress (the committed record, or a fork's keyed union). `RecurrentStepper<TForms, TCtx, C>` is the ring counterpart. Both implement `BuiltFlow`. |
+| `FlowDefinition` / `RuntimeFlow` | What `define()` hands out: the flow as data — `{ stepSequenceNodes, forms, sharedSeeds, controlTypes, providers, resolveResult? }`; `stepSequenceNodes` are the steps in order, each a leaf step or a nested flow's slot. |
+| `RuntimeStepper` | A built stepper with its authoring types erased. A built `Stepper` is assignable as it is. |
+| `BuiltSteps<TSteps>` / `BuiltOnEntry<T>` | The type of `stepper.steps`, and the mark an instance built on entry (a loader's, a `StepPages.OnEntry` step's) carries in the step context — the type system's alone. |
 | `CommittedOf<typeof built>` | The typed shape of what a built stepper commits: `{ [step]?: { [poolName]: model } }`; a nested flow's or a ring's entry is its egress as it is. |
 | `StepPages` | When a step's pages are built: `Once` (default, at authoring time) or `OnEntry` (again on every entry, over the live context). |
 | `ControlKind` | The built-in control kinds as an enum (`ControlKind.Text`, …); `addControlType` refuses to redeclare one. |
 | `StepRevisit` / `FormRevisit` | The revisit policies: `StepRevisit.Keep \| Fresh` on a step, `FormRevisit.Keep \| Reseed` on a placement. |
 | `DeferTrigger` | `Idle \| Viewport \| Interaction` — the `@defer` trigger a step renders under. |
 | `FlowDock<C>` / `FormadDockRestart` / `FormadDockNext` | What a dock component uses: the service (`restart`, `amend`, `next`), or the `ngxFormadDockRestart` / `ngxFormadDockNext` attributes on its buttons. |
-| `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) (stepCommitted) />` shell — builds the controller, renders the chrome, emits the result on finish and the committed record on each move. |
+| `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) (stepCommitted) />` shell — drives a built stepper's instances, renders the chrome, emits the result on finish and the committed record on each move, both typed from `[stepper]`. |
 
 ### Run it yourself (bring-your-own-UI)
 
@@ -1602,7 +1637,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `isStepNode` / `isFlowStep` | Narrow a `SequenceNode` to a leaf step or a nested flow slot. |
 | `LiveStep` / `LiveForm` | `LiveStep = { registry, forms, components, instances, pages, context }`; `LiveForm = { name, state, visible, issues, seed(ctx), reseed(ctx), commit(), touch(), destroy() }`. |
 | `InstanceRegistry` | Collects a step's live forms; `completed()` folds `valid()` over the visible ones. |
-| `SharedState<S>` | The plain-signal cross-step store: `get(key)`, `select(key)`, `signals()`, `snapshot()`, `seeds()`, `patch(partial)`, `reset()`. Seeded with `StateSeeds<S>`: per key a value, or a `WritableSignal` kept as the cell and never reset. |
+| `SharedState<S>` / `SharedSignals<S>` | The cross-step store as one signal per key, `sharedState.plan` — writable inside the stepper (`SharedState`, `FormadWizard.shared`), read-only on the built stepper (`SharedSignals`, `stepper.shared`). Made by `createSharedState(seeds)` from `StateSeeds<S>`: per key a value, or a `WritableSignal` kept as the cell; `resetSharedState(state, seeds)` puts every other key back to its seed. |
 | `StepperProgress` | What `progress()` returns: `levels`, each a `LinearProgressLevel` (rail) or a `RecurrentProgressLevel` (pass bar, dock, folds). |
 
 ### Configure the look (call once)
@@ -1638,21 +1673,29 @@ new StepperBuilder()
 //  Stepper<{ article: FormConfig<Article>; seo: FormConfig<Seo> }, TCtx, never>
 ```
 
-So `build()` produces a `Stepper` whose shape is everything the chain accumulated:
+So `define()` hands out the flow the chain accumulated, as data, and `build()` — in an
+injection context — the `Stepper` built from it:
 
 ```ts
-class Stepper<TForms, TCtx, TResult> {
+interface FlowDefinition<TResult> {
+  readonly stepSequenceNodes: readonly SequenceNode[]; // the steps in order: leaf steps and nested flow slots
   readonly forms: Record<string, FormConfig | (() => Promise<FormConfig>)>; // the pool: templates by name
-  readonly steps: readonly SequenceNode[]; // leaf steps and nested flow slots, the plain tree the runtime walks
-  readonly shared: SharedState; // the live cross-step store
+  readonly sharedSeeds: StateSeeds; // what withState seeded
   readonly controlTypes: ControlTypeMap; // wizard-scoped custom kinds
   readonly providers: readonly Provider[]; // the flow's own injection environment
   readonly resolveResult?: (ctx) => TResult; // set by fork()
 }
+
+class Stepper<TForms, TCtx, TResult> {
+  readonly shared: SharedSignals<…>; // stepper.shared.slug(): one read-only signal per key
+  readonly steps: BuiltSteps<TCtx['steps']>; // stepper.steps.basics.forms.article: FormState<Article>
+  readonly instance: FlowInstance<TResult>; // the instances and their flow, what the shell draws
+}
 ```
 
 A built `Stepper` goes straight into `<ngx-formad-stepper [stepper]>`, or you walk
-`steps`/`forms`/`shared` yourself with `materializeStep` — the bring-your-own-UI path.
+`define()`'s `stepSequenceNodes`/`forms` yourself with `materializeStep` — the
+bring-your-own-UI path.
 The inner callbacks have small, fixed shapes:
 
 ```ts

@@ -1,5 +1,5 @@
-import { InjectionToken, isSignal, signal, Signal, WritableSignal } from '@angular/core';
-import { StateSeeds } from './types/shared-state';
+import { isSignal, signal, WritableSignal } from '@angular/core';
+import { SharedState, StateSeeds } from './types/shared-state';
 
 const STRUCTURED_CLONE = typeof structuredClone === 'function';
 
@@ -48,83 +48,26 @@ function clone<V>(value: V, seen: WeakMap<object, unknown> = new WeakMap()): V {
 }
 
 /**
- * The cross-step shared store: one writable signal per key, read through `select`, `get` and `signals`. A key seeded
- * with a signal of yours keeps that signal as its cell; the store never resets it, the author owns it.
+ * The shared store a seed record stands for: one writable signal per key, `sharedState.plan`. A key seeded with a
+ * signal of yours has that signal as its cell; any other gets a signal of its own over a copy of the seed.
  */
-export class SharedState<T extends Record<string, unknown> = Record<string, unknown>> {
-  private readonly cells = new Map<string, WritableSignal<T[string]>>();
-
-  private readonly owned = new Set<string>();
-
-  private readonly initial: Record<string, T[string]> = {};
-
-  constructor(seeds: StateSeeds<T>) {
-    for (const key in seeds) {
-      const seed: T[string] | WritableSignal<T[string]> = seeds[key];
-      if (isSignal(seed)) {
-        this.owned.add(key);
-        // `isSignal` knows a signal, not a writable one; `StateSeeds` let only a writable one in.
-        this.cells.set(key, seed as WritableSignal<T[string]>);
-      } else {
-        this.initial[key] = clone(seed);
-        this.cells.set(key, signal(clone(seed)));
-      }
-    }
+export function createSharedState<T extends Record<string, unknown>>(seeds: StateSeeds<T>): SharedState<T> {
+  const state: Record<string, WritableSignal<unknown>> = {};
+  for (const key in seeds) {
+    const seed: unknown = seeds[key];
+    // `isSignal` knows a signal, not a writable one; `StateSeeds` let only a writable one in.
+    state[key] = isSignal(seed) ? (seed as WritableSignal<unknown>) : signal(clone(seed));
   }
 
-  /** Resets the keys the store made a signal for; a signal of yours stays as it is. */
-  reset(): void {
-    const fresh = clone(this.initial);
-    for (const key in fresh) this.cell(key).set(fresh[key]);
-  }
-
-  /** What a store rebuilt from this one is seeded with: a signal of yours as itself, any other key by its current value. */
-  seeds(): StateSeeds<T> {
-    const seeds: Record<string, unknown> = {};
-    for (const [key, cell] of this.cells) seeds[key] = this.owned.has(key) ? cell : cell();
-
-    return seeds as StateSeeds<T>;
-  }
-
-  select(key: string): Signal<T[string]> {
-    return this.cell(key).asReadonly();
-  }
-
-  get(key: string): T[string] {
-    return this.cell(key)();
-  }
-
-  signals(): Readonly<Record<string, Signal<T[string]>>> {
-    const view: Record<string, Signal<T[string]>> = {};
-    for (const [key, cell] of this.cells) view[key] = cell.asReadonly();
-
-    return view;
-  }
-
-  snapshot(): Readonly<Record<string, T[string]>> {
-    const values: Record<string, T[string]> = {};
-    for (const [key, cell] of this.cells) values[key] = cell();
-
-    return values;
-  }
-
-  patch(partial: Partial<T>): void {
-    for (const key in partial) {
-      const value = partial[key];
-      if (value !== undefined) this.cell(key).set(value);
-    }
-  }
-
-  private cell(key: string): WritableSignal<T[string]> {
-    const cell = this.cells.get(key);
-    if (!cell) throw new Error(`ngx-formad: shared state has no key "${key}".`);
-
-    return cell;
-  }
+  // Built key by key from `seeds`, which `StateSeeds<T>` keys exactly as `T`.
+  return state as SharedState<T>;
 }
 
-/**
- * The store of the enclosing stepper, for a form instantiated inside one without being handed a store of its own;
- * `null` where no stepper provides it.
- */
-export const SHARED_STATE = new InjectionToken<SharedState | null>('ngx-formad.shared-state');
+/** Puts every key the store made a signal for back to a copy of its seed; a signal of yours stays as it is, the author owns it. */
+export function resetSharedState<T extends Record<string, unknown>>(state: SharedState<T>, seeds: StateSeeds<T>): void {
+  const cells: Readonly<Record<string, WritableSignal<unknown>>> = state;
+  for (const key in seeds) {
+    const seed: unknown = seeds[key];
+    if (!isSignal(seed)) cells[key].set(clone(seed));
+  }
+}

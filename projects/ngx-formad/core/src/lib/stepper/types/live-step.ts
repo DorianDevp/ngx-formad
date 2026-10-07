@@ -2,7 +2,7 @@ import { EnvironmentInjector, Injector, Signal } from '@angular/core';
 import { FormState, RuntimeFormConfig } from '../../form';
 import { SharedState } from '../../shared';
 import type { InstanceRegistry } from '../runtime/instance-registry';
-import { ComponentNode, PageNode } from './nodes';
+import { ComponentNode, FormNode, PageNode } from './nodes';
 import { RuntimeStepContext, RuntimeStepperContext } from './step-context';
 
 /** One blocker shown when Next is refused: the field's label and the message. */
@@ -35,9 +35,6 @@ export interface LiveForm {
   commit(): void;
 
   touch(): void;
-
-  /** Ends the instance's effects; called when the step that owns it is dropped. */
-  destroy(): void;
 }
 
 /** A step turned live: its registry, forms, an injector per page component carrying its mount, instances by pool name and pages. */
@@ -57,11 +54,15 @@ export interface LiveStep {
 }
 
 /**
- * What a step materializes against: the resolved templates, the shared store, the flow environment, the element
- * injector its components resolve through (the stepper's; the environment when there is none) and the entry context.
+ * What a step materializes against: the resolved templates, the instance each placed form draws, the shared store,
+ * the flow environment, the element injector its components resolve through (the stepper's; the environment when there
+ * is none) and the entry context.
  */
 export interface MaterializeOptions {
   readonly pool: Record<string, RuntimeFormConfig>;
+
+  /** The instance a placed form draws: built with the stepper, or now from its resolved template. */
+  formFor(node: FormNode, config: RuntimeFormConfig): FormState;
 
   readonly shared: SharedState;
 
@@ -71,6 +72,6 @@ export interface MaterializeOptions {
 
   readonly entry: RuntimeStepperContext;
 
-  /** The context a form's handlers and effects read; called again on every emission, so `steps` stays live. */
+  /** The context a page component's bindings read; called again on every read, so `steps` stays live. */
   readonly context?: () => RuntimeStepperContext;
 }

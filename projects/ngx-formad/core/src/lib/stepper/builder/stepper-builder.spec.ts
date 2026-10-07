@@ -53,7 +53,7 @@ describe('StepperBuilder', () => {
           }), { heading: 'Billing' },
         ),
       )
-      .build();
+      .define();
   }
 
   it('collects the form pool under its declaration names', () => {
@@ -63,13 +63,13 @@ describe('StepperBuilder', () => {
 
   it('emits one step node per createStep, with a page each', () => {
     const stepper = buildStepper();
-    expect(stepper.steps.length).toBe(2);
-    expect(pagesAt(stepper.steps, 0)[0].options.heading?.()).toBe('Account');
+    expect(stepper.stepSequenceNodes.length).toBe(2);
+    expect(pagesAt(stepper.stepSequenceNodes, 0)[0].options.heading?.()).toBe('Account');
   });
 
   it('records a form node selected by callback, with its shared links', () => {
     const stepper = buildStepper();
-    const children = pagesAt(stepper.steps, 0)[0].children;
+    const children = pagesAt(stepper.stepSequenceNodes, 0)[0].children;
     const formNode = children.find((c) => c.kind === LayoutNodeKind.Form) as FormNode;
 
     expect(formNode.name).toBe('account');
@@ -92,9 +92,9 @@ describe('StepperBuilder', () => {
           }), { heading: 'Billing' },
         ),
       )
-      .build();
+      .define();
 
-    const formNode = pagesAt(stepper.steps, 0)[0].children.find(
+    const formNode = pagesAt(stepper.stepSequenceNodes, 0)[0].children.find(
       (c) => c.kind === LayoutNodeKind.Form,
     ) as FormNode;
     expect(formNode.links).toEqual([{ modelPath: ['vat'], sharedKey: 'vat' }]);
@@ -102,7 +102,7 @@ describe('StepperBuilder', () => {
 
   it('normalizes a dynamic component into bindings', () => {
     const stepper = buildStepper();
-    const children = pagesAt(stepper.steps, 0)[0].children;
+    const children = pagesAt(stepper.stepSequenceNodes, 0)[0].children;
     const componentNode = children.find((c) => c.kind === LayoutNodeKind.Component) as ComponentNode;
 
     expect(componentNode.component).toBe(Banner);
@@ -136,10 +136,10 @@ describe('StepperBuilder', () => {
           { heading: 'Billing' },
         ),
       )
-      .build();
+      .define();
 
     const componentAt = (index: number) =>
-      pagesAt(stepper.steps, index)[0].children.find((c) => c.kind === LayoutNodeKind.Component) as ComponentNode;
+      pagesAt(stepper.stepSequenceNodes, index)[0].children.find((c) => c.kind === LayoutNodeKind.Component) as ComponentNode;
 
     expect(componentAt(0).bindings(EMPTY_CONTEXT).length).toBe(1);
     expect(componentAt(1).bindings(EMPTY_CONTEXT)).toEqual([]);
@@ -148,7 +148,7 @@ describe('StepperBuilder', () => {
 
   it('seeds the shared store from withState', () => {
     const stepper = buildStepper();
-    expect(stepper.shared.get('email')).toBe('');
+    expect(stepper.sharedSeeds['email']).toBe('');
   });
 
   it('records step-level activeWhen / optional / defer on the node', () => {
@@ -160,9 +160,9 @@ describe('StepperBuilder', () => {
         defer: DeferTrigger.Idle,
         activeWhen: ({ shared }) => shared.email() === 'go',
       })
-      .build();
+      .define();
 
-    const node = leafAt(stepper.steps, 0);
+    const node = leafAt(stepper.stepSequenceNodes, 0);
     expect(node.optional).toBe(true);
     expect(node.defer).toBe('idle');
     // The condition is stored erased but stays callable with a runtime context.
@@ -204,9 +204,9 @@ describe('fieldValueBindings', () => {
           { heading: 'Route' },
         ),
       )
-      .build();
+      .define();
 
-    const node = pagesAt(stepper.steps, 0)[0].children.find((c) => c.kind === LayoutNodeKind.Form) as FormNode;
+    const node = pagesAt(stepper.stepSequenceNodes, 0)[0].children.find((c) => c.kind === LayoutNodeKind.Form) as FormNode;
     expect(node.links).toEqual([{ modelPath: ['path'], sharedKey: 'route' }]);
   });
 });
@@ -234,6 +234,6 @@ describe('link', () => {
           { heading: 'Route' },
         ),
       )
-      .build();
+      .define();
   });
 });

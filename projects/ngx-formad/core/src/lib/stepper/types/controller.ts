@@ -1,6 +1,7 @@
 import { EnvironmentInjector, Injector, Signal } from '@angular/core';
 import { LiveStep, StepIssue } from './live-step';
-import { DeferTrigger, RecurrentSignals, RuntimeStepperContext, SharedSignals } from './step-context';
+import { SharedSignals } from '../../shared';
+import { DeferTrigger, RecurrentSignals, RuntimeStepperContext } from './step-context';
 
 /** Options of `goTo`; `fresh` drops the target and everything after it before entering. */
 export interface GoToOptions {

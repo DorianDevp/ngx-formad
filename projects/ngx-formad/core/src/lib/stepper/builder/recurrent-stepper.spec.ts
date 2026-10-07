@@ -3,7 +3,8 @@ import { UiFormConfigBuilder, text } from 'formodel';
 import { FormConfig } from '../../form';
 import { effectiveSteps } from '../runtime/effective-sequence';
 import { SequenceNodeKind } from '../types/nodes';
-import { RuntimeStepperContext, SharedSignals } from '../types/step-context';
+import { SharedSignals } from '../../shared';
+import { RuntimeStepperContext } from '../types/step-context';
 import { isFlowStep, isRecurrent, isStepNode } from './flow';
 import { RecurrentStepperBuilder } from './recurrent-stepper-builder';
 import { StepperBuilder } from './stepper-builder';
@@ -69,15 +70,15 @@ const built = new StepperBuilder()
           incompleteMessage: 'Add at least one device',
         }),
   })
-  .build();
+  .define();
 
-const flowNode = built.steps[1];
+const flowNode = built.stepSequenceNodes[1];
 
 const ring = isFlowStep(flowNode) && isRecurrent(flowNode.flow) ? flowNode.flow : null;
 
 describe('createRecurrentStepper - the emitted node', () => {
   it('emits ONE flow node carrying the whole ring', () => {
-    expect(built.steps.length).toBe(2);
+    expect(built.stepSequenceNodes.length).toBe(2);
     expect(flowNode.kind).toBe(SequenceNodeKind.Flow);
     if (!isFlowStep(flowNode)) throw new Error('expected a flow step');
     expect(flowNode.name).toBe('devices');
@@ -86,11 +87,11 @@ describe('createRecurrentStepper - the emitted node', () => {
 
   it('does NOT merge the flow pool or state into the parent', () => {
     expect(Object.keys(built.forms)).toEqual(['intro']);
-    expect(() => built.shared.get('draftName' as never)).toThrow();
+    expect('draftName' in built.sharedSeeds).toBe(false);
   });
 
   it('authors the dock last and records its position', () => {
-    expect(ring?.dockAt).toBe((ring?.steps.length ?? 0) - 1);
+    expect(ring?.dockAt).toBe((ring?.stepSequenceNodes.length ?? 0) - 1);
   });
 
   // The flow's contract is its dock's business: the ring has no exit but the dock, and the
@@ -100,7 +101,7 @@ describe('createRecurrentStepper - the emitted node', () => {
     expect(flowNode.completeWhen).toBeUndefined();
     expect(flowNode.incompleteMessage).toBeUndefined();
 
-    const dock = ring?.steps[ring.dockAt];
+    const dock = ring?.stepSequenceNodes[ring.dockAt];
     if (!dock || !isStepNode(dock)) throw new Error('expected a leaf dock');
     expect(dock.incompleteMessage).toBe('Add at least one device');
     expect(dock.completeWhen?.(ctx({ state: [{ name: 'a' }], passOpen: false }))).toBe(true);
@@ -113,29 +114,29 @@ const everyStepEntered = () => true;
 
 describe('createRecurrentStepper - the ring gates', () => {
   it('shows exactly the dock while no pass is open', () => {
-    const visible = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: false }), everyStepEntered);
+    const visible = effectiveSteps(ring!.stepSequenceNodes, ctx({ state: [], passOpen: false }), everyStepEntered);
     expect(visible.length).toBe(1);
-    expect(visible[0]).toBe(ring!.steps[ring!.dockAt]);
+    expect(visible[0]).toBe(ring!.stepSequenceNodes[ring!.dockAt]);
   });
 
   it('shows exactly the chosen branch of the pass while a pass is open', () => {
-    const manual = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'manual' } }), everyStepEntered);
-    const invoice = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: 'invoice' } }), everyStepEntered);
+    const manual = effectiveSteps(ring!.stepSequenceNodes, ctx({ state: [], passOpen: true, values: { source: 'manual' } }), everyStepEntered);
+    const invoice = effectiveSteps(ring!.stepSequenceNodes, ctx({ state: [], passOpen: true, values: { source: 'invoice' } }), everyStepEntered);
     expect(manual.length).toBe(1);
     expect(invoice.length).toBe(1);
     expect(manual[0]).not.toBe(invoice[0]);
-    expect(manual[0]).not.toBe(ring!.steps[ring!.dockAt]);
+    expect(manual[0]).not.toBe(ring!.stepSequenceNodes[ring!.dockAt]);
   });
 
   it('gates the dock completeness on the state, with the authored message', () => {
-    const dock = ring!.steps[ring!.dockAt];
+    const dock = ring!.stepSequenceNodes[ring!.dockAt];
     expect(dock.completeWhen?.(ctx({ state: [], passOpen: false }))).toBe(false);
     expect(dock.completeWhen?.(ctx({ state: [{ name: 'a' }], passOpen: false }))).toBe(true);
     expect(dock.incompleteMessage).toBe('Add at least one device');
   });
 
   it('keeps every branch out of the sequence while the selector reports null', () => {
-    const undecided = effectiveSteps(ring!.steps, ctx({ state: [], passOpen: true, values: { source: null } }), everyStepEntered);
+    const undecided = effectiveSteps(ring!.stepSequenceNodes, ctx({ state: [], passOpen: true, values: { source: null } }), everyStepEntered);
 
     expect(undecided.length).toBe(0);
   });

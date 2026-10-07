@@ -1,14 +1,14 @@
 import { Provider } from '@angular/core';
 import { ControlTypeMap } from '../../controls';
-import { SharedState } from '../../shared';
+import { StateSeeds } from '../../shared';
 import { FlowDefinition, SequenceNode } from './flow';
 import { AnyFormProvider } from './step-context';
 
-/** What a chain accumulates while it is authored: its pool, its shared seed, its sequence, its control kinds and providers. */
+/** What a chain accumulates while it is authored: its pool, its shared seeds, its sequence, its control kinds and providers. */
 export interface ChainState {
   readonly forms: Readonly<Record<string, AnyFormProvider>>;
 
-  readonly shared: SharedState;
+  readonly sharedSeeds: StateSeeds<Record<string, unknown>>;
 
   readonly steps: readonly SequenceNode[];
 

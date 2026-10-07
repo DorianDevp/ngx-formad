@@ -1,6 +1,6 @@
 import { Provider, Type } from '@angular/core';
 import { PlacesCustomFields } from '../../form';
-import { SharedState, StateOf } from '../../shared';
+import { StateOf } from '../../shared';
 import {
   AnyBranch,
   BranchAdded,
@@ -29,7 +29,6 @@ import {
   AfterSteps,
   AnyFormProvider,
   ChildContext,
-  ConfigOf,
   FormPlaced,
   FormUi,
   RingContext,
@@ -123,7 +122,7 @@ export abstract class FlowBuilder<
   protected arms(authors: Readonly<Record<string, ArmAuthor<TForms, TKinds, TCtx>>>): readonly Arm[] {
     return Object.entries(authors).map(([key, author]) => ({
       key,
-      flow: author(this.linear<TForms, TKinds, TCtx>()).build(),
+      flow: author(this.linear<TForms, TKinds, TCtx>()).define(),
     }));
   }
 
@@ -132,16 +131,13 @@ export abstract class FlowBuilder<
   }
 
   withState<S extends Record<string, unknown>>(seeds: S): Rebound<this, TForms, TKinds, WithShared<TCtx, StateOf<S>>> {
-    return this.rebound({
-      ...this.chain,
-      shared: new SharedState({ ...this.chain.shared.seeds(), ...seeds }),
-    });
+    return this.rebound({ ...this.chain, sharedSeeds: { ...this.chain.sharedSeeds, ...seeds } });
   }
 
   createForm<K extends string, F extends AnyFormProvider>(
     name: K,
     provider: F & PlacesCustomFields<FormUi<F>, FormPlaced<F>>,
-  ): Rebound<this, TForms & Record<K, ConfigOf<F>>, TKinds, TCtx> {
+  ): Rebound<this, TForms & Record<K, F>, TKinds, TCtx> {
     claimName(name, this.chain.forms);
 
     return this.rebound({ ...this.chain, forms: { ...this.chain.forms, [name]: provider } });
@@ -175,19 +171,23 @@ export abstract class FlowBuilder<
   createStep<
     N extends string = never,
     P = {},
-    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = DynamicStepCfg<
-      WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
+    O extends DynamicStepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P, true>>>, N> = DynamicStepCfg<
+      WithSteps<TCtx, GatedEntry<N, StepInstance<P, true>>>,
       N
     >,
   >(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P>, O>>>;
+  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P, true>, O>>>;
   createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<TCtx, string>): never;
-  createStep<N extends string = never, P = {}, O extends StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = {}>(
+  createStep<
+    N extends string = never,
+    P = {},
+    O extends StepCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P, boolean>>>, N> = {},
+  >(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P>, O>>> {
+  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P, boolean>, O>>> {
     return this.rebound(
       appended(this.chain, [stepNode({ pages: pagesOf(build, opts?.pages === StepPages.OnEntry), opts: opts ?? {} })]),
     );
@@ -217,18 +217,18 @@ export abstract class FlowBuilder<
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, B>,
   ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, Egress<B>, O>>> {
-    const built = flow.build(this.linear<{}, TKinds, ChildContext<TCtx>>()).build();
+    const defined = flow.build(this.linear<{}, TKinds, ChildContext<TCtx>>()).define();
 
-    return this.rebound(appended(this.chain, [flowStepNode({ name, flow: built, opts: flow })]));
+    return this.rebound(appended(this.chain, [flowStepNode({ name, flow: defined, opts: flow })]));
   }
 
   createRecurrentStepper<N extends string, C, O extends FlowSlotCfg<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C, TKinds, TCtx>,
   ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, C, O>>> {
-    const built = ring.build(this.ring<C, TKinds, TCtx>(ring)).build();
+    const defined = ring.build(this.ring<C, TKinds, TCtx>(ring)).define();
 
-    return this.rebound(appended(this.chain, [flowStepNode({ name, flow: built, opts: ring })]));
+    return this.rebound(appended(this.chain, [flowStepNode({ name, flow: defined, opts: ring })]));
   }
 
   /** Applies a fragment authored against the plain chain and keeps this builder's kind. */

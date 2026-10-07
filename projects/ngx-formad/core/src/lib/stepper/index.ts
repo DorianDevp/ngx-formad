@@ -2,6 +2,7 @@ export * from './types/shared-link';
 export * from './types/step-context';
 export * from './types/nodes';
 export * from './types/flow';
+export * from './types/flow-instance';
 export * from './types/page-component';
 export * from './types/builder';
 export * from './types/live-step';
@@ -21,6 +22,7 @@ export * from './builder/stepper-builder';
 export * from './builder/recurrent-stepper-builder';
 
 export * from './runtime/instance-registry';
+export * from './runtime/flow-instance';
 export * from './runtime/materialize-step';
 export * from './runtime/effective-sequence';
 export * from './runtime/stepper-controller';

@@ -95,6 +95,6 @@ export class RecurrentStepperBuilder<
       dockReachable: this.cfg.dockReachable,
     };
 
-    return { build: () => new RecurrentStepper<TForms, TCtx, C>(definition) };
+    return { define: () => definition, build: () => new RecurrentStepper<TForms, TCtx, C>(definition) };
   }
 }

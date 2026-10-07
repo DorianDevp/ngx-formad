@@ -8,8 +8,49 @@ versions may carry breaking changes.
 
 ### Added
 
+- **The built stepper is typed, all the way to each form instance.** `stepper.shared.plan`
+  is the `withState` key as a read-only signal; `stepper.steps.address.forms.shipping` is
+  that step's form - **the `FormState` instance itself** for a config, typed by its
+  template, and a **`Signal<FormState | null>`** for a loader or any form of a step built
+  on entry, holding the instance once its step brings it to life. Gated steps and arms are
+  there too. `BuiltSteps` is the type; inside the step context such an instance is
+  `BuiltOnEntry<FormState<M>>`, a mark for the type system alone.
+- **`FormadWizard<S>` is typed by the built stepper** -
+  `inject<FormadWizard<typeof built>>(FormadWizard)`: `committed()`, `steps`, `shared`
+  (writable: inside the stepper the store is the stepper's to write) and `controller()`. A
+  formField of a step form injects it as a page component does.
+- **`(stepCommitted)` and `(completed)` on `<ngx-formad-stepper>` are typed** from
+  `[stepper]`; nothing to narrow at the boundary.
+- **`define()`** on a chain, a fork and a docked ring: the flow as data, built nowhere.
 - **`FormState.reset()`**: the instance starts over - the model back to what its factory
   starts from, every field untouched and pristine.
+
+### Changed
+
+- **BREAKING: `build()` builds.** It runs in an injection context and builds the flow's
+  environment, its shared state and every eager form there and then; that context owns
+  them. `<ngx-formad-stepper>` only draws them, so drawing the same stepper again shows
+  what was typed. A module-level `const x = builder.build()` now throws NG0203: keep the
+  builder at module level and `build()` it in a field initializer. The injector `build()`
+  runs in needs `provideFormadSuite` (a spec that only walked a stepper's steps now
+  provides it), and a model factory runs then, not on entry: a model that reads data
+  loaded later returns a `linkedSignal` over it.
+- **BREAKING: one instance for life.** A `StepRevisit.Fresh` step, `goTo(…, { fresh })`,
+  `reset()` and a ring's next pass reset the same instance instead of building a new one;
+  a form's `effects` run from `build()` on.
+- **BREAKING: the shared store is one signal per key, no methods.** `SharedState<S>` is
+  `{ [key]: WritableSignal }`, made by `createSharedState(seeds)` and put back by
+  `resetSharedState(state, seeds)`; a host reads `SharedSignals<S>`.
+- **BREAKING: a built stepper is `{ shared, steps, instance }`.** What it was built from -
+  `stepSequenceNodes` (was `steps`), `forms`, `sharedSeeds` (was the live `shared` store),
+  `controlTypes`, `providers`, `resolveResult` - is the `FlowDefinition` that `define()`
+  hands out, and `stepper.instance.flow`.
+
+### Removed
+
+- `SharedState.get`/`select`/`signals()`/`snapshot`/`patch`/`seeds()`/`reset()`, and
+  `FormadWizard.sharedOrNull()`: the store is read and written by key.
+- `SHARED_STATE`: nothing read it.
 
 ## 0.14.0
 

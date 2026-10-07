@@ -2,7 +2,8 @@ import { Signal } from '@angular/core';
 import { FormValueControl } from '@angular/forms/signals';
 import { FormBindings, FormContext, FormEffect, FormState } from '../../form';
 import { Rejected } from '../../types';
-import { BuiltFlow, BuiltRing } from './flow';
+import { SharedSignals } from '../../shared';
+import { BuiltFlow, BuiltRing, FlowDefinition, RecurrentFlowDefinition } from './flow';
 import { FormRevisit, StepRevisit } from './nodes';
 import { FieldRefs, LinkPair, SharedSlots } from './shared-link';
 import {
@@ -12,7 +13,6 @@ import {
   FormUi,
   RecurrentSignals,
   RuntimeStepperContext,
-  SharedSignals,
   StepCondition,
   StepContext,
   StepperContext,
@@ -164,29 +164,43 @@ export type DynamicStepCfg<TCtx extends RuntimeStepperContext, N extends string 
 export type BranchSelect<TCtx extends RuntimeStepperContext, K extends string> = (ctx: TCtx) => K | null | undefined;
 
 /**
- * The contract every arm and every nested flow is authored to: something that builds into a flow. A linear chain
- * satisfies it through `build()`, a fork returns it, so an arm may end in either.
+ * The contract every arm and every nested flow is authored to: something that defines a flow and builds into one. A
+ * linear chain satisfies it, a fork returns it, so an arm may end in either. The level that nests or flattens it takes
+ * the definition; `build()` is the stepper itself, its forms instantiated, and asks for an injection context.
  */
 export interface Branch<TForms, TCtx extends RuntimeStepperContext, TResult> {
+  define(): FlowDefinition<TResult>;
   build(): BuiltFlow<TForms, TCtx, TResult>;
 }
 
 /** Any branch, for a callback whose exact types are inferred at the call. */
 export type AnyBranch = Branch<unknown, RuntimeStepperContext, unknown>;
 
-/** A ring after `dock()`: only `build()` remains. */
+/** A ring after `dock()`: its definition, for the level that nests it, and `build()`. */
 export interface RecurrentTerminal<TForms, TCtx extends RuntimeStepperContext, C> {
+  define(): RecurrentFlowDefinition<C>;
   build(): BuiltRing<TForms, TCtx, C>;
 }
 
-/** What a branch hands out when it completes. */
-export type Egress<B> = B extends Branch<infer _F, infer _C, infer R> ? R : never;
+// The types below read a built flow by its phantoms alone: matched against the whole `BuiltFlow`, a context still
+// generic in its parent is inferred through `steps` and `shared` as well, which loses the entries an arm added.
+
+/** What a branch, or a built flow, hands out when it completes. */
+export type Egress<B> = B extends { build(): { readonly __result?: infer R } }
+  ? R
+  : B extends { readonly __result?: infer R }
+    ? R
+    : never;
 
 /** The context an arm callback ends with. */
-export type ArmContext<Fn> = Fn extends (arm: never) => Branch<infer _F, infer C, infer _R> ? C : never;
+export type ArmContext<Fn> = Fn extends (arm: never) => {
+  build(): { readonly __context?: infer C extends RuntimeStepperContext };
+}
+  ? C
+  : never;
 
 /** The egress an arm callback ends with. */
-export type ArmResult<Fn> = Fn extends (arm: never) => Branch<infer _F, infer _C, infer R> ? R : never;
+export type ArmResult<Fn> = Fn extends (arm: never) => { build(): { readonly __result?: infer R } } ? R : never;
 
 /** A fork's egress: the chosen arm's egress under its key, `{ a: Ea } | { b: Eb }`; a nested fork nests its union. */
 export type ForkResult<A> = { [K in keyof A]: { readonly [P in K]: ArmResult<A[K]> } }[keyof A];
@@ -200,7 +214,9 @@ type ArmAdded<Fn, TCtx extends RuntimeStepperContext> = {
 export type BranchAdded<A, TCtx extends RuntimeStepperContext> = UnionToIntersection<{ [K in keyof A]: ArmAdded<A[K], TCtx> }[keyof A]>;
 
 /** The committed record of a built flow, for narrowing `stepCommitted` once at the boundary. */
-export type CommittedOf<S> = S extends BuiltFlow<infer _F, infer TCtx, infer _R> ? StepsCommitted<TCtx['steps']> : never;
+export type CommittedOf<S> = S extends { readonly __context?: infer TCtx extends RuntimeStepperContext }
+  ? StepsCommitted<TCtx['steps']>
+  : never;
 
 /** The authoring types every builder carries as phantoms. */
 export interface BuilderShape<TForms, TKinds extends string, TCtx extends RuntimeStepperContext> {

@@ -153,6 +153,6 @@ describe('A hidden form on a step', () => {
     // The company form was never on screen: no phantom blank model, and the
     // shared key it also binds is still what the visible form wrote.
     expect(where['company']).toBeUndefined();
-    expect(fixture.componentInstance.stepper.shared.snapshot()['city']).toBe('Warsaw');
+    expect(fixture.componentInstance.stepper.shared['city']()).toBe('Warsaw');
   });
 });

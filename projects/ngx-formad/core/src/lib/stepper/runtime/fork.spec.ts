@@ -45,7 +45,7 @@ const wizard = new StepperBuilder()
           many: (inner) => inner.createStep((s) => s.createPage((p) => p.addForm('company'), { heading: 'Fleet' }), { name: 'fleet' }),
         }),
   })
-  .build();
+  .define();
 
 function ctx(values: Record<string, unknown>): RuntimeStepperContext {
   const shared: Record<string, Signal<unknown>> = {};
@@ -64,8 +64,8 @@ const committed = {
 describe('fork', () => {
   it('runs only the chosen arm’s steps — arms do not rejoin', () => {
     const everyStepEntered = () => true;
-    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'individual' }), everyStepEntered))).toEqual(['Start', 'Personal']);
-    expect(headings(effectiveSteps(wizard.steps, ctx({ kind: 'business', seats: 'few' }), everyStepEntered))).toEqual([
+    expect(headings(effectiveSteps(wizard.stepSequenceNodes, ctx({ kind: 'individual' }), everyStepEntered))).toEqual(['Start', 'Personal']);
+    expect(headings(effectiveSteps(wizard.stepSequenceNodes, ctx({ kind: 'business', seats: 'few' }), everyStepEntered))).toEqual([
       'Start',
       'Company',
       'Seats',
@@ -74,8 +74,8 @@ describe('fork', () => {
 
   it('merges every arm’s pool and state into the flow', () => {
     expect(Object.keys(wizard.forms)).toEqual(['start', 'person', 'company']);
-    expect(wizard.shared.get('ssn')).toBe('');
-    expect(wizard.shared.get('vat')).toBe('');
+    expect(wizard.sharedSeeds['ssn']).toBe('');
+    expect(wizard.sharedSeeds['vat']).toBe('');
   });
 
   it('resolves the chosen arm’s committed steps under its key, and nothing from before the fork', () => {

@@ -1,7 +1,7 @@
-import { Branch, BranchSelect, ControlKind, ForkResult, RingCfg, StepsCommitted } from '../types/builder';
+import { Branch, BranchAdded, BranchSelect, ControlKind, ForkResult, RingCfg, StepsCommitted } from '../types/builder';
 import { ChainState } from '../types/chain';
 import { FlowDefinition } from '../types/flow';
-import { RingContext, RootContext, RuntimeStepperContext } from '../types/step-context';
+import { AfterSteps, RingContext, RootContext, RuntimeStepperContext } from '../types/step-context';
 import { definitionOf, egressOf, EMPTY_CHAIN, merged } from './chain';
 import { ArmAuthor, FlowBuilder } from './flow-builder';
 import { RecurrentStepperBuilder } from './recurrent-stepper-builder';
@@ -42,7 +42,7 @@ export class StepperBuilder<
   fork<A extends Record<string, ArmAuthor<TForms, TKinds, TCtx>>>(
     select: BranchSelect<TCtx, string>,
     arms: A,
-  ): Branch<TForms, TCtx, ForkResult<A>> {
+  ): Branch<TForms, AfterSteps<TCtx, BranchAdded<A, TCtx>>, ForkResult<A>> {
     const decide = decidedOnce(select);
     const built = this.arms(arms);
     const chain = merged(this.chain, built, (key) => ({ activeWhen: (ctx: TCtx) => decide(ctx) === key }));
@@ -58,10 +58,19 @@ export class StepperBuilder<
       },
     };
 
-    return { build: () => new Stepper<TForms, TCtx, ForkResult<A>>(definition) };
+    return {
+      define: () => definition,
+      build: () => new Stepper<TForms, AfterSteps<TCtx, BranchAdded<A, TCtx>>, ForkResult<A>>(definition),
+    };
   }
 
+  /** The flow as data, for the level that nests or flattens it; nothing is instantiated. */
+  define(): FlowDefinition<StepsCommitted<TCtx['steps']>> {
+    return definitionOf(this.chain);
+  }
+
+  /** The stepper with its forms built; call it in an injection context, which then owns them. */
   build(): Stepper<TForms, TCtx, StepsCommitted<TCtx['steps']>> {
-    return new Stepper<TForms, TCtx, StepsCommitted<TCtx['steps']>>(definitionOf(this.chain));
+    return new Stepper<TForms, TCtx, StepsCommitted<TCtx['steps']>>(this.define());
   }
 }

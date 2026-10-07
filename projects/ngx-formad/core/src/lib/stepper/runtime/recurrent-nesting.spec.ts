@@ -9,7 +9,6 @@ import { StepperBuilder } from '../builder/stepper-builder';
 import { RuntimeStepper } from '../types/flow';
 import { StepPages } from '../types/builder';
 import { StepperController } from '../types/controller';
-import { RuntimeFlow } from '../types/flow';
 import { StepPageView } from '../ui/step-page-view';
 import { StepperComponent } from '../ui/stepper.component';
 import { FormadDockRestart } from './flow-dock';
@@ -60,7 +59,7 @@ class NestChrome {
   readonly controller = input.required<StepperController>();
 }
 
-function rootRing(): RuntimeFlow {
+function rootRing(): RuntimeStepper {
   return new RecurrentStepperBuilder<{}, Item[]>({ state: () => [] })
       .withState({ draft: '' })
       .createForm('name', oneForm('Name'))

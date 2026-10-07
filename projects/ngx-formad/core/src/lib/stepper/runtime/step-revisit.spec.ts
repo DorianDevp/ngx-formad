@@ -35,7 +35,7 @@ interface Journey {
 /** Maker feeds Details through `initial`; the two policies under test sit on the Details placement and step. */
 function journey(form?: FormRevisit, step?: StepRevisit): Journey {
   let calls = 0;
-  const stepper = new StepperBuilder()
+  const flow = new StepperBuilder()
     .createForm('maker', oneForm('Maker'))
     .createForm('details', oneForm('Details'))
     .createStep((s) => s.createPage((p) => p.addForm('maker'), { heading: 'Maker' }), { name: 'maker' })
@@ -54,10 +54,9 @@ function journey(form?: FormRevisit, step?: StepRevisit): Journey {
           { heading: 'Details' },
         ),
       { revisit: step },
-    )
-    .build();
+    );
 
-  return { stepper, initialCalls: () => calls };
+  return { stepper: TestBed.runInInjectionContext(() => flow.build()), initialCalls: () => calls };
 }
 
 @Component({

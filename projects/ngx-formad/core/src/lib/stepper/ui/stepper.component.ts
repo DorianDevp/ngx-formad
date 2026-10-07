@@ -2,7 +2,6 @@ import { NgComponentOutlet } from '@angular/common';
 import {
   Component,
   computed,
-  EnvironmentInjector,
   inject,
   Injectable,
   InjectionToken,
@@ -16,12 +15,12 @@ import {
   Type,
 } from '@angular/core';
 import { CONTROL_ADAPTER, ControlAdapter, ControlTypeMap } from '../../controls';
-import { SHARED_STATE } from '../../shared';
 import { FlowDock, StepperFlowDock } from '../runtime/flow-dock';
 import { FormadStepperController } from '../runtime/stepper-controller';
 import { FormadWizard } from '../runtime/wizard-context';
+import { StepsCommitted } from '../types/builder';
 import { StepperController } from '../types/controller';
-import { RuntimeFlow } from '../types/flow';
+import { BuiltFlow } from '../types/flow';
 import { RuntimeStepperContext } from '../types/step-context';
 
 /** The active stepper chrome; `null` means none is provided, and the stepper refuses to render without one. */
@@ -40,11 +39,9 @@ class StepperControlScope {
   selector: 'ngx-formad-stepper',
   imports: [NgComponentOutlet],
   providers: [
-    FormadWizard,
     StepperControlScope,
     StepperFlowDock,
     { provide: FlowDock, useExisting: StepperFlowDock },
-    { provide: SHARED_STATE, useFactory: (wizard: FormadWizard) => wizard.sharedOrNull(), deps: [FormadWizard] },
     {
       provide: CONTROL_ADAPTER,
       useFactory: (scope: StepperControlScope, parent: ControlAdapter): ControlAdapter => ({
@@ -59,16 +56,17 @@ class StepperControlScope {
     }
   `,
 })
-export class StepperComponent<TResult = unknown> implements OnInit, OnDestroy {
-  readonly stepper = input.required<RuntimeFlow<TResult>>();
+export class StepperComponent<TResult = unknown, TCtx extends RuntimeStepperContext = RuntimeStepperContext>
+  implements OnInit, OnDestroy
+{
+  /** A built stepper: `build()` instantiated its forms, the shell draws them. */
+  readonly stepper = input.required<BuiltFlow<unknown, TCtx, TResult>>();
 
   readonly completed = output<TResult | null>();
 
-  readonly stepCommitted = output<RuntimeStepperContext['steps']>();
+  readonly stepCommitted = output<StepsCommitted<TCtx['steps']>>();
 
-  private readonly parentEnvironment = inject(EnvironmentInjector);
   private readonly injector = inject(Injector);
-  private readonly wizard = inject(FormadWizard);
   private readonly controlScope = inject(StepperControlScope);
   private readonly flowDock = inject(StepperFlowDock);
   readonly chrome: Type<object>;
@@ -89,14 +87,16 @@ export class StepperComponent<TResult = unknown> implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
-    this.controlScope.map = this.stepper().controlTypes;
-    const controller = new FormadStepperController(this.stepper(), {
-      environment: this.parentEnvironment,
+    const stepper = this.stepper();
+    this.controlScope.map = stepper.instance.flow.controlTypes;
+    const controller = new FormadStepperController(stepper.instance, {
+      environment: stepper.instance.environment,
       injector: this.injector,
       onComplete: (result) => this.completed.emit(result),
-      onStep: (values) => this.stepCommitted.emit(values),
+      // The controller runs the erased flow; `TCtx` is the one it was built from.
+      onStep: (values) => this.stepCommitted.emit(values as StepsCommitted<TCtx['steps']>),
     });
-    this.wizard._init(controller, this.stepper().shared);
+    stepper.instance.environment.get(FormadWizard)._init(controller);
     this.flowDock._init(controller);
     this.controller.set(controller);
   }

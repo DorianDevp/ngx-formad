@@ -130,7 +130,8 @@ describe('StepPageView — completeWhen context', () => {
 
     expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('true');
 
-    fixture.componentInstance.built.shared.patch({ agreed: true });
+    // What a component inside the stepper would write; a host only reads.
+    fixture.componentInstance.built.instance.sharedState['agreed'].set(true);
     await settle(fixture);
 
     expect(buttonByText(fixture, 'Next')!.getAttribute('aria-disabled')).toBe('false');
