@@ -2,6 +2,8 @@ import {
   computed,
   EnvironmentInjector,
   Injector,
+  outputBinding,
+  reflectComponentType,
   runInInjectionContext,
   signal,
   Signal,
@@ -24,6 +26,7 @@ import { FlowStepNode, RecurrentFlowDefinition, RuntimeFlow, SequenceNode } from
 import { FlowInstance } from '../types/flow-instance';
 import { LiveStep, StepIssue } from '../types/live-step';
 import { PageNode, SequenceNodeKind, StepNode, StepRevisit } from '../types/nodes';
+import { PassRecord } from '../types/pass-record';
 import { DeferTrigger, RecurrentSignals, RuntimeStepperContext } from '../types/step-context';
 import { effectiveSteps } from './effective-sequence';
 import { FlowRing } from './flow-ring';
@@ -108,12 +111,27 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return this.contextOf(this.nav().memo);
   }
 
-  /** The steps decided so far over `memo`: a step counts as entered once alive; a nested flow, once it has shown a step. */
-  private effectiveOf(memo: StepMemo): readonly SequenceNode[] {
+  /** The steps the gates let through over `memo`: a step counts as entered once alive; a nested flow, once it has shown a step. */
+  private pathOf(memo: StepMemo): readonly SequenceNode[] {
     const entered = (node: SequenceNode): boolean =>
       isFlowStep(node) ? (this.children.get(node)?.started() ?? false) : memo.has(node);
 
     return this.inContext(() => effectiveSteps(this.flow.stepSequenceNodes, this.contextOf(memo), entered));
+  }
+
+  /**
+   * The steps decided so far over `memo`: the path, less - while a pass is reopened for an entry - the pass steps before
+   * the furthest one Back may reach; they stay alive, for the context, but are not walked.
+   */
+  private effectiveOf(memo: StepMemo): readonly SequenceNode[] {
+    const path = this.pathOf(memo);
+    const reopening = this.ring?.reopening();
+    if (!reopening) return path;
+
+    const steps = this.flow.stepSequenceNodes;
+    const first = steps.indexOf(reopening.maxBackwardStep);
+
+    return path.filter((node) => steps.indexOf(node) >= first);
   }
 
   private started(): boolean {
@@ -281,6 +299,14 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return child ? child.canBack() : this.ownCanBack();
   });
 
+  /** Back from the first step of an open pass leaves it for the dock, the state untouched: it cancels the pass. */
+  private readonly ownBackCancels = computed<boolean>(() => this.position() === 0 && this.dockIsBehind());
+
+  readonly backCancels: Signal<boolean> = computed(() => {
+    const child = this.child();
+    return child ? child.backCancels() : this.ownBackCancels();
+  });
+
   private readonly ownIsLast = computed<boolean>(() => {
     const node = this.current();
     const atEnd = this.position() === this.effective().length - 1;
@@ -382,6 +408,99 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return flow !== null && this.current() === this.flow.stepSequenceNodes[flow.dockAt];
   }
 
+  /** What the pass now finishing went through: its named steps along the path, each with its values and models. */
+  private passRecord(memo: StepMemo): PassRecord {
+    const steps = this.flow.stepSequenceNodes;
+    const dockAt = this.recurrentFlow?.dockAt ?? steps.length;
+
+    return {
+      steps: this.pathOf(memo).flatMap((node) => {
+        if (isFlowStep(node) || node.name === undefined || steps.indexOf(node) >= dockAt) return [];
+
+        const live = memo.get(node);
+        if (!live) return [];
+
+        return [
+          {
+            node,
+            name: node.name,
+            values: valuesOf(live),
+            models: Object.fromEntries(live.forms.map((form) => [form.name, form.state.model()])),
+          },
+        ];
+      }),
+    };
+  }
+
+  /** A dock component's output, answered by the dock's listener of that name with the entry it emitted as a FoldEntry. */
+  private dockOutput(output: string, value: unknown): void {
+    const ring = this.ring;
+    const listen = this.recurrentFlow?.dockListeners?.[output];
+    const entries = ring?.entries();
+    if (!ring || !listen || !Array.isArray(entries)) return;
+
+    const index = entries.indexOf(value);
+    if (index < 0 || typeof value !== 'object' || value === null) {
+      throw new Error(`ngx-formad: the dock's "${output}" output emitted something that is not an entry of the flow's state.`);
+    }
+
+    const record = ring.recordOf(value);
+    listen({
+      ...Object.fromEntries((record?.steps ?? []).map((step) => [step.name, step.values])),
+      value,
+      index,
+      remove: () => this.removeEntry(value),
+      reopen: (step, options) => this.reopenEntry(value, step, options?.maxBackwardStep),
+    });
+  }
+
+  private removeEntry(entry: object): void {
+    if (!this.onDock()) return;
+
+    // The state is an array: `dockOutput` answers only for one.
+    this.ring?.amend((state) => (state as readonly unknown[]).filter((candidate) => candidate !== entry) as TResult);
+  }
+
+  /**
+   * Opens a pass for `entry` again, along the path its own pass took: every step of the path before `step` comes to
+   * life with its recorded values (the ones before `maxBackwardStep` are not walked), and the pass lands on `step`.
+   */
+  private reopenEntry(entry: object, step: string, maxBackwardStep: string | undefined): void {
+    const flow = this.recurrentFlow;
+    const ring = this.ring;
+    if (!flow || !ring || !this.onDock()) return;
+
+    const record = ring.recordOf(entry);
+    if (!record) throw new Error('ngx-formad: no pass of this flow folded this entry, so there is no pass to reopen.');
+
+    const target = record.steps.findIndex((recorded) => recorded.name === step);
+    if (target < 0) throw new Error(`ngx-formad: the entry's pass went through no step named "${step}".`);
+    const furthest = maxBackwardStep === undefined ? target : record.steps.findIndex((recorded) => recorded.name === maxBackwardStep);
+    if (furthest < 0 || furthest > target) {
+      throw new Error(`ngx-formad: maxBackwardStep "${maxBackwardStep}" is not a step before "${step}" on the entry's path.`);
+    }
+
+    const entries = ring.entries();
+    this.discard(this.flow.stepSequenceNodes.slice(0, flow.dockAt));
+    resetSharedState(this.instance.sharedState, this.flow.sharedSeeds);
+    ring.reopen({
+      entry,
+      index: Array.isArray(entries) ? entries.indexOf(entry) : -1,
+      record,
+      maxBackwardStep: record.steps[furthest].node,
+    });
+
+    const alive = record.steps.slice(0, target).reduce((nav, recorded) => {
+      if (nav.stepOf(recorded.node)) return nav;
+
+      const pages = this.pagesOf(recorded.node, nav);
+      if (this.hasLazyForms(pages)) return nav;
+
+      return nav.withStep(recorded.node, this.materialize(recorded.node, pages, this.eagerConfigs(pages), nav));
+    }, this.nav());
+    this.nav.set(this.landed(alive.movedTo(record.steps[target].node)));
+  }
+
   /** Lets go of the step components; the forms and the environment are the built stepper's, and stay. */
   destroy(): void {
     for (const child of this.children.values()) child.destroy();
@@ -406,7 +525,7 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     if (from && this.foldsAfter(from)) {
       const settled = this.withPredecessors(this.nav(), null);
       this.nav.set(settled);
-      this.inContext(() => this.ring?.fold(this.contextOf(settled.memo)));
+      this.inContext(() => this.ring?.fold(this.contextOf(settled.memo), this.passRecord(settled.memo)));
     }
 
     const eff = this.effective();
@@ -512,7 +631,8 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
 
     const node = this.current();
     if (!node || this.flow.stepSequenceNodes.indexOf(node) >= flow.dockAt) return false;
-    return ring.dockReachable();
+    // A pass reopened for an entry always has its dock to go back to: the entry is still there.
+    return ring.dockReachable() || ring.reopening() !== null;
   }
 
   private restartPass(): void {
@@ -702,8 +822,15 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     return resolved;
   }
 
-  /** A step brought to life over the context the given navigation provides; the caller decides where it goes. */
+  /**
+   * A step brought to life over the context the given navigation provides; the caller decides where it goes. In a pass
+   * reopened for an entry, its forms start from what that entry's pass recorded; on the dock, the dock's listeners
+   * answer its components' outputs.
+   */
   private materialize(node: StepNode, pages: readonly PageNode[], configs: ResolvedForms, nav: Navigation): LiveStep {
+    const flow = this.recurrentFlow;
+    const listeners = flow && node === this.flow.stepSequenceNodes[flow.dockAt] ? flow.dockListeners : undefined;
+
     return materializeStep(pages, {
       pool: configs,
       formFor: (form, config) => this.instance.formFor(node, form, config),
@@ -712,6 +839,11 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
       injector: this.injector,
       entry: this.inContext(() => this.contextOf(nav.memo)),
       context: () => this.inContext(() => this.contextOf(this.nav().memo)),
+      recorded: this.ring?.reopening()?.record.steps.find((recorded) => recorded.node === node)?.models,
+      componentBindings: (component) =>
+        (listeners ? (reflectComponentType(component.component)?.outputs ?? []) : [])
+          .filter((output) => Object.hasOwn(listeners ?? {}, output.templateName))
+          .map((output) => outputBinding(output.templateName, (value: unknown) => this.dockOutput(output.templateName, value))),
     });
   }
 

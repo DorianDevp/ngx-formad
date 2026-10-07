@@ -1,7 +1,24 @@
-import { ControlKind, DockCfg, GatedEntry, NotDynamic, RecurrentTerminal, RingCfg, StepPages } from '../types/builder';
+import {
+  ControlKind,
+  DockCfg,
+  DockListeners,
+  GatedEntry,
+  NotDynamic,
+  RecurrentTerminal,
+  RingCfg,
+  StepPages,
+} from '../types/builder';
 import { ChainState } from '../types/chain';
 import { RecurrentFlowDefinition } from '../types/flow';
-import { RingContext, RootContext, RuntimeStepperContext, StepGate, StepInstance, WithSteps } from '../types/step-context';
+import {
+  PathsOf,
+  RingContext,
+  RootContext,
+  RuntimeStepperContext,
+  StepGate,
+  StepInstance,
+  WithSteps,
+} from '../types/step-context';
 import { appended, definitionOf, EMPTY_CHAIN } from './chain';
 import { FlowBuilder } from './flow-builder';
 import { RecurrentStepper } from './recurrent-stepper';
@@ -65,7 +82,11 @@ export class RecurrentStepperBuilder<
       WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     > & { readonly pages?: StepPages.Once },
-  >(build: StaticStepBuild<TForms, TCtx, P>, opts?: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
+  >(
+    build: StaticStepBuild<TForms, TCtx, P>,
+    opts?: O & { readonly name?: N },
+    listeners?: DockListeners<C, PathsOf<TCtx>>,
+  ): RecurrentTerminal<TForms, TCtx, C>;
   dock<
     N extends string = never,
     P = {},
@@ -73,11 +94,16 @@ export class RecurrentStepperBuilder<
       WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>,
       N
     > & { readonly pages: StepPages.OnEntry },
-  >(build: DynamicStepBuild<TForms, TCtx, P>, opts: O & { readonly name?: N }): RecurrentTerminal<TForms, TCtx, C>;
+  >(
+    build: DynamicStepBuild<TForms, TCtx, P>,
+    opts: O & { readonly name?: N },
+    listeners?: DockListeners<C, PathsOf<TCtx>>,
+  ): RecurrentTerminal<TForms, TCtx, C>;
   dock(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: DockCfg<WithSteps<TCtx, {}>, string>): never;
   dock<N extends string = never, P = {}>(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: DockCfg<WithSteps<TCtx, GatedEntry<N, StepInstance<P>>>, N> = {},
+    listeners?: DockListeners<C, PathsOf<TCtx>>,
   ): RecurrentTerminal<TForms, TCtx, C> {
     if (this.docked) throw new Error('A recurrent flow has exactly one dock.');
     this.docked = true;
@@ -93,6 +119,7 @@ export class RecurrentStepperBuilder<
       state: this.cfg.state,
       fold: this.folding?.fold,
       dockReachable: this.cfg.dockReachable,
+      dockListeners: listeners,
     };
 
     return { define: () => definition, build: () => new RecurrentStepper<TForms, TCtx, C>(definition) };

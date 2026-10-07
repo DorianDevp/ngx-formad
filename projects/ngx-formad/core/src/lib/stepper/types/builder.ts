@@ -11,6 +11,8 @@ import {
   FormModel,
   FormPlaced,
   FormUi,
+  PassStep,
+  PathsOf,
   RecurrentSignals,
   RuntimeStepperContext,
   StepCondition,
@@ -67,6 +69,78 @@ export type StepValues<Inst> = NonNullable<Inst> extends Record<string, FormStat
 
 /** A linear flow's egress: the named steps' values, each possibly absent. */
 export type StepsCommitted<TSteps> = { readonly [K in keyof TSteps]?: StepValues<TSteps[K]> };
+
+/** Whether a step's options gate it: a gated step may be skipped, so a pass may or may not go through it. */
+export type IsGated<O> = O extends { readonly activeWhen: infer _W } ? true : false;
+
+type AppendStep<TPaths, S> = TPaths extends readonly PassStep[] ? readonly [...TPaths, S] : never;
+
+/**
+ * The paths a pass can take once a named step is added: every path goes on through it, and a gated step keeps every
+ * path without it as well. Paths are tracked inside a ring only; elsewhere they stay `unknown`.
+ */
+export type PathsThrough<TPaths, N extends string, V, Gated extends boolean> = unknown extends TPaths
+  ? TPaths
+  : [N] extends [never]
+    ? TPaths
+    : AppendStep<TPaths, PassStep<N, V>> | (Gated extends true ? TPaths : never);
+
+/** The paths of `TCtx` with a step named `N`, of instances `Inst` and options `O`, added. */
+export type PathsAfter<TCtx extends RuntimeStepperContext, N extends string, Inst, O> = PathsThrough<
+  PathsOf<TCtx>,
+  N,
+  StepValues<Inst>,
+  IsGated<O>
+>;
+
+/**
+ * The paths a pass can take once a `branch` rejoins: each arm's own paths (which start from this level's), or none of
+ * them, since the selector may pick no arm.
+ */
+export type BranchPaths<A, TCtx extends RuntimeStepperContext> = unknown extends PathsOf<TCtx>
+  ? unknown
+  : PathsOf<TCtx> | { [K in keyof A]: PathsOf<ArmContext<A[K]>> }[keyof A];
+
+/** A path's steps by name, each with the values it committed: what `'serial' in entry` narrows a `FoldEntry` on. */
+export type PathValues<Path extends readonly PassStep[]> = { readonly [S in Path[number] as S['name']]: S['values'] };
+
+/** How a pass reopened for an entry may be walked back. */
+export interface ReopenOptions<N extends string> {
+  /** The furthest step Back may reach; on it Back cancels. Defaults to the step the pass is reopened on. */
+  readonly maxBackwardStep?: N;
+}
+
+/** What a dock can do with one entry of the ring's state. */
+export interface FoldEntryActions<T, N extends string> {
+  /** The entry, as the ring's state holds it. */
+  readonly value: T;
+  /** Where it sits in the ring's state. */
+  readonly index: number;
+  remove(): void;
+  /**
+   * Opens a pass again for this entry, along the path its own pass took, on `step`, with every step's committed values
+   * back in its forms. Steps of the path before `maxBackwardStep` are not shown, but their values are in `ctx.steps`.
+   * The fold then sees the state without this entry, and what it adds takes the entry's place.
+   */
+  reopen(step: N, options?: ReopenOptions<N>): void;
+}
+
+/**
+ * One entry of a ring's state as a dock listener receives it: one member per path its pass may have taken, each with
+ * that path's steps' values on the entry itself, so `'serial' in entry` narrows it to the paths that went through
+ * `serial`.
+ */
+export type FoldEntry<T, TPaths> = TPaths extends readonly PassStep[]
+  ? PathValues<TPaths> & FoldEntryActions<T, TPaths[number]['name']>
+  : never;
+
+/**
+ * The dock's listeners, by the name of an output of a component its page places. The output emits an entry of the
+ * ring's state; the listener receives it as a `FoldEntry`.
+ */
+export type DockListeners<C, TPaths> = C extends readonly (infer T)[]
+  ? { readonly [output: string]: (entry: FoldEntry<T, TPaths>) => void }
+  : never;
 
 /** Placement options for a page content block. */
 export interface ContentCfg<TCtx = unknown> {

@@ -170,8 +170,10 @@ function liveContext(options: MaterializeOptions, forms: Readonly<Record<string,
 
 /** A page component's mount, for the mount point its row draws: the component with its bindings, in the flow's environment. */
 function componentInjector(node: ComponentNode, options: MaterializeOptions, ctx: RuntimeStepContext): Injector {
+  const bindings = [...node.bindings(ctx), ...(options.componentBindings?.(node) ?? [])];
+
   return mountInjector(
-    { component: node.component, directives: [], bindings: node.bindings(ctx), environment: options.environment },
+    { component: node.component, directives: [], bindings, environment: options.environment },
     options.injector ?? options.environment,
   );
 }
@@ -191,6 +193,9 @@ export function materializeStep(pages: readonly PageNode[], options: Materialize
   for (const form of forms) instances[form.name] = form.state;
   for (const form of forms) {
     registry.add({ rootForm: form.state.rootForm, visible: form.visible });
+    // A reopened pass gives the form its recorded model first; the seed then writes only what `initial` returns.
+    const recorded = options.recorded?.[form.name];
+    if (recorded !== undefined) form.state.model.set(recorded as Record<string, unknown>);
     form.seed(options.entry);
     seeded[form.name] = form.state;
   }

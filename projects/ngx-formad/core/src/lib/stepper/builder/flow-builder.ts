@@ -4,6 +4,8 @@ import { StateOf } from '../../shared';
 import {
   AnyBranch,
   BranchAdded,
+  BranchPaths,
+  PathsAfter,
   BranchSelect,
   BuilderShape,
   ContextOf,
@@ -167,7 +169,12 @@ export abstract class FlowBuilder<
   >(
     build: StaticStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P>, O>>>;
+  ): Rebound<
+    this,
+    TForms,
+    TKinds,
+    AfterSteps<TCtx, StepEntry<N, StepInstance<P>, O>, PathsAfter<TCtx, N, StepInstance<P>, O>>
+  >;
   createStep<
     N extends string = never,
     P = {},
@@ -178,7 +185,12 @@ export abstract class FlowBuilder<
   >(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts: O & { readonly name?: N },
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P, true>, O>>>;
+  ): Rebound<
+    this,
+    TForms,
+    TKinds,
+    AfterSteps<TCtx, StepEntry<N, StepInstance<P, true>, O>, PathsAfter<TCtx, N, StepInstance<P, true>, O>>
+  >;
   createStep(build: DynamicStepBuild<TForms, TCtx, {}> & NotDynamic, opts?: StepCfg<TCtx, string>): never;
   createStep<
     N extends string = never,
@@ -187,7 +199,12 @@ export abstract class FlowBuilder<
   >(
     build: DynamicStepBuild<TForms, TCtx, P>,
     opts?: O & { readonly name?: N },
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, StepInstance<P, boolean>, O>>> {
+  ): Rebound<
+    this,
+    TForms,
+    TKinds,
+    AfterSteps<TCtx, StepEntry<N, StepInstance<P, boolean>, O>, PathsAfter<TCtx, N, StepInstance<P, boolean>, O>>
+  > {
     return this.rebound(
       appended(this.chain, [stepNode({ pages: pagesOf(build, opts?.pages === StepPages.OnEntry), opts: opts ?? {} })]),
     );
@@ -200,7 +217,7 @@ export abstract class FlowBuilder<
   branch<K extends string, A extends Record<K, ArmAuthor<TForms, TKinds, TCtx>>>(
     select: BranchSelect<TCtx, K>,
     arms: A,
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, BranchAdded<A, TCtx>>> {
+  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, BranchAdded<A, TCtx>, BranchPaths<A, TCtx>>> {
     const decide = decidedOnce(select);
     const built = this.arms(arms);
 
@@ -216,7 +233,7 @@ export abstract class FlowBuilder<
   createStepper<N extends string, B extends AnyBranch, O extends FlowSlotCfg<TCtx>>(
     name: N,
     flow: O & LinearFlowStep<TKinds, TCtx, B>,
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, Egress<B>, O>>> {
+  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, Egress<B>, O>, PathsAfter<TCtx, N, Egress<B>, O>>> {
     const defined = flow.build(this.linear<{}, TKinds, ChildContext<TCtx>>()).define();
 
     return this.rebound(appended(this.chain, [flowStepNode({ name, flow: defined, opts: flow })]));
@@ -225,7 +242,7 @@ export abstract class FlowBuilder<
   createRecurrentStepper<N extends string, C, O extends FlowSlotCfg<TCtx>>(
     name: N,
     ring: O & RecurrentFlowStep<C, TKinds, TCtx>,
-  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, C, O>>> {
+  ): Rebound<this, TForms, TKinds, AfterSteps<TCtx, StepEntry<N, C, O>, PathsAfter<TCtx, N, C, O>>> {
     const defined = ring.build(this.ring<C, TKinds, TCtx>(ring)).define();
 
     return this.rebound(appended(this.chain, [flowStepNode({ name, flow: defined, opts: ring })]));

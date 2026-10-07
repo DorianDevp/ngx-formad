@@ -1,4 +1,4 @@
-import { EnvironmentInjector, Injector, Signal } from '@angular/core';
+import { Binding, EnvironmentInjector, Injector, Signal } from '@angular/core';
 import { FormState, RuntimeFormConfig } from '../../form';
 import { SharedState } from '../../shared';
 import type { InstanceRegistry } from '../runtime/instance-registry';
@@ -74,4 +74,10 @@ export interface MaterializeOptions {
 
   /** The context a page component's bindings read; called again on every read, so `steps` stays live. */
   readonly context?: () => RuntimeStepperContext;
+
+  /** Models a reopened pass recorded, by form name: each form starts from its own before it is seeded. */
+  readonly recorded?: Readonly<Record<string, unknown>>;
+
+  /** Bindings a page component gets beside its own: a dock's listeners on its outputs. */
+  componentBindings?(node: ComponentNode): readonly Binding[];
 }

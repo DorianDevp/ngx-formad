@@ -1292,8 +1292,41 @@ A dock component stays dumb: it injects `FlowDock<C>` — `restart()` reopens th
 `amend((state) => state)` rewrites what it has collected without a pass (drop an
 entry, mark one for editing before `restart()`; the dock's `completeWhen` and
 `dockReachable` read the new state), `next()` moves on — or marks its buttons with
-`ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller. The
-nesting also runs the other way (`createStepper` puts a linear sub-flow inside a
+`ngxFormadDockRestart` / `ngxFormadDockNext` — never a controller.
+
+**Editing and removing an entry — the dock's listeners.** `dock(build, opts, listeners)`
+takes, as its third argument, listeners by the name of an output of a component its page
+places. The component emits an entry of the ring's state as it is (`output<Device>()`);
+the listener receives it as a `FoldEntry` — the entry (`value`, `index`), `remove()`,
+`reopen(step, { maxBackwardStep })`, and the values of every step the pass that folded
+it went through, **on the entry itself**. The builder tracks, as a type, every path a pass
+can take (a gated step is a path with it and one without, a `branch` one per arm), so
+`FoldEntry` is a union by path and `'serial' in entry` narrows it to the paths through
+`serial` — and `reopen` then accepts only their steps.
+
+```ts
+.dock(build, { label: 'Devices' }, {
+  edit: (entry) => {
+    if ('serial' in entry) entry.reopen('serial');       // a catalogue device: from its serial number
+    else if ('details' in entry) entry.reopen('details');
+  },
+  remove: (entry) => entry.remove(),
+})
+```
+
+- `reopen(step)` opens a pass for the entry along the path its own pass took, on `step`.
+  Every step of that path starts from the values it committed (`initial` still writes
+  what it returns on top). Steps before `maxBackwardStep` — by default `step` itself —
+  are not walked, but their values are in `ctx.steps`, so gates and the fold read them.
+- On `maxBackwardStep`, Back cancels: the pass is dropped, the entry stays as it was. A
+  chrome reads `controller.backCancels()` to label it so — true on the first step of any
+  open pass whose dock is behind it.
+- While the pass is open, `ctx.flow.state()` leaves the entry out (a duplicate check does
+  not trip on the entry itself); what the fold adds takes the entry's place.
+- `remove()` drops the entry. Both need the entry folded by a pass of this flow;
+  `reopen` throws for one that came from `state` or an `amend`.
+
+The nesting also runs the other way (`createStepper` puts a linear sub-flow inside a
 pass), and a ring built at the root (`new RecurrentStepperBuilder({ state })`, ending
 in `dock(...).build()`) goes straight into `<ngx-formad-stepper>`; its `completed`
 carries the state. A chrome that wants to draw the nesting reads
@@ -1622,6 +1655,7 @@ Everything is exported from the package root (`ngx-formad`).
 | `StepRevisit` / `FormRevisit` | The revisit policies: `StepRevisit.Keep \| Fresh` on a step, `FormRevisit.Keep \| Reseed` on a placement. |
 | `DeferTrigger` | `Idle \| Viewport \| Interaction` — the `@defer` trigger a step renders under. |
 | `FlowDock<C>` / `FormadDockRestart` / `FormadDockNext` | What a dock component uses: the service (`restart`, `amend`, `next`), or the `ngxFormadDockRestart` / `ngxFormadDockNext` attributes on its buttons. |
+| `FoldEntry<T, Paths>` / `DockListeners<C, Paths>` / `PassStep` | What a dock's listener receives for an entry its component emitted: one member per pass path, that path's step values on it, `value`, `index`, `remove()`, `reopen(step, { maxBackwardStep })`. |
 | `StepperComponent` | The `<ngx-formad-stepper [stepper] (completed) (stepCommitted) />` shell — drives a built stepper's instances, renders the chrome, emits the result on finish and the committed record on each move, both typed from `[stepper]`. |
 
 ### Run it yourself (bring-your-own-UI)

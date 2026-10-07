@@ -69,18 +69,32 @@ export interface RecurrentSignals<C = unknown> {
   readonly passOpen: Signal<boolean>;
 }
 
-/** What a step reads: named predecessors, the shared store, the enclosing ring and the parent flow. */
+/** One named step a ring's pass goes through: its name and the values it commits. */
+export interface PassStep<N extends string = string, V = unknown> {
+  readonly name: N;
+  readonly values: V;
+}
+
+/**
+ * What a step reads: named predecessors, the shared store, the enclosing ring and the parent flow. Inside a ring it
+ * also carries, for the type system alone, every path a pass can take so far (`TPaths`, a union of ordered steps).
+ */
 export interface StepperContext<
   TShared extends SharedSignals = SharedSignals,
   TSteps extends Readonly<Record<string, unknown>> = Readonly<Record<string, unknown>>,
   TParent extends RuntimeStepperContext | undefined = RuntimeStepperContext | undefined,
   TFlow extends RecurrentSignals | undefined = RecurrentSignals | undefined,
+  TPaths = unknown,
 > {
   readonly steps: TSteps;
   readonly shared: TShared;
   readonly flow: TFlow;
   readonly parent: TParent;
+  readonly __paths?: TPaths;
 }
+
+/** The paths a pass can take so far; `unknown` where nothing tracks them (outside a ring). */
+export type PathsOf<TCtx> = TCtx extends { readonly __paths?: infer P } ? P : unknown;
 
 /** The context the runtime builds; every typed context is assignable to it. */
 export interface RuntimeStepperContext extends StepperContext {}
@@ -98,12 +112,16 @@ export type WithSteps<TCtx extends RuntimeStepperContext, E> = TCtx & {
   readonly steps: E;
 };
 
-/** The context the chain continues with once entries are added: the same level, its steps flattened for readable hovers. */
-export type AfterSteps<TCtx extends RuntimeStepperContext, E> = StepperContext<
+/**
+ * The context the chain continues with once entries are added: the same level, its steps flattened for readable hovers,
+ * and the paths a pass can now take (unchanged unless the caller says otherwise).
+ */
+export type AfterSteps<TCtx extends RuntimeStepperContext, E, TPaths = PathsOf<TCtx>> = StepperContext<
   TCtx['shared'],
   { readonly [K in keyof (TCtx['steps'] & E)]: (TCtx['steps'] & E)[K] },
   TCtx['parent'],
-  TCtx['flow']
+  TCtx['flow'],
+  TPaths
 >;
 
 /** The context a nested linear flow starts from: its own step namespace, this level as `parent`. */
@@ -114,12 +132,13 @@ export type ChildContext<TCtx extends RuntimeStepperContext> = StepperContext<
   TCtx['flow']
 >;
 
-/** The context a nested ring starts from: its own steps, this level as `parent`, its ring as `flow`. */
+/** The context a nested ring starts from: its own steps, this level as `parent`, its ring as `flow`, no pass step yet. */
 export type RingContext<TCtx extends RuntimeStepperContext, C> = StepperContext<
   TCtx['shared'],
   {},
   TCtx,
-  RecurrentSignals<C>
+  RecurrentSignals<C>,
+  readonly []
 >;
 
 /**

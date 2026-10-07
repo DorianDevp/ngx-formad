@@ -122,6 +122,9 @@ export interface StepperController<TResult = unknown> {
 
   readonly canBack: Signal<boolean>;
 
+  /** Back would leave the open pass of a ring for its dock, the state untouched: a chrome labels it as cancelling. */
+  readonly backCancels: Signal<boolean>;
+
   readonly canNext: Signal<boolean>;
 
   readonly nextBlocked: Signal<boolean>;

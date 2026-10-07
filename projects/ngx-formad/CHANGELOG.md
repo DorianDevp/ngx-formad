@@ -24,6 +24,16 @@ versions may carry breaking changes.
 - **`define()`** on a chain, a fork and a docked ring: the flow as data, built nowhere.
 - **`FormState.reset()`**: the instance starts over - the model back to what its factory
   starts from, every field untouched and pristine.
+- **Editing and removing a ring's entry from its dock.** `dock(build, opts, listeners)`:
+  listeners by the name of an output of a component on the dock page. The output emits an
+  entry of the state; the listener gets a `FoldEntry` - one member per path a pass can
+  take (tracked by the builder as a type: a gated step doubles the paths, a `branch` adds
+  one per arm), that path's step values on the entry itself (`'serial' in entry`
+  narrows), `value`, `index`, `remove()` and `reopen(step, { maxBackwardStep })`: a pass
+  along the entry's own path, on `step`, every step starting from what it committed,
+  Back reaching no further than `maxBackwardStep` (by default `step`) and cancelling
+  there; the fold's additions take the entry's place.
+- **`StepperController.backCancels`**: Back would leave an open pass for the dock.
 
 ### Changed
 

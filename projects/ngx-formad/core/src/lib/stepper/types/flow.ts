@@ -26,13 +26,33 @@ export interface FlowDefinition<TResult = unknown> {
   resolveResult?(ctx: RuntimeStepperContext, committed: RuntimeStepperContext['steps']): TResult | undefined;
 }
 
-/** A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state, which is also its result. */
+/** A `FoldEntry` as the runtime builds it: the entry, its place, its two actions, and its path's step values beside them. */
+export interface RuntimeFoldEntry {
+  readonly value: unknown;
+  readonly index: number;
+  remove(): void;
+  reopen(step: string, options?: { readonly maxBackwardStep?: string }): void;
+}
+
+interface DockListenerHolder {
+  listen(entry: RuntimeFoldEntry): void;
+}
+
+/** A dock listener as a ring holds it: a method's type, so a listener typed on the ring's own entries fits. */
+export type RuntimeDockListener = DockListenerHolder['listen'];
+
+/**
+ * A ring: pass steps, then the dock at `dockAt`; `fold` accumulates each finished pass into the state, which is also
+ * its result. `dockListeners` answer the dock's components' outputs, by output name.
+ */
 export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> {
   readonly recurrent: true;
 
   readonly dockAt: number;
 
   readonly state: () => C;
+
+  readonly dockListeners?: Readonly<Record<string, RuntimeDockListener>>;
 
   fold?(state: C, pass: RuntimeStepperContext): C;
 
