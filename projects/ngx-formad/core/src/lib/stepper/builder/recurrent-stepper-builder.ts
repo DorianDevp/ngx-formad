@@ -119,6 +119,7 @@ export class RecurrentStepperBuilder<
       state: this.cfg.state,
       fold: this.folding?.fold,
       dockReachable: this.cfg.dockReachable,
+      onState: this.cfg.onState,
       dockListeners: listeners,
     };
 

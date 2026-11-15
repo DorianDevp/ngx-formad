@@ -70,6 +70,8 @@ export interface RecurrentFlowDefinition<C = unknown> extends FlowDefinition<C> 
   fold?(state: C, pass: RuntimeStepperContext): C;
 
   dockReachable?(state: C): boolean;
+
+  onState?(state: C): void;
 }
 
 /** Any flow the runtime drives. */

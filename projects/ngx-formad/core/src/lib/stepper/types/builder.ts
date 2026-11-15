@@ -333,6 +333,12 @@ export interface RingCfg<C> {
   readonly state: () => C;
 
   readonly dockReachable?: (state: C) => boolean;
+
+  /**
+   * Hears the accumulator each time someone changes it - a pass folds, the dock amends it, a pass reopens or is left -
+   * as the pass sees it; never for the ring's first state nor when the flow starts the ring over.
+   */
+  readonly onState?: (state: C) => void;
 }
 
 /**

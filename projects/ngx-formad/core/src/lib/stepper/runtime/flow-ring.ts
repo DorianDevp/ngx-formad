@@ -1,4 +1,4 @@
-import { computed, signal, Signal, WritableSignal } from '@angular/core';
+import { computed, signal, Signal, untracked, WritableSignal } from '@angular/core';
 import { RecurrentFlowDefinition } from '../types/flow';
 import { PassRecord, Reopening } from '../types/pass-record';
 import { RuntimeStepperContext } from '../types/step-context';
@@ -18,6 +18,9 @@ interface RingState<C> {
 
 export class FlowRing<C = unknown> {
   private readonly ring: WritableSignal<RingState<C>>;
+
+  /** The state `onState` last heard of; it hears again only when the state the pass sees is another one. */
+  private announced: C;
 
   /** The accumulator as it is, the entry being reopened included. */
   readonly entries: Signal<C>;
@@ -42,6 +45,7 @@ export class FlowRing<C = unknown> {
     this.passOpen = computed(() => this.ring().passOpen);
     this.folds = computed(() => this.ring().folds);
     this.reopening = computed(() => this.ring().reopening);
+    this.announced = untracked(this.state);
   }
 
   /**
@@ -67,6 +71,7 @@ export class FlowRing<C = unknown> {
 
       return { state: state as C, passOpen: false, folds: ring.folds + 1, records, reopening: null };
     });
+    this.announce();
   }
 
   openPass(): void {
@@ -76,10 +81,12 @@ export class FlowRing<C = unknown> {
   /** Opens a pass for one entry again; until it folds, the state the pass sees leaves the entry out. */
   reopen(reopening: Reopening): void {
     this.ring.update((ring) => ({ ...ring, passOpen: true, reopening }));
+    this.announce();
   }
 
   abandonPass(): void {
     this.ring.update((ring) => ({ ...ring, passOpen: false, reopening: null }));
+    this.announce();
   }
 
   /** The state as the dock amends it; no pass opens or folds, `dockReachable` reads the new state. */
@@ -92,20 +99,32 @@ export class FlowRing<C = unknown> {
 
       return { ...ring, state, records };
     });
+    this.announce();
   }
 
   recordOf(entry: object): PassRecord | undefined {
     return this.ring().records.get(entry);
   }
 
+  /** Starts the ring over; `onState` does not hear of it: no one changed the state, the flow dropped the ring. */
   reset(): void {
     this.ring.set(freshRing(this.flow));
+    this.announced = untracked(this.state);
   }
 
   dockReachable(): boolean {
     const reachable = this.flow.dockReachable;
 
     return reachable ? reachable(this.state()) : this.folds() > 0;
+  }
+
+  /** Tells `onState` the state the pass sees, once it is another one than it last heard of. */
+  private announce(): void {
+    const state = untracked(this.state);
+    if (Object.is(state, this.announced)) return;
+
+    this.announced = state;
+    this.flow.onState?.(state);
   }
 }
 

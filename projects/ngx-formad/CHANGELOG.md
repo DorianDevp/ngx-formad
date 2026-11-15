@@ -19,6 +19,10 @@ versions may carry breaking changes.
 - **Named gates: `gate(name, condition)`.** Steps that share one are present or absent
   together in a tip's context, one variant per gate instead of one per step. At runtime
   it is the condition itself; elsewhere its steps are typed as any gated step.
+- **`onState` on a ring** (`createRecurrentStepper(name, { state, onState })`): hears the
+  accumulator each time someone changes it - a pass folds, the dock amends it, a pass
+  reopens or is left - as the pass sees it; never for its first state nor when the flow
+  starts the ring over. For a store outside the stepper that has to follow the ring.
 - **`stepper.result()`**: the built stepper's result as a signal, what `(completed)`
   emits; `null` until a `<ngx-formad-stepper>` draws it and the flow stands on its last
   step.
