@@ -2,7 +2,9 @@ import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { text, UiFormConfigBuilder } from 'formodel';
 import { FormConfig, FormState } from '../../form';
+import { gate } from '../builder/gate';
 import { StepperBuilder } from '../builder/stepper-builder';
+import { RuntimeStepperContext } from '../types/step-context';
 import { StepperComponent } from '../ui/stepper.component';
 
 type One = { v: string };
@@ -97,6 +99,87 @@ describe('fork tips: types', () => {
     type Result = NonNullable<ReturnType<ReturnType<typeof plain>['result']>>;
     type _arms = Assert<Eq<Has<Result, 'pickup'> | Has<Result, 'courier'>, boolean>>;
     expect(plain).toBeDefined();
+  });
+});
+
+// A signup: an optional company section of two steps behind one named gate, then a plan step; the fork ends in a
+// free or a paid tip. The two company steps are there together or not at all.
+const signup = () => {
+  const company = gate('company', (c: RuntimeStepperContext) => c.shared['business']?.() === true);
+
+  return new StepperBuilder()
+    .withState({ business: false, plan: '' as '' | 'free' | 'paid' })
+    .createForm('name', form('Name'))
+    .createForm('vat', form('VAT'))
+    .createForm('seats', form('Seats'))
+    .createStep((s) => s.createPage((p) => p.addForm('name'), { heading: 'Name' }), { name: 'name' })
+    .createStep((s) => s.createPage((p) => p.addForm('vat'), { heading: 'VAT' }), { name: 'vat', activeWhen: company })
+    .createStep((s) => s.createPage((p) => p.addForm('seats'), { heading: 'Seats' }), { name: 'seats', activeWhen: company })
+    .fork((c) => c.shared.plan(), {
+      free: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('name'), { heading: 'Done' }), { name: 'free' }),
+      paid: (arm) => arm.createStep((s) => s.createPage((p) => p.addForm('name'), { heading: 'Pay' }), { name: 'paid' }),
+    });
+};
+
+describe('fork tips: named gates', () => {
+  it('splits a tip context once per named gate: its steps are there together, or none of them', () => {
+    const built = () =>
+      signup().build({
+        free: (ctx) => {
+          type Steps = typeof ctx.steps;
+          type _twoVariants = Assert<Eq<Has<Steps, 'vat'>, boolean>>;
+          type _together = Assert<Eq<Steps extends unknown ? Has<Steps, 'vat'> extends Has<Steps, 'seats'> ? true : false : never, true>>;
+          if ('vat' in ctx.steps) {
+            return { vat: ctx.steps.vat.vat.model().v, seats: ctx.steps.seats.seats.model().v };
+          }
+          return { vat: null, seats: null };
+        },
+        paid: (ctx) => ({ name: ctx.steps.name.name.model().v }),
+      });
+    expect(built).toBeDefined();
+  });
+
+  it('keeps the gate a plain condition at runtime', () => {
+    const company = gate('company', () => true);
+    expect(company({ steps: {}, shared: {}, flow: undefined, parent: undefined })).toBe(true);
+    expect(company.__gate).toBe('company');
+  });
+});
+
+@Component({
+  imports: [StepperComponent],
+  template: `<ngx-formad-stepper [stepper]="stepper" (completed)="done = $event" />`,
+})
+class SignupHost {
+  done: unknown = undefined;
+  readonly stepper = signup().build({
+    free: (ctx) => ('vat' in ctx.steps ? { company: [ctx.steps.vat.vat.model().v, ctx.steps.seats.seats.model().v] } : { company: null }),
+    paid: () => ({ company: null }),
+  });
+}
+
+describe('fork tips: named gates at runtime', () => {
+  it('walks the steps behind an open gate, and none behind a closed one', async () => {
+    const closed = TestBed.createComponent(SignupHost);
+    closed.componentInstance.stepper.instance.sharedState['plan'].set('free');
+    await settle(closed);
+    await type(closed, 'Ada');
+    await forward(closed);
+    await forward(closed);
+    expect(closed.componentInstance.done).toEqual({ free: { company: null } });
+
+    const open = TestBed.createComponent(SignupHost);
+    open.componentInstance.stepper.instance.sharedState['plan'].set('free');
+    open.componentInstance.stepper.instance.sharedState['business'].set(true);
+    await settle(open);
+    await type(open, 'Ada');
+    await forward(open);
+    await type(open, 'PL123');
+    await forward(open);
+    await type(open, '5');
+    await forward(open);
+    await forward(open);
+    expect(open.componentInstance.done).toEqual({ free: { company: ['PL123', '5'] } });
   });
 });
 

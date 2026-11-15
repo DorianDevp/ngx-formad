@@ -16,6 +16,9 @@ versions may carry breaking changes.
   never `undefined` - and the store. A missing tip, a key that is no tip and a tip name
   two arms end in are refused by the types and at runtime. `build()` without mappers is
   unchanged.
+- **Named gates: `gate(name, condition)`.** Steps that share one are present or absent
+  together in a tip's context, one variant per gate instead of one per step. At runtime
+  it is the condition itself; elsewhere its steps are typed as any gated step.
 - **`stepper.result()`**: the built stepper's result as a signal, what `(completed)`
   emits; `null` until a `<ngx-formad-stepper>` draws it and the flow stands on its last
   step.

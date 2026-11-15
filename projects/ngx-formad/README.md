@@ -973,9 +973,23 @@ office: (ctx) => ({ desk: ctx.steps.desk.desk.model().v, floor: 'floor' in ctx.s
 Every tip needs its mapper, and a key that is no tip - a forking arm's own name included
 - is refused, both by the types and when `build()` runs. `stepper.result()` is the
 signal of what the stepper hands out, `null` until the flow stands on its last step;
-`(completed)` emits the same. Steps that run or skip together are best gated once, as a
-nested flow, rather than one by one: each independent gate doubles the variants a tip's
-context can take. `build()` without mappers hands out the chosen arm's egress, as above.
+`(completed)` emits the same. `build()` without mappers hands out the chosen arm's
+egress, as above.
+
+Each independent gate doubles the variants a tip's context can take. Steps that run or
+skip together share one **named gate**, and split it once, all present or all absent:
+
+```ts
+const company = gate('company', (ctx) => ctx.shared.business());
+
+  .createStep(/* VAT */, { name: 'vat', activeWhen: company })
+  .createStep(/* seats */, { name: 'seats', activeWhen: company })
+
+free: (ctx) => ('vat' in ctx.steps ? { vat: ctx.steps.vat.vat.model().v, seats: ctx.steps.seats.seats.model().v } : null),
+```
+
+A named gate is the same condition at runtime; everywhere else its steps are typed as any
+gated step.
 
 ### Fragments — one chain, many wizards
 

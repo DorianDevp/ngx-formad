@@ -21,6 +21,7 @@ export * from './builder/stepper';
 export * from './builder/recurrent-stepper';
 export * from './builder/flow-builder';
 export * from './builder/stepper-builder';
+export * from './builder/gate';
 export * from './builder/recurrent-stepper-builder';
 
 export * from './runtime/instance-registry';

@@ -48,10 +48,19 @@ export type ControlComponent<Cmp> = Cmp extends FormValueControl<infer _V>
   ? object
   : Rejected<'a control kind must be a FormValueControl component'>;
 
+/** The phantom key that names the gate an entry stands behind; a symbol, so no string-keyed reading ever sees it. */
+export declare const gatedBy: unique symbol;
+
+/** The mark of an entry behind a named gate, for the type system alone. */
+export type GateMark<G extends string> = { readonly [gatedBy]?: G };
+
+/** A gated step's instances: marked with its gate's name when the gate has one (`gate()`), as they are otherwise. */
+type GatedInstance<Inst, W> = W extends { readonly __gate: infer G extends string } ? Inst & GateMark<G> : Inst;
+
 /** What a named step adds to the context: its instances, `| undefined` when gated by `activeWhen`. */
 export type StepEntry<N extends string, Inst, O> = [N] extends [never]
   ? {}
-  : Record<N, O extends { readonly activeWhen: infer _W } ? Inst | undefined : Inst>;
+  : Record<N, O extends { readonly activeWhen: infer W } ? GatedInstance<Inst, W> | undefined : Inst>;
 
 /** What an always-gated step adds: its instances or `undefined`. */
 export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Record<N, Inst | undefined>;
