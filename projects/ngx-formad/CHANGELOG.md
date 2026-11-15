@@ -4,6 +4,24 @@ All notable changes to `ngx-formad` are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/); this project is pre-1.0, so minor
 versions may carry breaking changes.
 
+## 0.16.0
+
+### Added
+
+- **A fork maps its tips in `build()`.** The arms that end a flow are its tips, named
+  across nested forks (a forking arm is not a tip; its own arms are). `build({ tipA, tipB,
+  ... })` takes one mapper per tip and the stepper hands out what the reached tip maps to,
+  under its name: `{ tipA?: A; tipB?: B } | null`. Each mapper reads the context the flow
+  ended in - the walked steps as they were entered, a gated one either there or absent,
+  never `undefined` - and the store. A missing tip, a key that is no tip and a tip name
+  two arms end in are refused by the types and at runtime. `build()` without mappers is
+  unchanged.
+- **`stepper.result()`**: the built stepper's result as a signal, what `(completed)`
+  emits; `null` until a `<ngx-formad-stepper>` draws it and the flow stands on its last
+  step.
+- `FlowDefinition` carries a fork's `tips` and `reachedTip`, and `resolveResult` gets the
+  walked context as an optional third argument; existing resolvers are unaffected.
+
 ## 0.15.0
 
 ### Added

@@ -944,6 +944,39 @@ committed before navigation advances, choosing an arm on a step and pressing Con
 moves straight into it. A linear flow without a fork hands its committed record out
 the same way: `completed` carries what `stepCommitted` last emitted.
 
+#### Mapping the tips
+
+The arms that end the flow are its **tips**: a plain arm is one, a forking arm is not -
+its own arms are, in its place. Tips are named across the nested forks, as steps and
+pools are. Hand `build()` one mapper per tip, and the stepper hands out what the tip it
+ended in maps to, under the tip's name:
+
+```ts
+const stepper = wizard.build({            // the fork above: tips individual, few, many
+  individual: (ctx) => ({ kind: 'person', ssn: ctx.shared.ssn(), name: ctx.steps.person.person.model().name }),
+  few: (ctx) => ({ kind: 'team', vat: ctx.steps.company.company.model().vat }),
+  many: (ctx) => ({ kind: 'fleet', vat: ctx.steps.company.company.model().vat }),
+});
+
+stepper.result();   // { individual?: Person; few?: Team; many?: Fleet } | null - one key, the reached tip
+```
+
+A mapper reads the context the flow ended in: the steps it **walked** to reach the tip,
+each as it was entered, and the store. A step of another arm is not there, an ungated one
+on the way always is, and a gated one either is - its instances, never `undefined` - or
+is not there at all, so it narrows with `'step' in ctx.steps`:
+
+```ts
+office: (ctx) => ({ desk: ctx.steps.desk.desk.model().v, floor: 'floor' in ctx.steps ? ctx.steps.floor.floor.model().v : null }),
+```
+
+Every tip needs its mapper, and a key that is no tip - a forking arm's own name included
+- is refused, both by the types and when `build()` runs. `stepper.result()` is the
+signal of what the stepper hands out, `null` until the flow stands on its last step;
+`(completed)` emits the same. Steps that run or skip together are best gated once, as a
+nested flow, rather than one by one: each independent gate doubles the variants a tip's
+context can take. `build()` without mappers hands out the chosen arm's egress, as above.
+
 ### Fragments — one chain, many wizards
 
 Every builder — the root, an arm, a nested flow, a ring's pass — is the same chain,

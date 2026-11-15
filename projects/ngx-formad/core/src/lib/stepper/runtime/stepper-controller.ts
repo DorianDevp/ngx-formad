@@ -759,7 +759,22 @@ export class FormadStepperController<TResult = unknown> implements StepperContro
     if (!resolve) return this.committed();
     if (!this.ownIsLast()) return undefined;
 
-    return this.inContext(() => resolve(this.context(), this.committed()));
+    return this.inContext(() => resolve(this.context(), this.committed(), this.walked()));
+  }
+
+  /**
+   * The context over the path the flow took: only the steps the gates let through and that were entered, each as it
+   * stands; a step skipped, never reached, or left behind by a changed decision is not there at all.
+   */
+  private walked(): RuntimeStepperContext {
+    const memo = this.nav().memo;
+    const all = this.contextOf(memo);
+    const keys = new Set(this.pathOf(memo).map((node) => stepKey(node, this.flow.stepSequenceNodes.indexOf(node))));
+
+    return {
+      ...all,
+      steps: Object.fromEntries(Object.entries(all.steps).filter(([key, value]) => keys.has(key) && value !== undefined)),
+    };
   }
 
   private notifyCommitted(): void {

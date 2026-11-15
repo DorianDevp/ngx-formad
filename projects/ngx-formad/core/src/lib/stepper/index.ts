@@ -5,6 +5,7 @@ export * from './types/flow';
 export * from './types/flow-instance';
 export * from './types/page-component';
 export * from './types/builder';
+export * from './types/tips';
 export * from './types/live-step';
 export * from './types/pass-record';
 export * from './types/controller';

@@ -23,7 +23,20 @@ export interface FlowDefinition<TResult = unknown> {
    * while no arm is chosen. Asked over the live context (`ctx`, what gates and selectors read) and the committed
    * values so far, once the flow stands on its last step.
    */
-  resolveResult?(ctx: RuntimeStepperContext, committed: RuntimeStepperContext['steps']): TResult | undefined;
+  resolveResult?(
+    ctx: RuntimeStepperContext,
+    committed: RuntimeStepperContext['steps'],
+    walked?: RuntimeStepperContext,
+  ): TResult | undefined;
+
+  /**
+   * A fork's tips, by name: the arms that end the flow, a nested fork's own tips in place of its arm. One namespace
+   * across the nested forks, as step and pool names are.
+   */
+  readonly tips?: readonly string[];
+
+  /** The tip the live context reached, by name, asked over the context the selectors read; none while no arm is chosen. */
+  reachedTip?(ctx: RuntimeStepperContext): string | undefined;
 }
 
 /** A `FoldEntry` as the runtime builds it: the entry, its place, its two actions, and its path's step values beside them. */

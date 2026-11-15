@@ -1,4 +1,4 @@
-import { DestroyRef, EnvironmentInjector, inject, Injector, Provider, Signal } from '@angular/core';
+import { computed, DestroyRef, EnvironmentInjector, inject, Injector, Provider, Signal } from '@angular/core';
 import { SharedSignals, StateOf } from '../../shared';
 import { FormadFlowInstance } from '../runtime/flow-instance';
 import { FormadWizard } from '../runtime/wizard-context';
@@ -30,6 +30,12 @@ export class Stepper<
 
   readonly instance: FlowInstance<TResult>;
 
+  /**
+   * What the stepper hands out, as `(completed)` emits it: the committed steps, a fork's chosen arm, or what the tip it
+   * ended in maps to. `null` until a `<ngx-formad-stepper>` draws it and the flow stands on its last step.
+   */
+  readonly result: Signal<TResult | null>;
+
   constructor(flow: RuntimeFlow<TResult>) {
     const wizard: Provider = { provide: FormadWizard, useFactory: () => new FormadWizard(this) };
     const instance = new FormadFlowInstance(flow, { injector: inject(Injector), environment: inject(EnvironmentInjector) }, [
@@ -43,5 +49,8 @@ export class Stepper<
     // The flow is erased; the context it was authored over says which keys the store and the steps hold.
     this.shared = shared as SharedSignals<StateOf<TCtx['shared']>>;
     this.steps = instance.steps as BuiltSteps<TCtx['steps']>;
+
+    const drawing = instance.environment.get(FormadWizard).controller;
+    this.result = computed(() => (drawing()?.result() as TResult | null | undefined) ?? null);
   }
 }
