@@ -51,22 +51,34 @@ export type ControlComponent<Cmp> = Cmp extends FormValueControl<infer _V>
 /** The phantom key that names the gate an entry stands behind; a symbol, so no string-keyed reading ever sees it. */
 export declare const gatedBy: unique symbol;
 
+/** The phantom key that marks an entry a walk may skip; a symbol, so no string-keyed reading ever sees it. */
+export declare const gated: unique symbol;
+
+/**
+ * The mark of an entry a walk may skip, for the type system alone. `| undefined` says the same only under
+ * `strictNullChecks`; the mark says it under any compiler options.
+ */
+export type SkipMark = { readonly [gated]?: true };
+
 /** The mark of an entry behind a named gate, for the type system alone. */
 export type GateMark<G extends string> = { readonly [gatedBy]?: G };
+
+/** An entry a walk may skip: marked, or `undefined`. */
+type Skippable<T> = (Exclude<T, undefined> & SkipMark) | undefined;
 
 /** A gated step's instances: marked with its gate's name when the gate has one (`gate()`), as they are otherwise. */
 type GatedInstance<Inst, W> = W extends { readonly __gate: infer G extends string } ? Inst & GateMark<G> : Inst;
 
-/** What a named step adds to the context: its instances, `| undefined` when gated by `activeWhen`. */
+/** What a named step adds to the context: its instances, skippable when gated by `activeWhen`. */
 export type StepEntry<N extends string, Inst, O> = [N] extends [never]
   ? {}
-  : Record<N, O extends { readonly activeWhen: infer W } ? GatedInstance<Inst, W> | undefined : Inst>;
+  : Record<N, O extends { readonly activeWhen: infer W } ? Skippable<GatedInstance<Inst, W>> : Inst>;
 
 /** What an always-gated step adds: its instances or `undefined`. */
-export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Record<N, Inst | undefined>;
+export type GatedEntry<N extends string, Inst> = [N] extends [never] ? {} : Record<N, Skippable<Inst>>;
 
 /** An arm's entries as the steps after the branch see them: each possibly absent, since the arm may not run. */
-export type Gated<T> = { readonly [K in keyof T]: T[K] | undefined };
+export type Gated<T> = { readonly [K in keyof T]: Skippable<T[K]> };
 
 /**
  * The values behind one entry: a step's instances become each form's model; anything else - a nested flow's egress,

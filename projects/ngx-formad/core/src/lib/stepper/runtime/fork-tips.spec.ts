@@ -279,3 +279,37 @@ describe('fork tips: runtime', () => {
     });
   });
 });
+
+// A note log: a ring whose accumulator is the last note or nothing yet, ungated, then a fork with one tip. The ring
+// is always walked; its value admitting `undefined` does not make it skippable.
+const notes = () =>
+  new StepperBuilder()
+    .withState({ end: 'done' as const })
+    .createRecurrentStepper('lastNote', {
+      state: (): string | undefined => undefined,
+      label: 'Notes',
+      build: (loop) =>
+        loop
+          .createForm('note', form('Note'))
+          .createStep((s) => s.createPage((p) => p.addForm('note'), { heading: 'Note' }), { name: 'note' })
+          .fold((_state, pass) => pass.steps.note.note.model().v)
+          .dock((s) => s.createPage((p) => p.addContent((c) => c.p('Notes')), { heading: 'Notes' })),
+    })
+    .fork((c) => c.shared.end(), {
+      done: (arm) => arm.createStep((s) => s.createPage((p) => p.addContent((c) => c.p('Done')), { heading: 'Done' }), { name: 'done' }),
+    });
+
+describe('fork tips: skippable entries', () => {
+  it('splits a tip context on the gates alone, never on a value that admits `undefined`', () => {
+    const built = () =>
+      notes().build({
+        done: (ctx) => {
+          type Steps = typeof ctx.steps;
+          type _oneVariant = Assert<Eq<Has<Steps, 'lastNote'>, true>>;
+          type _value = Assert<Eq<Steps['lastNote'], string | undefined>>;
+          return ctx.steps.lastNote ?? null;
+        },
+      });
+    expect(built).toBeDefined();
+  });
+});

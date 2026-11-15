@@ -1,13 +1,13 @@
 import { Rejected } from '../../types';
-import type { ArmContext, gatedBy } from './builder';
+import type { ArmContext, gated, gatedBy } from './builder';
 import { RuntimeStepperContext, StepperContext } from './step-context';
 
 type UnionToIntersection<U> = (U extends U ? (k: U) => void : never) extends (k: infer I) => void ? I : never;
 
 type LastOf<U> = UnionToIntersection<U extends U ? () => U : never> extends () => infer R ? R : never;
 
-/** The entries a gate may have skipped: those typed `| undefined`. */
-type GatedKeys<S> = { [K in keyof S]-?: undefined extends S[K] ? K : never }[keyof S];
+/** The entries a walk may have skipped: those carrying the skip mark, whatever `undefined` their value admits. */
+type GatedKeys<S> = { [K in keyof S]-?: typeof gated extends keyof Exclude<S[K], undefined> ? K : never }[keyof S];
 
 /** The name of the gate an entry stands behind (`gate()`), or `never` for one gated by a plain condition. */
 type GateOf<T> = typeof gatedBy extends keyof Exclude<T, undefined>

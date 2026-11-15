@@ -28,6 +28,11 @@ versions may carry breaking changes.
   step.
 - `FlowDefinition` carries a fork's `tips` and `reachedTip`, and `resolveResult` gets the
   walked context as an optional third argument; existing resolvers are unaffected.
+- **A skip mark on every entry a walk may skip** (a step gated by `activeWhen`, an arm's
+  entries after a `branch`): a phantom symbol key beside the `| undefined`, so a tip's
+  context splits on the gates alone, also in a project compiled without
+  `strictNullChecks`, where `| undefined` vanishes. An ungated entry whose value admits
+  `undefined` (a ring of `T | undefined`) is never split.
 
 ## 0.15.0
 
